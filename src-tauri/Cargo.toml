@@ -5,6 +5,9 @@ description = "Wazuh Agent Installer"
 authors = ["Adorsys GIS"]
 edition = "2021"
 
+[package.metadata.cargo-machete]
+ignored = ["tauri-build"]
+
 [lib]
 name = "wazuh_setup_agent_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -17,5 +20,4 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 tokio = { version = "1", features = ["full"] }
