@@ -425,33 +425,37 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
     let components = vec![
         (
             "Wazuh Agent".to_string(),
-            format!("{}/bin/wazuh-agentd", ossec_path),
+            if cfg!(windows) { format!("{}\\wazuh-agent.exe", ossec_path) } else { format!("{}/bin/wazuh-agentd", ossec_path) }
         ),
         (
             "OAuth2 Client".to_string(),
-            format!("{}/bin/wazuh-cert-oauth2-client", ossec_path),
+            if cfg!(windows) { format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path) } else { format!("{}/bin/wazuh-cert-oauth2-client", ossec_path) }
         ),
         (
             "Agent Status Monitor".to_string(),
-            if cfg!(target_os = "macos") {
-                "/usr/local/bin/wazuh-agent-status".to_string()
-            } else {
-                format!("{}/bin/wazuh-agent-status", ossec_path)
-            },
+            if cfg!(windows) { format!("{}\\wazuh-agent-status.exe", ossec_path) }
+            else if cfg!(target_os = "macos") { "/usr/local/bin/wazuh-agent-status".to_string() }
+            else { format!("{}/bin/wazuh-agent-status", ossec_path) }
         ),
-        ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
+        (
+            "YARA".to_string(), 
+            if cfg!(windows) { "yara64.exe".to_string() } else { "/usr/local/bin/yara".to_string() }
+        ),
         (
             "Suricata".to_string(),
-            if cfg!(target_os = "macos") {
-                "/usr/local/bin/suricata".to_string()
-            } else {
-                "/usr/bin/suricata".to_string()
-            },
+            if cfg!(windows) { "suricata.exe".to_string() }
+            else if cfg!(target_os = "macos") { "/usr/local/bin/suricata".to_string() } 
+            else { "/usr/bin/suricata".to_string() }
         ),
-        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
+        (
+            "Trivy".to_string(), 
+            if cfg!(windows) { "trivy.exe".to_string() } else { "/usr/local/bin/trivy".to_string() }
+        ),
         (
             "USB DLP Scripts".to_string(),
-            format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path),
+            if cfg!(windows) { format!("{}\\active-response\\bin\\disable-usb-storage.ps1", ossec_path) }
+            else if cfg!(target_os = "macos") { format!("{}/active-response/bin/disable-usb-storage-macos.sh", ossec_path) }
+            else { format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path) }
         ),
     ];
 
@@ -489,7 +493,18 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
         };
 
         #[cfg(windows)]
-        let installed = false; // Windows paths would be different, skipping for now
+        let installed = {
+            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
+                Command::new(&path)
+                    .arg("--help")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok()
+            } else {
+                std::path::Path::new(&path).exists()
+            }
+        };
 
         results.push(ComponentStatus {
             name,
