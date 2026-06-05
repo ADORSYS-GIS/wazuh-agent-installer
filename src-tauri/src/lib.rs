@@ -426,37 +426,71 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
     let components = vec![
         (
             "Wazuh Agent".to_string(),
-            if cfg!(windows) { format!("{}\\wazuh-agent.exe", ossec_path) } else { format!("{}/bin/wazuh-agentd", ossec_path) }
+            if cfg!(windows) {
+                format!("{}\\wazuh-agent.exe", ossec_path)
+            } else {
+                format!("{}/bin/wazuh-agentd", ossec_path)
+            },
         ),
         (
             "OAuth2 Client".to_string(),
-            if cfg!(windows) { format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path) } else { format!("{}/bin/wazuh-cert-oauth2-client", ossec_path) }
+            if cfg!(windows) {
+                format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path)
+            } else {
+                format!("{}/bin/wazuh-cert-oauth2-client", ossec_path)
+            },
         ),
         (
             "Agent Status Monitor".to_string(),
-            if cfg!(windows) { r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string() }
-            else if cfg!(target_os = "macos") { "/usr/local/bin/wazuh-agent-status".to_string() }
-            else { format!("{}/bin/wazuh-agent-status", ossec_path) }
+            if cfg!(windows) {
+                r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string()
+            } else if cfg!(target_os = "macos") {
+                "/usr/local/bin/wazuh-agent-status".to_string()
+            } else {
+                format!("{}/bin/wazuh-agent-status", ossec_path)
+            },
         ),
         (
-            "YARA".to_string(), 
-            if cfg!(windows) { "yara64.exe".to_string() } else { "/usr/local/bin/yara".to_string() }
+            "YARA".to_string(),
+            if cfg!(windows) {
+                "yara64.exe".to_string()
+            } else {
+                "/usr/local/bin/yara".to_string()
+            },
         ),
         (
             "Suricata".to_string(),
-            if cfg!(windows) { "suricata.exe".to_string() }
-            else if cfg!(target_os = "macos") { "/usr/local/bin/suricata".to_string() } 
-            else { "/usr/bin/suricata".to_string() }
+            if cfg!(windows) {
+                "suricata.exe".to_string()
+            } else if cfg!(target_os = "macos") {
+                "/usr/local/bin/suricata".to_string()
+            } else {
+                "/usr/bin/suricata".to_string()
+            },
         ),
         (
-            "Trivy".to_string(), 
-            if cfg!(windows) { "trivy.exe".to_string() } else { "/usr/local/bin/trivy".to_string() }
+            "Trivy".to_string(),
+            if cfg!(windows) {
+                "trivy.exe".to_string()
+            } else {
+                "/usr/local/bin/trivy".to_string()
+            },
         ),
         (
             "USB DLP Scripts".to_string(),
-            if cfg!(windows) { format!("{}\\active-response\\bin\\disable-usb-storage.ps1", ossec_path) }
-            else if cfg!(target_os = "macos") { format!("{}/active-response/bin/disable-usb-storage-macos.sh", ossec_path) }
-            else { format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path) }
+            if cfg!(windows) {
+                format!(
+                    "{}\\active-response\\bin\\disable-usb-storage.ps1",
+                    ossec_path
+                )
+            } else if cfg!(target_os = "macos") {
+                format!(
+                    "{}/active-response/bin/disable-usb-storage-macos.sh",
+                    ossec_path
+                )
+            } else {
+                format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path)
+            },
         ),
     ];
 
@@ -504,7 +538,16 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
                     .await
                     .is_ok()
             } else if path.ends_with("wazuh-agent.exe") {
-                std::path::Path::new(&path).exists() || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe")).exists() || Command::new("sc").args(["query", "WazuhSvc"]).stdout(Stdio::null()).stderr(Stdio::null()).status().await.map_or(false, |s| s.success())
+                std::path::Path::new(&path).exists()
+                    || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
+                        .exists()
+                    || Command::new("sc")
+                        .args(["query", "WazuhSvc"])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success())
             } else {
                 std::path::Path::new(&path).exists()
             }
@@ -554,6 +597,13 @@ pub fn run() {
             let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(unix)]
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    let _ = window.set_icon(icon);
+                }
+            }
 
             if let Some(icon) = app.default_window_icon().cloned() {
                 TrayIconBuilder::new()

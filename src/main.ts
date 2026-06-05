@@ -175,7 +175,7 @@ async function handleSudoSubmit() {
       sudoPasswordInput.value = "";
       sudoPasswordInput.focus();
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     showSudoError(String(e));
   } finally {
     btnSudoSubmit.disabled = false;
@@ -404,7 +404,7 @@ async function startInstall() {
       showStatusBanner(installStatusBanner, "error", `Installation failed: exit code ${result.exit_code}`);
       showInstallResult(false, result.message);
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     appendLog(terminalInstall, `ERROR: ${err}`, "error");
     showStatusBanner(installStatusBanner, "error", `Installation failed: ${err}`);
     showInstallResult(false, String(err));
@@ -476,7 +476,7 @@ async function startEnrollment() {
       showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: exit code ${result.exit_code}`);
       if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     showStatusBanner(enrollStatusBanner, "error", `Enrollment error: ${err}`);
     if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
   } finally {
