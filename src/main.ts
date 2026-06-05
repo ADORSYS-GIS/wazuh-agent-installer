@@ -535,7 +535,7 @@ function enableSaveLogs(buttonId: string, terminalId: string, prefix: string) {
   const term = document.getElementById(terminalId);
   if (!btn || !term) return;
   btn.style.display = "inline-flex";
-  btn.onclick = () => {
+  btn.onclick = async () => {
     const clone = term.cloneNode(true) as HTMLElement;
     const placeholder = clone.querySelector(".terminal-placeholder");
     if (placeholder) placeholder.remove();
@@ -543,14 +543,11 @@ function enableSaveLogs(buttonId: string, terminalId: string, prefix: string) {
     const logs = clone.innerText.trim();
     if (!logs) return;
 
-    const blob = new Blob([logs], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `wazuh-${prefix}-logs.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const path = await invoke<string>("save_logs", { logs, prefix });
+      alert(`Logs successfully saved to:\n${path}`);
+    } catch (e) {
+      alert(`Failed to save logs: ${e}`);
+    }
   };
 }

@@ -502,6 +502,16 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
     Ok(results)
 }
 
+#[tauri::command]
+async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
+    let mut path = dirs::download_dir().unwrap_or_else(|| std::env::current_dir().unwrap());
+    let filename = format!("wazuh-{}-logs.txt", prefix);
+    path.push(filename);
+
+    std::fs::write(&path, logs).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState {
@@ -513,12 +523,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
-            get_platform,
             is_root,
+            get_platform,
             verify_sudo,
             run_install,
             run_enroll,
-            check_components
+            check_components,
+            save_logs
         ])
         .setup(|app| {
             let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
