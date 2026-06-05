@@ -232,11 +232,12 @@ async fn run_install(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            let level = classify_line(&line);
             let _ = app_clone1.emit(
                 "install-log",
                 LogLine {
                     line,
-                    level: "info".into(),
+                    level: level.into(),
                 },
             );
         }
@@ -249,11 +250,12 @@ async fn run_install(
             if line.contains("Password:") || line.trim().is_empty() {
                 continue;
             }
+            let level = classify_line(&line);
             let _ = app_clone2.emit(
                 "install-log",
                 LogLine {
                     line,
-                    level: "error".into(),
+                    level: level.into(),
                 },
             );
         }
@@ -357,11 +359,12 @@ async fn run_enroll(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            let level = classify_line(&line);
             let _ = app_clone1.emit(
                 "enroll-log",
                 LogLine {
                     line,
-                    level: "info".into(),
+                    level: level.into(),
                 },
             );
         }
@@ -374,13 +377,15 @@ async fn run_enroll(
             if line.contains("Password:") || line.trim().is_empty() {
                 continue;
             }
+            let level = classify_line(&line);
             let _ = app_clone2.emit(
                 "enroll-log",
                 LogLine {
                     line,
-                    level: "error".into(),
+                    level: level.into(),
                 },
             );
+            // had_error_flag is removed, we don't use it anymore
         }
     });
 
@@ -530,4 +535,19 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn classify_line(line: &str) -> &'static str {
+    let l = line.to_lowercase();
+    if l.contains("[error]")
+        || l.contains("failed")
+        || l.contains("error:")
+        || l.contains("command not found")
+    {
+        "error"
+    } else if l.contains("[success]") || l.contains("successfully") || l.contains("completed") {
+        "success"
+    } else {
+        "info"
+    }
 }

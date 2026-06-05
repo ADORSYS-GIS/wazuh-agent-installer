@@ -5,6 +5,8 @@ param(
 
 if (-not $Ref) { $Ref = 'main' }
 
+$env:WAZUH_AGENT_VERSION = "4.14.1-1"
+
 $ScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 
 # Decide remote path depending on OS
