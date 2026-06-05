@@ -72,10 +72,10 @@ fn resolve_script(app: &AppHandle) -> Result<String, String> {
             .map_err(|e| format!("Failed to copy script to temp dir: {}", e))?;
         std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
             .map_err(|e| format!("Failed to set script permissions: {}", e))?;
-        return tmp_path
+        tmp_path
             .to_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| "Script path contains invalid UTF-8".to_string());
+            .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
     }
 
     #[cfg(not(unix))]
@@ -123,7 +123,10 @@ async fn run_install(
         let mut c = Command::new("pkexec");
         c.arg("env")
             .arg(format!("WAZUH_MANAGER={}", &config.wazuh_manager))
-            .arg(format!("WAZUH_AGENT_VERSION={}", &config.wazuh_agent_version))
+            .arg(format!(
+                "WAZUH_AGENT_VERSION={}",
+                &config.wazuh_agent_version
+            ))
             .arg(format!("WAZUH_AGENT_NAME={}", &config.wazuh_agent_name))
             .arg(format!("LOG_LEVEL={}", &config.log_level))
             .arg("bash")
@@ -222,14 +225,19 @@ async fn run_install(
 }
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
 // Shared stdin handle for the enrollment process
 type EnrollStdin = Arc<Mutex<Option<ChildStdin>>>;
 
 #[tauri::command]
-async fn run_enroll(app: AppHandle, issuer: String, endpoint: String, overwrite: bool) -> Result<InstallResult, String> {
+async fn run_enroll(
+    app: AppHandle,
+    issuer: String,
+    endpoint: String,
+    overwrite: bool,
+) -> Result<InstallResult, String> {
     // Use sudo for privilege elevation (allows OAuth2 callback unlike pkexec).
     #[cfg(unix)]
     let mut cmd = {
@@ -296,8 +304,18 @@ async fn run_enroll(app: AppHandle, issuer: String, endpoint: String, overwrite:
                 || line.contains("Please copy this code")
                 || line.contains("paste it into your application")
                 || line.contains("Enter the code");
-            let level = if is_code_prompt { "success" } else { classify_line(&line) };
-            let _ = app_stdout.emit("enroll-log", LogLine { line, level: level.to_string() });
+            let level = if is_code_prompt {
+                "success"
+            } else {
+                classify_line(&line)
+            };
+            let _ = app_stdout.emit(
+                "enroll-log",
+                LogLine {
+                    line,
+                    level: level.to_string(),
+                },
+            );
             if is_code_prompt {
                 let _ = app_stdout.emit("enroll-needs-code", true);
             }
@@ -320,7 +338,13 @@ async fn run_enroll(app: AppHandle, issuer: String, endpoint: String, overwrite:
                 || line.contains("paste it into your application")
                 || line.contains("Enter the code");
             let level = if is_code_prompt { "success" } else { "error" };
-            let _ = app_stderr.emit("enroll-log", LogLine { line, level: level.to_string() });
+            let _ = app_stderr.emit(
+                "enroll-log",
+                LogLine {
+                    line,
+                    level: level.to_string(),
+                },
+            );
             if is_code_prompt {
                 let _ = app_stderr.emit("enroll-needs-code", true);
             }
@@ -348,10 +372,14 @@ async fn run_enroll(app: AppHandle, issuer: String, endpoint: String, overwrite:
     let message = if success {
         "Agent enrolled successfully!".to_string()
     } else {
-        format!("Enrollment failed — check the log above for details")
+        "Enrollment failed — check the log above for details".to_string()
     };
 
-    Ok(InstallResult { success, exit_code, message })
+    Ok(InstallResult {
+        success,
+        exit_code,
+        message,
+    })
 }
 
 #[tauri::command]
@@ -360,9 +388,13 @@ async fn send_enroll_input(app: AppHandle, code: String) -> Result<(), String> {
     let mut guard = stdin_state.lock().await;
     if let Some(ref mut stdin) = *guard {
         let input = format!("{}\n", code.trim());
-        stdin.write_all(input.as_bytes()).await
+        stdin
+            .write_all(input.as_bytes())
+            .await
             .map_err(|e| format!("Failed to send code: {}", e))?;
-        stdin.flush().await
+        stdin
+            .flush()
+            .await
             .map_err(|e| format!("Failed to flush stdin: {}", e))?;
     } else {
         return Err("No active enrollment process".to_string());
@@ -407,7 +439,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(EnrollStdin::new(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![run_install, validate_config, hide_window, run_enroll, send_enroll_input])
+        .invoke_handler(tauri::generate_handler![
+            run_install,
+            validate_config,
+            hide_window,
+            run_enroll,
+            send_enroll_input
+        ])
         .setup(|app| {
             // ---- Build tray menu ----
             let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
