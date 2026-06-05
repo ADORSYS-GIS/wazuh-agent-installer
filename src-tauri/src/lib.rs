@@ -305,7 +305,12 @@ async fn run_enroll(
         if overwrite {
             args.push("--overwrite".to_string());
         }
-        ("/var/ossec/bin/wazuh-cert-oauth2-client", args, true)
+        let exe = if cfg!(target_os = "macos") {
+            "/Library/Ossec/bin/wazuh-cert-oauth2-client"
+        } else {
+            "/var/ossec/bin/wazuh-cert-oauth2-client"
+        };
+        (exe, args, true)
     };
 
     #[cfg(windows)]
@@ -409,14 +414,41 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
         stored.clone()
     };
 
+    let ossec_path = if cfg!(windows) {
+        r"C:\Program Files (x86)\ossec-agent"
+    } else if cfg!(target_os = "macos") {
+        "/Library/Ossec"
+    } else {
+        "/var/ossec"
+    };
+
     let components = vec![
-        ("Wazuh Agent", "/var/ossec/bin/wazuh-agentd"),
-        ("OAuth2 Client", "/var/ossec/bin/wazuh-cert-oauth2-client"),
-        ("Agent Status Monitor", "/var/ossec/bin/wazuh-agent-status"),
-        ("YARA", "/usr/local/bin/yara"),
-        ("Suricata", "/usr/bin/suricata"),
-        ("Trivy", "/usr/local/bin/trivy"),
-        ("USB DLP Scripts", "/var/ossec/active-response/bin/usb-dlp"),
+        (
+            "Wazuh Agent".to_string(),
+            format!("{}/bin/wazuh-agentd", ossec_path),
+        ),
+        (
+            "OAuth2 Client".to_string(),
+            format!("{}/bin/wazuh-cert-oauth2-client", ossec_path),
+        ),
+        (
+            "Agent Status Monitor".to_string(),
+            format!("{}/bin/wazuh-agent-status", ossec_path),
+        ),
+        ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
+        (
+            "Suricata".to_string(),
+            if cfg!(target_os = "macos") {
+                "/opt/homebrew/bin/suricata".to_string()
+            } else {
+                "/usr/bin/suricata".to_string()
+            },
+        ),
+        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
+        (
+            "USB DLP Scripts".to_string(),
+            format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path),
+        ),
     ];
 
     let mut results = Vec::new();
@@ -431,7 +463,7 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
                     .arg("")
                     .arg("test")
                     .arg("-f")
-                    .arg(path)
+                    .arg(&path)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null());
@@ -448,7 +480,7 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
                     false
                 }
             } else {
-                std::path::Path::new(path).exists()
+                std::path::Path::new(&path).exists()
             }
         };
 
@@ -456,10 +488,10 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
         let installed = false; // Windows paths would be different, skipping for now
 
         results.push(ComponentStatus {
-            name: name.to_string(),
+            name,
             installed,
             version: None, // Can implement version extraction via commands later
-            path: path.to_string(),
+            path,
         });
     }
 
