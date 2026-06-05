@@ -32,19 +32,13 @@
               <h1 id="app-title">Wazuh Installer</h1>
             </div>
           </div>
-          
+
           <nav class="sidebar-nav">
-            <button class="nav-item active" data-target="tab-setup">
-              <span class="nav-icon">⚙️</span> Setup
-            </button>
-            <button class="nav-item" data-target="tab-enrollment">
-              <span class="nav-icon">🔐</span> Enrollment
-            </button>
-            <button class="nav-item" data-target="tab-components">
-              <span class="nav-icon">🧩</span> Components
-            </button>
+            <button class="nav-item active" data-target="tab-setup"><span class="nav-icon">⚙️</span> Setup</button>
+            <button class="nav-item" data-target="tab-enrollment"><span class="nav-icon">🔐</span> Enrollment</button>
+            <button class="nav-item" data-target="tab-components"><span class="nav-icon">🧩</span> Components</button>
           </nav>
-          
+
           <div class="sidebar-footer">
             <span class="version" id="app-version">v1.0.0</span>
           </div>
@@ -55,14 +49,20 @@
           <!-- Setup Tab -->
           <section id="tab-setup" class="tab-panel active">
             <h2 class="section-title">Agent Configuration</h2>
-            
+
             <div class="form-grid-2col">
               <div class="form-group">
                 <label class="form-label" for="wazuh-manager">Wazuh Manager</label>
                 <select class="form-input form-select" id="wazuh-manager">
                   <option value="">— Select a manager —</option>
                 </select>
-                <input class="form-input" type="text" id="wazuh-manager-custom" placeholder="Enter manager address" style="display: none; margin-top: 6px" />
+                <input
+                  class="form-input"
+                  type="text"
+                  id="wazuh-manager-custom"
+                  placeholder="Enter manager address"
+                  style="display: none; margin-top: 6px"
+                />
               </div>
 
               <div class="form-group">
@@ -113,13 +113,15 @@
               </div>
               <div class="status-banner" id="status-banner"></div>
             </div>
-            
+
             <div id="result-screen" style="display: none; margin-top: 24px">
               <div class="card compact" style="text-align: center; padding: 28px 20px">
                 <div class="result-icon" id="result-icon"></div>
                 <div class="result-title" id="result-title"></div>
                 <div class="result-desc" id="result-desc"></div>
-                <button class="btn btn-primary" id="btn-go-enroll" type="button" style="margin-top: 16px">Go to Enrollment →</button>
+                <button class="btn btn-primary" id="btn-go-enroll" type="button" style="margin-top: 16px">
+                  Go to Enrollment →
+                </button>
               </div>
             </div>
           </section>
@@ -127,7 +129,7 @@
           <!-- Enrollment Tab -->
           <section id="tab-enrollment" class="tab-panel">
             <h2 class="section-title">Agent Enrollment</h2>
-            
+
             <div class="card compact" style="margin-bottom: 24px">
               <div class="form-grid-2col">
                 <div class="form-group">
@@ -135,18 +137,30 @@
                   <select class="form-input form-select" id="oauth-issuer">
                     <option value="">— Select issuer —</option>
                   </select>
-                  <input class="form-input" type="text" id="oauth-issuer-custom" placeholder="https://login.example.com/realms/myrealm" style="display: none; margin-top: 6px" />
+                  <input
+                    class="form-input"
+                    type="text"
+                    id="oauth-issuer-custom"
+                    placeholder="https://login.example.com/realms/myrealm"
+                    style="display: none; margin-top: 6px"
+                  />
                 </div>
-                
+
                 <div class="form-group">
                   <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
                   <select class="form-input form-select" id="cert-endpoint">
                     <option value="">— Select endpoint —</option>
                   </select>
-                  <input class="form-input" type="text" id="cert-endpoint-custom" placeholder="https://cert.example.com/api/register-agent" style="display: none; margin-top: 6px" />
+                  <input
+                    class="form-input"
+                    type="text"
+                    id="cert-endpoint-custom"
+                    placeholder="https://cert.example.com/api/register-agent"
+                    style="display: none; margin-top: 6px"
+                  />
                 </div>
               </div>
-              
+
               <div class="toggle-row compact" style="margin-top: 16px">
                 <div class="toggle-info">
                   <div class="toggle-title">Overwrite Existing Credentials</div>
@@ -157,7 +171,7 @@
                   <span class="slider"></span>
                 </label>
               </div>
-              
+
               <div class="action-row" style="margin-top: 20px">
                 <button id="btn-start-enroll" class="btn btn-primary" disabled>🔐 Run Enrollment</button>
               </div>
@@ -170,7 +184,12 @@
                 </div>
               </div>
               <div class="status-banner" id="enroll-status-banner"></div>
-              <button class="btn btn-ghost" id="btn-retry-enroll" type="button" style="display: none; margin-top: 10px; width: 100%; justify-content: center">
+              <button
+                class="btn btn-ghost"
+                id="btn-retry-enroll"
+                type="button"
+                style="display: none; margin-top: 10px; width: 100%; justify-content: center"
+              >
                 ↺ Retry Enrollment
               </button>
             </div>
@@ -182,7 +201,7 @@
               <h2 class="section-title" style="margin: 0">Installed Components</h2>
               <button id="btn-refresh-components" class="btn btn-ghost btn-sm">↺ Refresh</button>
             </div>
-            
+
             <div id="components-grid" class="components-grid">
               <!-- Component cards injected here -->
             </div>

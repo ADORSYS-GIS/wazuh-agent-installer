@@ -12,6 +12,13 @@ interface InstallResult {
   message: string;
 }
 
+interface ComponentStatus {
+  name: string;
+  installed: boolean;
+  version: string | null;
+  path: string;
+}
+
 declare global {
   interface Window {
     __TAURI__?: {
@@ -37,11 +44,20 @@ const invoke = hasTauri
   ? window.__TAURI__!.core.invoke
   : async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
       console.log(`[Mock Invoke] ${cmd}`, args);
+      if (cmd === "get_platform") return "linux" as unknown as T;
+      if (cmd === "is_root") return false as unknown as T;
+      if (cmd === "verify_sudo") return (args?.password === "root") as unknown as T;
       if (cmd === "run_install") {
         return { success: true, exit_code: 0, message: "Mock install successful" } as unknown as T;
       }
       if (cmd === "run_enroll") {
         return { success: true, exit_code: 0, message: "Mock enroll successful" } as unknown as T;
+      }
+      if (cmd === "check_components") {
+        return [
+          { name: "Wazuh Agent", installed: true, version: "4.14.1", path: "/var/ossec/bin/wazuh-agent" },
+          { name: "OAuth2 Client", installed: false, version: null, path: "/var/ossec/bin/wazuh-cert-oauth2-client" },
+        ] as unknown as T;
       }
       return {} as T;
     };
@@ -54,17 +70,21 @@ const listen = hasTauri
     };
 
 // ---- State ----
-let currentStep = 0;
-const totalSteps = 5;
+let sudoPassword = "";
 let isInstalling = false;
+let isEnrolling = false;
 
 // ---- DOM refs ----
-const panels = document.querySelectorAll<HTMLElement>(".step-panel");
-const stepItems = document.querySelectorAll<HTMLElement>(".step-item");
-const connectors = document.querySelectorAll<HTMLElement>(".step-connector");
-const btnNext = document.getElementById("btn-next") as HTMLButtonElement | null;
-const btnBack = document.getElementById("btn-back") as HTMLButtonElement | null;
-const footerHint = document.getElementById("footer-hint");
+// Overlays
+const sudoOverlay = document.getElementById("sudo-overlay");
+const appContainer = document.getElementById("app");
+const sudoPasswordInput = document.getElementById("sudo-password") as HTMLInputElement;
+const btnSudoSubmit = document.getElementById("btn-sudo-submit") as HTMLButtonElement;
+const sudoError = document.getElementById("sudo-error");
+
+// Nav
+const navItems = document.querySelectorAll<HTMLElement>(".nav-item");
+const tabPanels = document.querySelectorAll<HTMLElement>(".tab-panel");
 
 // Config inputs
 const elManagerSelect = document.getElementById("wazuh-manager") as HTMLSelectElement | null;
@@ -78,38 +98,136 @@ const elTrivy = document.getElementById("install-trivy") as HTMLInputElement | n
 // IDS mode pills
 const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode-group .pill");
 
-// Terminal
-const terminal = document.getElementById("terminal");
-const terminalPlaceholder = document.getElementById("terminal-placeholder");
-const statusBanner = document.getElementById("status-banner");
+// Install / Enroll Action Buttons
+const btnStartInstall = document.getElementById("btn-start-install") as HTMLButtonElement;
+const btnStartEnroll = document.getElementById("btn-start-enroll") as HTMLButtonElement;
+const btnRetryEnroll = document.getElementById("btn-retry-enroll") as HTMLButtonElement;
+const btnGoEnroll = document.getElementById("btn-go-enroll") as HTMLButtonElement;
+const btnRefreshComponents = document.getElementById("btn-refresh-components") as HTMLButtonElement;
 
-// ---- Initialize Branding dynamically ----
+// Terminals
+const terminalInstall = document.getElementById("terminal");
+const installLogCard = document.getElementById("install-log-card");
+const installStatusBanner = document.getElementById("status-banner");
+const resultScreen = document.getElementById("result-screen");
+
+const terminalEnrollArea = document.getElementById("enroll-terminal-area");
+const terminalEnroll = document.getElementById("enroll-terminal");
+const enrollStatusBanner = document.getElementById("enroll-status-banner");
+
+// ---- Initialization ----
+
+async function boot() {
+  applyBrandTheme();
+  initializeAppHeaderAndOptions();
+  setupCustomInputListeners();
+  setupRadioCards();
+
+  // Tab handling
+  navItems.forEach((item) => {
+    item.addEventListener("click", () => switchTab(item.dataset.target!));
+  });
+
+  // Action listeners
+  btnStartInstall?.addEventListener("click", startInstall);
+  btnStartEnroll?.addEventListener("click", startEnrollment);
+  btnRetryEnroll?.addEventListener("click", startEnrollment);
+  btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
+  btnRefreshComponents?.addEventListener("click", refreshComponents);
+
+  const isRoot = await invoke<boolean>("is_root");
+  const platform = await invoke<string>("get_platform");
+
+  if (!isRoot && (platform === "linux" || platform === "macos")) {
+    // Show Sudo prompt
+    if (sudoOverlay) sudoOverlay.style.display = "flex";
+
+    sudoPasswordInput?.addEventListener("input", () => {
+      btnSudoSubmit.disabled = !sudoPasswordInput.value;
+      if (sudoError) sudoError.style.display = "none";
+    });
+
+    sudoPasswordInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && sudoPasswordInput.value) handleSudoSubmit();
+    });
+
+    btnSudoSubmit?.addEventListener("click", handleSudoSubmit);
+  } else {
+    // Root or Windows -> skip prompt
+    finishBoot();
+  }
+}
+
+async function handleSudoSubmit() {
+  const pwd = sudoPasswordInput.value;
+  if (!pwd) return;
+
+  btnSudoSubmit.disabled = true;
+  btnSudoSubmit.innerHTML = `<span class="spinner" style="width: 14px; height: 14px; margin-right: 8px;"></span> Verifying...`;
+
+  try {
+    const ok = await invoke<boolean>("verify_sudo", { password: pwd });
+    if (ok) {
+      sudoPassword = pwd;
+      finishBoot();
+    } else {
+      showSudoError("Incorrect password, please try again.");
+      sudoPasswordInput.value = "";
+      sudoPasswordInput.focus();
+    }
+  } catch (e: any) {
+    showSudoError(String(e));
+  } finally {
+    btnSudoSubmit.disabled = false;
+    btnSudoSubmit.textContent = "Continue";
+  }
+}
+
+function showSudoError(msg: string) {
+  if (sudoError) {
+    sudoError.textContent = msg;
+    sudoError.style.display = "block";
+  }
+}
+
+function finishBoot() {
+  if (sudoOverlay) sudoOverlay.style.display = "none";
+  if (appContainer) appContainer.style.display = "block";
+  updateInstallButtonState();
+  updateEnrollButtonState();
+  refreshComponents(); // Initial load
+}
+
+function switchTab(targetId: string) {
+  navItems.forEach((item) => {
+    item.classList.toggle("active", item.dataset.target === targetId);
+  });
+  tabPanels.forEach((panel) => {
+    panel.classList.toggle("active", panel.id === targetId);
+  });
+
+  if (targetId === "tab-components") {
+    refreshComponents();
+  }
+}
+
+// ---- UI Helpers ----
+
 function applyBrandTheme(): void {
   const root = document.documentElement;
   root.style.setProperty("--brand-primary", BRAND_CONFIG.colors.primary);
   root.style.setProperty("--brand-primary-hover", BRAND_CONFIG.colors.primaryHover);
   root.style.setProperty("--brand-primary-ghost", BRAND_CONFIG.colors.primaryGhost);
-  root.style.setProperty("--brand-teal", BRAND_CONFIG.colors.teal);
-  root.style.setProperty("--brand-teal-dim", BRAND_CONFIG.colors.tealDim);
-
   root.style.setProperty("--brand-bg-root", BRAND_CONFIG.colors.bgRoot);
   root.style.setProperty("--brand-bg-card", BRAND_CONFIG.colors.bgCard);
-  root.style.setProperty("--brand-bg-card-hover", BRAND_CONFIG.colors.bgCardHover);
   root.style.setProperty("--brand-bg-input", BRAND_CONFIG.colors.bgInput);
   root.style.setProperty("--brand-bg-input-focus", BRAND_CONFIG.colors.bgInputFocus);
   root.style.setProperty("--brand-bg-terminal", BRAND_CONFIG.colors.bgTerminal);
-
   root.style.setProperty("--brand-text-primary", BRAND_CONFIG.colors.textPrimary);
   root.style.setProperty("--brand-text-secondary", BRAND_CONFIG.colors.textSecondary);
-  root.style.setProperty("--brand-text-muted", BRAND_CONFIG.colors.textMuted);
-  root.style.setProperty("--brand-text-accent", BRAND_CONFIG.colors.textAccent);
-
   root.style.setProperty("--brand-status-success", BRAND_CONFIG.colors.statusSuccess);
-  root.style.setProperty("--brand-status-success-dim", BRAND_CONFIG.colors.statusSuccessDim);
   root.style.setProperty("--brand-status-error", BRAND_CONFIG.colors.statusError);
-  root.style.setProperty("--brand-status-error-dim", BRAND_CONFIG.colors.statusErrorDim);
   root.style.setProperty("--brand-status-warn", BRAND_CONFIG.colors.statusWarn);
-  root.style.setProperty("--brand-status-warn-dim", BRAND_CONFIG.colors.statusWarnDim);
 }
 
 function initializeAppHeaderAndOptions(): void {
@@ -122,11 +240,8 @@ function initializeAppHeaderAndOptions(): void {
   if (appTitle) appTitle.textContent = BRAND_CONFIG.appTitle;
   if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
   if (staticAgentVersion) staticAgentVersion.textContent = BRAND_CONFIG.wazuhAgentVersion;
-
-  // Document Title
   document.title = BRAND_CONFIG.appTitle;
 
-  // Populates selects
   populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
   populateDropdown("oauth-issuer", BRAND_CONFIG.oauthIssuers);
   populateDropdown("cert-endpoint", BRAND_CONFIG.certEndpoints);
@@ -137,102 +252,70 @@ function populateDropdown(selectId: string, options: { value: string; label: str
   if (!selectEl) return;
   const placeholderOption = selectEl.options[0];
   selectEl.innerHTML = "";
-  if (placeholderOption) {
-    selectEl.appendChild(placeholderOption);
-  }
+  if (placeholderOption) selectEl.appendChild(placeholderOption);
+
   options.forEach((opt) => {
     const option = document.createElement("option");
     option.value = opt.value;
     option.textContent = opt.label;
     selectEl.appendChild(option);
   });
+
   const otherOpt = document.createElement("option");
   otherOpt.value = "other";
   otherOpt.textContent = "Other (enter manually)…";
   selectEl.appendChild(otherOpt);
 }
 
-function updateNextButtonState(): void {
-  if (!btnNext) return;
-  if (currentStep === 0) {
-    const manager = getManagerValue();
-    const issuer = getIssuerValue();
-    const endpoint = getEndpointValue();
-    const isValid = !!manager && !!issuer && !!endpoint;
-    btnNext.disabled = !isValid;
-  } else {
-    btnNext.disabled = false;
-  }
-}
-
-// Show/hide custom inputs
 function setupCustomInputListeners(): void {
-  elManagerSelect?.addEventListener("change", () => {
-    if (elManagerSelect.value === "other") {
-      if (elManagerCustom) {
-        elManagerCustom.style.display = "block";
-        elManagerCustom.focus();
+  const bindSelectToCustom = (sel: HTMLSelectElement | null, cus: HTMLInputElement | null, updateBtn: () => void) => {
+    sel?.addEventListener("change", () => {
+      if (sel.value === "other" && cus) {
+        cus.style.display = "block";
+        cus.focus();
+      } else if (cus) {
+        cus.style.display = "none";
+        cus.value = "";
       }
-    } else {
-      if (elManagerCustom) {
-        elManagerCustom.style.display = "none";
-        elManagerCustom.value = "";
-      }
-    }
-    updateNextButtonState();
-  });
-  elManagerCustom?.addEventListener("input", updateNextButtonState);
+      updateBtn();
+    });
+    cus?.addEventListener("input", updateBtn);
+  };
 
-  elIssuerSelect?.addEventListener("change", () => {
-    if (elIssuerSelect.value === "other") {
-      if (elIssuerCustom) {
-        elIssuerCustom.style.display = "block";
-        elIssuerCustom.focus();
-      }
-    } else {
-      if (elIssuerCustom) {
-        elIssuerCustom.style.display = "none";
-        elIssuerCustom.value = "";
-      }
-    }
-    updateNextButtonState();
-  });
-  elIssuerCustom?.addEventListener("input", updateNextButtonState);
-
-  elEndpointSelect?.addEventListener("change", () => {
-    if (elEndpointSelect.value === "other") {
-      if (elEndpointCustom) {
-        elEndpointCustom.style.display = "block";
-        elEndpointCustom.focus();
-      }
-    } else {
-      if (elEndpointCustom) {
-        elEndpointCustom.style.display = "none";
-        elEndpointCustom.value = "";
-      }
-    }
-    updateNextButtonState();
-  });
-  elEndpointCustom?.addEventListener("input", updateNextButtonState);
+  bindSelectToCustom(elManagerSelect, elManagerCustom, updateInstallButtonState);
+  bindSelectToCustom(elIssuerSelect, elIssuerCustom, updateEnrollButtonState);
+  bindSelectToCustom(elEndpointSelect, elEndpointCustom, updateEnrollButtonState);
 }
+
+function setupRadioCards(): void {
+  suricataModePills.forEach((pill) => {
+    pill.addEventListener("click", () => {
+      suricataModePills.forEach((p) => p.classList.remove("selected"));
+      pill.classList.add("selected");
+    });
+  });
+}
+
+// ---- Data Retrieval ----
 
 function getManagerValue(): string {
-  if (elManagerSelect?.value === "other") return elManagerCustom?.value.trim() ?? "";
-  return elManagerSelect?.value.trim() ?? "";
+  return elManagerSelect?.value === "other"
+    ? (elManagerCustom?.value.trim() ?? "")
+    : (elManagerSelect?.value.trim() ?? "");
 }
 
-// Ensure default version matches what was original
 function getIssuerValue(): string {
-  if (elIssuerSelect?.value === "other") return elIssuerCustom?.value.trim() ?? "";
-  return elIssuerSelect?.value.trim() ?? "";
+  return elIssuerSelect?.value === "other"
+    ? (elIssuerCustom?.value.trim() ?? "")
+    : (elIssuerSelect?.value.trim() ?? "");
 }
 
 function getEndpointValue(): string {
-  if (elEndpointSelect?.value === "other") return elEndpointCustom?.value.trim() ?? "";
-  return elEndpointSelect?.value.trim() ?? "";
+  return elEndpointSelect?.value === "other"
+    ? (elEndpointCustom?.value.trim() ?? "")
+    : (elEndpointSelect?.value.trim() ?? "");
 }
 
-// ---- Helpers ----
 function getConfig() {
   const selectedModePill = document.querySelector("#suricata-mode-group .pill.selected") as HTMLElement | null;
   return {
@@ -248,372 +331,201 @@ function getConfig() {
   };
 }
 
+function updateInstallButtonState() {
+  if (btnStartInstall) {
+    btnStartInstall.disabled = !getManagerValue() || isInstalling;
+  }
+}
+
+function updateEnrollButtonState() {
+  if (btnStartEnroll) {
+    btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
+  }
+}
+
+// ---- Installation Flow ----
+
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
   return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
-// ---- Stepper navigation ----
-function goToStep(step: number): void {
-  if (step < 0 || step >= totalSteps) return;
-  currentStep = step;
+function appendLog(term: HTMLElement | null, line: string, level: string): void {
+  if (!term) return;
+  const placeholder = term.querySelector(".terminal-placeholder");
+  if (placeholder) placeholder.remove();
 
-  // Update panels
-  panels.forEach((p, i) => {
-    p.classList.toggle("active", i === step);
-  });
-
-  // Update step indicators
-  stepItems.forEach((item, i) => {
-    item.classList.remove("active", "done");
-    if (i === step) item.classList.add("active");
-    else if (i < step) item.classList.add("done");
-  });
-
-  connectors.forEach((c, i) => {
-    c.classList.toggle("done", i < step);
-  });
-
-  // Update buttons
-  if (btnBack) {
-    btnBack.style.visibility = step === 0 ? "hidden" : "visible";
-  }
-
-  if (btnNext && btnBack) {
-    if (step === totalSteps - 1) {
-      btnNext.style.display = "none";
-      btnBack.style.display = "none";
-    } else if (step === 3) {
-      btnNext.textContent = "⚡ Install";
-      btnNext.style.display = "";
-      btnBack.style.display = "";
-    } else if (step === 2) {
-      btnNext.textContent = "Start Install →";
-      btnNext.style.display = "";
-      btnBack.style.display = "";
-    } else {
-      btnNext.textContent = "Next →";
-      btnNext.style.display = "";
-      btnBack.style.display = "";
-    }
-
-    if (isInstalling) {
-      btnNext.style.display = "none";
-      btnBack.style.display = "none";
-    }
-  }
-
-  if (footerHint) {
-    footerHint.textContent = `Step ${step + 1} of ${totalSteps}`;
-  }
-
-  // Update button enabled/disabled state based on current step requirements
-  updateNextButtonState();
-
-  // Populate summary on step 2
-  if (step === 2) populateSummary();
-
-  // Set manager label on enroll step
-  if (step === 4) {
-    const label = document.getElementById("enroll-manager-label");
-    if (label) label.textContent = getManagerValue() || "your Wazuh manager";
-  }
+  const div = document.createElement("div");
+  div.className = `log-line ${level}`;
+  div.textContent = stripAnsi(line);
+  term.appendChild(div);
+  term.scrollTop = term.scrollHeight;
 }
 
-function populateSummary(): void {
-  const cfg = getConfig();
-  const list = document.getElementById("summary-list");
-  if (!list) return;
-  const items = [
-    ["Wazuh Manager", cfg.wazuh_manager],
-    ["Agent Version", cfg.wazuh_agent_version],
-    ["OAuth2 Issuer", cfg.oauth_issuer || "—"],
-    ["Cert Endpoint", cfg.cert_endpoint || "—"],
-    ["IDS Engine", `Suricata (${cfg.suricata_mode.toUpperCase()})`],
-    ["Install Trivy", cfg.install_trivy ? "Yes" : "No"],
-    ["Core Components", "Agent, Cert-OAuth2, Agent Status, Yara, USB DLP"],
-  ];
-  list.innerHTML = items
-    .map(([label, value]) => `<li><span class="label">${label}</span><span class="value">${value}</span></li>`)
-    .join("");
+function showStatusBanner(banner: HTMLElement | null, type: "running" | "success" | "error", message: string) {
+  if (!banner) return;
+  banner.className = `status-banner visible ${type}`;
+  const icon = type === "running" ? '<span class="spinner"></span>' : type === "success" ? "✓" : "✕";
+  banner.innerHTML = `${icon} ${message}`;
 }
 
-// ---- IDS Mode Pills ----
-function setupRadioCards(): void {
-  suricataModePills.forEach((pill) => {
-    pill.addEventListener("click", () => {
-      suricataModePills.forEach((p) => p.classList.remove("selected"));
-      pill.classList.add("selected");
-    });
-  });
-}
-
-// ---- Terminal log ----
-function appendLog(line: string, level: string): void {
-  if (terminalPlaceholder) {
-    terminalPlaceholder.remove();
-  }
-  if (terminal) {
-    const div = document.createElement("div");
-    div.className = `log-line ${level}`;
-    div.textContent = stripAnsi(line);
-    terminal.appendChild(div);
-    terminal.scrollTop = terminal.scrollHeight;
-  }
-}
-
-function showStatus(type: string, message: string): void {
-  if (statusBanner) {
-    statusBanner.className = `status-banner visible ${type}`;
-    const icon = type === "running" ? '<span class="spinner"></span>' : type === "success" ? "✓" : "✕";
-    statusBanner.innerHTML = `${icon} ${message}`;
-  }
-}
-
-// ---- Installation ----
-async function startInstall(): Promise<void> {
-  const cfg = getConfig();
+async function startInstall() {
+  if (isInstalling) return;
   isInstalling = true;
+  updateInstallButtonState();
 
-  if (btnNext) btnNext.style.display = "none";
-  if (btnBack) btnBack.style.display = "none";
-  if (footerHint) footerHint.textContent = "Installing…";
+  if (installLogCard) installLogCard.style.display = "block";
+  if (resultScreen) resultScreen.style.display = "none";
+  if (terminalInstall) {
+    terminalInstall.innerHTML =
+      '<div class="terminal-placeholder"><span class="spinner"></span> Waiting to start…</div>';
+  }
 
-  showStatus("running", "Installation in progress…");
-  appendLog("Starting Wazuh Agent installation…", "info");
-  appendLog("A system password prompt will appear — please authenticate to continue.", "info");
+  showStatusBanner(installStatusBanner, "running", "Installation in progress…");
+  appendLog(terminalInstall, "Starting Wazuh Agent installation…", "info");
 
-  const unlistenLog = await listen<LogLine>("install-log", (event) => {
-    appendLog(event.payload.line, event.payload.level);
+  const unlistenLog = await listen<LogLine>("install-log", (e) => {
+    appendLog(terminalInstall, e.payload.line, e.payload.level);
   });
 
   try {
     const result = await invoke<InstallResult>("run_install", {
-      config: cfg,
-      scriptPath: null,
+      config: getConfig(),
+      password: sudoPassword || null,
     });
 
     if (result.success) {
-      showStatus("success", result.message);
-      showResult(true, result.message);
+      showStatusBanner(installStatusBanner, "success", result.message);
+      showInstallResult(true, "The Wazuh Agent stack was installed successfully.");
+
+      // Auto-switch to Enrollment and start it
+      setTimeout(() => {
+        switchTab("tab-enrollment");
+        startEnrollment();
+      }, 1500);
     } else {
-      showStatus("error", result.message);
-      showResult(false, result.message);
+      showStatusBanner(installStatusBanner, "error", `Installation failed: exit code ${result.exit_code}`);
+      showInstallResult(false, result.message);
     }
-  } catch (err) {
-    const msg = typeof err === "string" ? err : (err as Error).message || "Unknown error";
-    appendLog(`ERROR: ${msg}`, "error");
-    showStatus("error", `Installation failed: ${msg}`);
-    showResult(false, msg);
+  } catch (err: any) {
+    appendLog(terminalInstall, `ERROR: ${err}`, "error");
+    showStatusBanner(installStatusBanner, "error", `Installation failed: ${err}`);
+    showInstallResult(false, String(err));
+  } finally {
+    unlistenLog();
+    isInstalling = false;
+    updateInstallButtonState();
   }
-
-  unlistenLog();
-  isInstalling = false;
 }
 
-function showResult(success: boolean, message: string): void {
-  const resultScreen = document.getElementById("result-screen");
-  const resultIcon = document.getElementById("result-icon");
-  const resultTitle = document.getElementById("result-title");
-  const resultDesc = document.getElementById("result-desc");
-  const btnEnroll = document.getElementById("btn-enroll");
+function showInstallResult(success: boolean, desc: string) {
+  if (!resultScreen) return;
+  resultScreen.style.display = "block";
 
-  if (resultScreen) resultScreen.style.display = "block";
-  if (resultIcon) {
-    resultIcon.className = `result-icon ${success ? "success" : "error"}`;
-    resultIcon.textContent = success ? "✓" : "✕";
-  }
-  if (resultTitle) {
-    resultTitle.textContent = success ? "Installation Complete" : "Installation Failed";
-  }
-  if (resultDesc) {
-    resultDesc.textContent = success
-      ? "The Wazuh Agent stack was installed successfully. Click below to enroll the agent."
-      : message;
-  }
+  const icon = document.getElementById("result-icon");
+  const title = document.getElementById("result-title");
+  const descEl = document.getElementById("result-desc");
+  const btn = document.getElementById("btn-go-enroll");
 
-  if (btnEnroll) btnEnroll.style.display = success ? "inline-flex" : "none";
-  if (footerHint) footerHint.textContent = success ? "Done" : "Failed";
+  if (icon) {
+    icon.className = `result-icon ${success ? "success" : "error"}`;
+    icon.textContent = success ? "✓" : "✕";
+  }
+  if (title) title.textContent = success ? "Installation Complete" : "Installation Failed";
+  if (descEl) descEl.textContent = desc;
+  if (btn) btn.style.display = success ? "inline-flex" : "none";
 }
 
-// ---- Validation ----
-function validateStep(step: number): boolean {
-  if (step === 0) {
-    const manager = getManagerValue();
-    if (!manager) {
-      if (elManagerSelect) {
-        elManagerSelect.focus();
-        elManagerSelect.style.borderColor = "var(--status-error)";
-      }
-      return false;
-    }
-    if (elManagerSelect) elManagerSelect.style.borderColor = "";
+// ---- Enrollment Flow ----
 
-    if (elManagerSelect?.value === "other" && elManagerCustom && !elManagerCustom.value.trim()) {
-      elManagerCustom.focus();
-      elManagerCustom.style.borderColor = "var(--status-error)";
-      return false;
-    }
-    if (elManagerCustom) elManagerCustom.style.borderColor = "";
+async function startEnrollment() {
+  if (isEnrolling) return;
 
-    if (!getIssuerValue()) {
-      if (elIssuerSelect) {
-        elIssuerSelect.focus();
-        elIssuerSelect.style.borderColor = "var(--status-error)";
-      }
-      return false;
-    }
-    if (elIssuerSelect) elIssuerSelect.style.borderColor = "";
+  const issuer = getIssuerValue();
+  const endpoint = getEndpointValue();
+  if (!issuer || !endpoint) return;
 
-    if (!getEndpointValue()) {
-      if (elEndpointSelect) {
-        elEndpointSelect.focus();
-        elEndpointSelect.style.borderColor = "var(--status-error)";
-      }
-      return false;
-    }
-    if (elEndpointSelect) elEndpointSelect.style.borderColor = "";
-  }
-  return true;
-}
+  isEnrolling = true;
+  updateEnrollButtonState();
 
-// ---- Event bindings ----
-btnNext?.addEventListener("click", () => {
-  if (isInstalling) return;
-
-  if (currentStep < 2) {
-    if (!validateStep(currentStep)) return;
-    goToStep(currentStep + 1);
-  } else if (currentStep === 2) {
-    goToStep(3);
-    startInstall();
-  }
-});
-
-// Enroll button on Install result screen
-document.getElementById("btn-enroll")?.addEventListener("click", () => {
-  goToStep(4);
-});
-
-// Start Enrollment button on Enroll step
-async function runEnrollment(): Promise<void> {
-  const startArea = document.getElementById("enroll-start-area");
-  const terminalArea = document.getElementById("enroll-terminal-area");
-  const enrollTerminal = document.getElementById("enroll-terminal");
-  const enrollStatusBanner = document.getElementById("enroll-status-banner");
-  const retryBtn = document.getElementById("btn-retry-enroll");
-
-  if (enrollTerminal) {
-    enrollTerminal.innerHTML =
-      '<div class="terminal-placeholder" id="enroll-terminal-placeholder"><span class="spinner"></span> Running enrollment…</div>';
-  }
-
-  if (startArea) startArea.style.display = "none";
-  if (terminalArea) terminalArea.style.display = "block";
-  if (retryBtn) retryBtn.style.display = "none";
-
-  const enrollResultScreen = document.getElementById("enroll-result-screen");
-  if (enrollResultScreen) enrollResultScreen.style.display = "none";
-
-  if (enrollStatusBanner) {
-    enrollStatusBanner.className = "status-banner visible running";
-    enrollStatusBanner.innerHTML = '<span class="spinner"></span> Enrollment in progress — check your browser…';
-  }
-
-  const cfg = getConfig();
   const elOverwrite = document.getElementById("enroll-overwrite") as HTMLInputElement | null;
-  const overwriteVal = elOverwrite ? elOverwrite.checked : true;
+  const overwrite = elOverwrite ? elOverwrite.checked : true;
 
-  const unlistenEnroll = await listen<LogLine>("enroll-log", (event) => {
-    const placeholder = document.getElementById("enroll-terminal-placeholder");
-    if (placeholder && placeholder.parentNode) placeholder.remove();
-    if (enrollTerminal) {
-      const div = document.createElement("div");
-      div.className = `log-line ${event.payload.level}`;
-      div.textContent = stripAnsi(event.payload.line);
-      enrollTerminal.appendChild(div);
-      enrollTerminal.scrollTop = enrollTerminal.scrollHeight;
-    }
+  if (terminalEnrollArea) terminalEnrollArea.style.display = "block";
+  if (btnRetryEnroll) btnRetryEnroll.style.display = "none";
+  if (terminalEnroll) {
+    terminalEnroll.innerHTML =
+      '<div class="terminal-placeholder"><span class="spinner"></span> Running enrollment…</div>';
+  }
+
+  showStatusBanner(enrollStatusBanner, "running", "Enrollment in progress — check your browser…");
+
+  const unlistenLog = await listen<LogLine>("enroll-log", (e) => {
+    appendLog(terminalEnroll, e.payload.line, e.payload.level);
   });
 
   try {
     const result = await invoke<InstallResult>("run_enroll", {
-      issuer: cfg.oauth_issuer,
-      endpoint: cfg.cert_endpoint,
-      overwrite: overwriteVal,
+      issuer,
+      endpoint,
+      overwrite,
+      password: sudoPassword || null,
     });
 
-    if (enrollStatusBanner) {
-      enrollStatusBanner.className = `status-banner visible ${result.success ? "success" : "error"}`;
-      enrollStatusBanner.innerHTML = `${result.success ? "✓" : "✕"} ${result.message}`;
+    if (result.success) {
+      showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
+    } else {
+      showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: exit code ${result.exit_code}`);
+      if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
     }
-
-    if (!result.success && retryBtn) retryBtn.style.display = "flex";
-
-    const enrollResultIcon = document.getElementById("enroll-result-icon");
-    const enrollResultTitle = document.getElementById("enroll-result-title");
-    const enrollResultDesc = document.getElementById("enroll-result-desc");
-
-    if (enrollResultScreen) enrollResultScreen.style.display = "block";
-    if (enrollResultIcon) {
-      enrollResultIcon.className = `result-icon ${result.success ? "success" : "error"}`;
-      enrollResultIcon.textContent = result.success ? "✓" : "✕";
-    }
-    if (enrollResultTitle) {
-      enrollResultTitle.textContent = result.success ? "Enrollment Complete" : "Enrollment Failed";
-    }
-    if (enrollResultDesc) {
-      enrollResultDesc.textContent = result.success
-        ? "The agent has been enrolled with the Wazuh manager."
-        : result.message;
-    }
-
-    if (footerHint) footerHint.textContent = result.success ? "Enrolled" : "Enrollment failed";
-  } catch (err) {
-    const msg = typeof err === "string" ? err : (err as Error).message || "Unknown error";
-    if (enrollStatusBanner) {
-      enrollStatusBanner.className = "status-banner visible error";
-      enrollStatusBanner.innerHTML = `✕ Enrollment failed: ${msg}`;
-    }
-    if (retryBtn) retryBtn.style.display = "flex";
-    if (footerHint) footerHint.textContent = "Failed";
+  } catch (err: any) {
+    showStatusBanner(enrollStatusBanner, "error", `Enrollment error: ${err}`);
+    if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
+  } finally {
+    unlistenLog();
+    isEnrolling = false;
+    updateEnrollButtonState();
+    refreshComponents();
   }
-
-  unlistenEnroll();
 }
 
-document.getElementById("btn-skip-to-enroll")?.addEventListener("click", () => {
-  goToStep(4);
-});
+// ---- Components Tab ----
 
-document.getElementById("btn-start-enroll")?.addEventListener("click", runEnrollment);
-document.getElementById("btn-retry-enroll")?.addEventListener("click", runEnrollment);
+async function refreshComponents() {
+  const grid = document.getElementById("components-grid");
+  if (!grid) return;
 
-btnBack?.addEventListener("click", () => {
-  if (isInstalling) return;
-  if (currentStep > 0) goToStep(currentStep - 1);
-});
+  const btn = document.getElementById("btn-refresh-components") as HTMLButtonElement;
+  if (btn) btn.innerHTML = `<span class="spinner" style="margin-right: 6px"></span> Refreshing...`;
 
-async function closeWindow(): Promise<void> {
   try {
-    await invoke("hide_window");
-  } catch {
-    try {
-      const getCurrentWindow = window.__TAURI__!.window.getCurrentWindow;
-      await getCurrentWindow().hide();
-    } catch {
-      window.close();
-    }
+    const components = await invoke<ComponentStatus[]>("check_components");
+    grid.innerHTML = "";
+
+    components.forEach((comp) => {
+      const card = document.createElement("div");
+      card.className = "comp-card";
+
+      const isOk = comp.installed;
+      const badgeClass = isOk ? "installed" : "missing";
+      const badgeText = isOk ? "Installed" : "Missing";
+
+      card.innerHTML = `
+        <div class="comp-header">
+          <div class="comp-name">${comp.name}</div>
+          <div class="comp-badge ${badgeClass}">${badgeText}</div>
+        </div>
+        ${comp.version ? `<div class="comp-version">📦 ${comp.version}</div>` : ""}
+        <div class="comp-path">${comp.path}</div>
+      `;
+      grid.appendChild(card);
+    });
+  } catch (err) {
+    console.error("Failed to check components", err);
+  } finally {
+    if (btn) btn.textContent = "↺ Refresh";
   }
 }
 
-document.getElementById("btn-close")?.addEventListener("click", closeWindow);
-document.getElementById("btn-close-enroll")?.addEventListener("click", closeWindow);
-
-// ---- Init ----
-applyBrandTheme();
-initializeAppHeaderAndOptions();
-setupCustomInputListeners();
-setupRadioCards();
-goToStep(0);
-updateNextButtonState();
+// ---- Start ----
+boot();

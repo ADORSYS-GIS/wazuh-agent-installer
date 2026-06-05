@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
 
 :root {
   /* Default fallbacks if main.ts doesn't inject */
@@ -24,7 +24,11 @@
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   background-color: var(--brand-bg-root);
   color: var(--brand-text-primary);
   line-height: 1.5;
@@ -92,7 +96,9 @@ body {
   border-radius: 8px;
   font-size: 15px;
   margin-bottom: 16px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .sudo-card input:focus {
@@ -385,7 +391,7 @@ body {
   right: 0;
   bottom: 0;
   background-color: var(--brand-bg-input);
-  transition: .3s;
+  transition: 0.3s;
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -398,7 +404,7 @@ body {
   left: 2px;
   bottom: 2px;
   background-color: white;
-  transition: .3s;
+  transition: 0.3s;
   border-radius: 50%;
 }
 
@@ -418,16 +424,25 @@ input:checked + .slider:before {
   padding: 16px;
   height: 250px;
   overflow-y: auto;
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: "Consolas", "Monaco", monospace;
   font-size: 13px;
-  border: 1px solid rgba(0,0,0,0.5);
-  box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
-.log-line { margin-bottom: 4px; word-break: break-all; }
-.log-line.info { color: var(--brand-text-secondary); }
-.log-line.success { color: var(--brand-status-success); }
-.log-line.error { color: var(--brand-status-error); }
+.log-line {
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+.log-line.info {
+  color: var(--brand-text-secondary);
+}
+.log-line.success {
+  color: var(--brand-status-success);
+}
+.log-line.error {
+  color: var(--brand-status-error);
+}
 
 .terminal-placeholder {
   color: var(--brand-text-secondary);
@@ -449,10 +464,22 @@ input:checked + .slider:before {
   align-items: center;
   gap: 8px;
 }
-.status-banner.visible { display: flex; animation: fadeUp 0.3s; }
-.status-banner.running { background: rgba(255,255,255,0.05); color: var(--brand-text-primary); }
-.status-banner.success { background: rgba(52, 211, 153, 0.1); color: var(--brand-status-success); }
-.status-banner.error { background: rgba(248, 113, 113, 0.1); color: var(--brand-status-error); }
+.status-banner.visible {
+  display: flex;
+  animation: fadeUp 0.3s;
+}
+.status-banner.running {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--brand-text-primary);
+}
+.status-banner.success {
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--brand-status-success);
+}
+.status-banner.error {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--brand-status-error);
+}
 
 /* Components */
 .components-grid {
@@ -528,19 +555,38 @@ input:checked + .slider:before {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255,255,255,0.3);
+  border: 2px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
   border-top-color: var(--brand-primary);
   animation: spin 1s ease-in-out infinite;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
