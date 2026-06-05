@@ -234,12 +234,10 @@ function initializeAppHeaderAndOptions(): void {
   const appLogo = document.getElementById("app-logo") as HTMLImageElement | null;
   const appTitle = document.getElementById("app-title");
   const appVersion = document.getElementById("app-version");
-  const staticAgentVersion = document.getElementById("agent-version");
 
   if (appLogo) appLogo.src = BRAND_CONFIG.logo;
   if (appTitle) appTitle.textContent = BRAND_CONFIG.appTitle;
   if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
-  if (staticAgentVersion) staticAgentVersion.textContent = BRAND_CONFIG.wazuhAgentVersion;
   document.title = BRAND_CONFIG.appTitle;
 
   populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
@@ -321,7 +319,6 @@ function getConfig() {
   return {
     wazuh_manager: getManagerValue(),
     wazuh_agent_name: "wazuh-agent",
-    wazuh_agent_version: BRAND_CONFIG.wazuhAgentVersion,
     log_level: "INFO",
     ids_engine: "suricata",
     suricata_mode: selectedModePill ? (selectedModePill.dataset.mode ?? "ids") : "ids",
