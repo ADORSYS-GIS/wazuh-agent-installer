@@ -115,6 +115,7 @@ fn is_root() -> bool {
     }
 }
 
+#[allow(unused_variables)]
 #[tauri::command]
 async fn verify_sudo(password: String, state: State<'_, AppState>) -> Result<bool, String> {
     #[cfg(unix)]
@@ -500,6 +501,7 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .status()
+                    .await
                     .is_ok()
             } else {
                 std::path::Path::new(&path).exists()
