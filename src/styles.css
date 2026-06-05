@@ -15,6 +15,7 @@
   --brand-status-success: #34d399;
   --brand-status-error: #f87171;
   --brand-status-warn: #fbbf24;
+  --brand-status-info: #60a5fa;
 }
 
 * {
@@ -448,7 +449,7 @@ input:checked + .slider:before {
   word-break: break-all;
 }
 .log-line.info {
-  color: var(--brand-text-secondary);
+  color: var(--brand-status-info);
 }
 .log-line.success {
   color: var(--brand-status-success);
