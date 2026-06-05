@@ -434,7 +434,7 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
         ),
         (
             "Agent Status Monitor".to_string(),
-            if cfg!(windows) { format!("{}\\wazuh-agent-status.exe", ossec_path) }
+            if cfg!(windows) { "wazuh-agent-status.exe".to_string() }
             else if cfg!(target_os = "macos") { "/usr/local/bin/wazuh-agent-status".to_string() }
             else { format!("{}/bin/wazuh-agent-status", ossec_path) }
         ),
@@ -495,7 +495,7 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
 
         #[cfg(windows)]
         let installed = {
-            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
+            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" || path == "wazuh-agent-status.exe" {
                 Command::new(&path)
                     .arg("--help")
                     .stdout(Stdio::null())
@@ -503,6 +503,8 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
                     .status()
                     .await
                     .is_ok()
+            } else if path.ends_with("wazuh-agent.exe") {
+                std::path::Path::new(&path).exists() || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe")).exists()
             } else {
                 std::path::Path::new(&path).exists()
             }
