@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wazuh Agent Installer</title>
+  <meta name="description" content="Install and configure Wazuh security agent with a guided setup wizard" />
+  <script type="module" src="/main.js" defer></script>
+</head>
+
+<body>
+  <div id="app">
+    <!-- ========== Header ========== -->
+    <header class="app-header">
+      <img class="logo" src="assets/adorsys-logo.png" alt="Adorsys" />
+      <h1>Wazuh Agent Installer</h1>
+      <span class="version">v1.0.0</span>
+    </header>
+
+    <!-- ========== Stepper ========== -->
+    <nav class="stepper" id="stepper">
+      <div class="step-item active" data-step="0">
+        <div class="step-circle">1</div>
+        <span class="step-label">Configure</span>
+      </div>
+      <div class="step-connector" data-connector="0"></div>
+      <div class="step-item" data-step="1">
+        <div class="step-circle">2</div>
+        <span class="step-label">Components</span>
+      </div>
+      <div class="step-connector" data-connector="1"></div>
+      <div class="step-item" data-step="2">
+        <div class="step-circle">3</div>
+        <span class="step-label">Review</span>
+      </div>
+      <div class="step-connector" data-connector="2"></div>
+      <div class="step-item" data-step="3">
+        <div class="step-circle">4</div>
+        <span class="step-label">Install</span>
+      </div>
+      <div class="step-connector" data-connector="3"></div>
+      <div class="step-item" data-step="4">
+        <div class="step-circle">5</div>
+        <span class="step-label">Enroll</span>
+      </div>
+    </nav>
+
+    <!-- ========== Content ========== -->
+    <div class="content-area">
+
+      <!-- Step 0: Configure -->
+      <section class="step-panel active" id="panel-0">
+        <div class="card">
+          <div class="card-title">Agent Configuration</div>
+          <div class="card-desc">Select the Wazuh manager and enrollment endpoints.</div>
+
+          <div class="form-row single">
+            <div class="form-group full-width">
+              <label class="form-label" for="wazuh-manager">Wazuh Manager Address</label>
+              <select class="form-input form-select" id="wazuh-manager">
+                <option value="">— Select a manager —</option>
+                <option value="wazuh.adorsys.com">wazuh.adorsys.com</option>
+                <option value="wazuh.adorsys.de">wazuh.adorsys.de</option>
+                <option value="other">Other (enter manually)…</option>
+              </select>
+              <input class="form-input" type="text" id="wazuh-manager-custom" placeholder="Enter manager address"
+                style="display:none; margin-top:8px;" />
+            </div>
+          </div>
+
+          <div class="form-row single">
+            <div class="form-group full-width">
+              <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
+              <select class="form-input form-select" id="oauth-issuer">
+                <option value="">— Select issuer —</option>
+                <option value="https://login.wazuh.adorsys.team/realms/adorsys">login.wazuh.adorsys.team / adorsys
+                </option>
+                <option value="https://login.dev.wazuh.adorsys.team/realms/test-adorsys">login.dev.wazuh.adorsys.team /
+                  test-adorsys (dev)</option>
+                <option value="other">Other (enter manually)…</option>
+              </select>
+              <input class="form-input" type="text" id="oauth-issuer-custom"
+                placeholder="https://login.example.com/realms/myrealm" style="display:none; margin-top:8px;" />
+            </div>
+          </div>
+
+          <div class="form-row single">
+            <div class="form-group full-width">
+              <label class="form-label" for="cert-endpoint">Certificate Endpoint URL</label>
+              <select class="form-input form-select" id="cert-endpoint">
+                <option value="">— Select endpoint —</option>
+                <option value="https://cert.wazuh.adorsys.team/api/register-agent">cert.wazuh.adorsys.team (production)
+                </option>
+                <option value="https://cert.dev.wazuh.adorsys.team/api/register-agent">cert.dev.wazuh.adorsys.team (dev)
+                </option>
+                <option value="other">Other (enter manually)…</option>
+              </select>
+              <input class="form-input" type="text" id="cert-endpoint-custom"
+                placeholder="https://cert.example.com/api/register-agent" style="display:none; margin-top:8px;" />
+            </div>
+          </div>
+
+          <div class="form-row single">
+            <div class="form-group full-width">
+              <label class="form-label" for="agent-version">Agent Version</label>
+              <div class="form-static" id="agent-version">4.14.4-1</div>
+            </div>
+          </div>
+
+          <div class="form-row single" style="margin-top: 12px;">
+            <div class="form-group full-width" style="align-items: flex-end;">
+              <button class="btn btn-ghost" id="btn-skip-to-enroll" type="button" style="width: fit-content;">
+                Already Installed? Skip to Enrollment →
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Step 1: Components -->
+      <section class="step-panel" id="panel-1">
+        <div class="core-banner">
+          <h3>⬢ Core Components (Always Installed)</h3>
+          <div class="core-chips">
+            <span class="core-chip">Wazuh Agent</span>
+            <span class="core-chip">Cert OAuth2 Client</span>
+            <span class="core-chip">Agent Status Monitor</span>
+            <span class="core-chip">Yara Integration</span>
+            <span class="core-chip">USB DLP Scripts</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Network IDS Engine</div>
+          <div class="card-desc">Suricata is installed as the network intrusion detection system.</div>
+
+          <div class="suricata-info-card">
+            <div class="rc-badge-inline">default</div>
+            <div class="rc-title">Suricata</div>
+            <div class="rc-desc">High-performance IDS/IPS engine with multi-threading support.</div>
+          </div>
+
+          <div class="sub-option visible" id="suricata-mode-section">
+            <label class="form-label">Suricata Mode</label>
+            <div class="pill-group" id="suricata-mode-group">
+              <button class="pill selected" data-mode="ids" type="button">IDS (Detection)</button>
+              <button class="pill" data-mode="ips" type="button">IPS (Prevention)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Optional Tools</div>
+          <div class="card-desc">Additional security scanners you can include in the installation.</div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Trivy</div>
+              <div class="toggle-desc">Vulnerability and misconfiguration scanner for containers and filesystems.</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="install-trivy" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 2: Review -->
+      <section class="step-panel" id="panel-2">
+        <div class="card">
+          <div class="card-title">Review Configuration</div>
+          <div class="card-desc">Confirm the settings below before starting the installation.</div>
+          <ul class="summary-list" id="summary-list">
+            <!-- populated by JS -->
+          </ul>
+        </div>
+      </section>
+
+      <!-- Step 3: Install -->
+      <section class="step-panel" id="panel-3">
+        <div class="card" id="install-card" style="padding-bottom:16px">
+          <div class="card-title">Installation Progress</div>
+          <div class="card-desc">The setup script is running. Logs are streamed in real-time below.</div>
+          <div class="terminal" id="terminal">
+            <div class="terminal-placeholder" id="terminal-placeholder">
+              <span class="spinner"></span> Waiting to start…
+            </div>
+          </div>
+          <div class="status-banner" id="status-banner"></div>
+        </div>
+
+        <!-- Result overlay (hidden until done) -->
+        <div id="result-screen" style="display:none">
+          <div class="card" style="text-align:center; padding:40px 24px;">
+            <div class="result-icon" id="result-icon"></div>
+            <div class="result-title" id="result-title"></div>
+            <div class="result-desc" id="result-desc"></div>
+            <div class="result-actions">
+              <button class="btn btn-primary" id="btn-enroll" type="button">Enroll Agent →</button>
+              <button class="btn btn-ghost" id="btn-close" type="button">Close Application</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 4: Enroll -->
+      <section class="step-panel" id="panel-4">
+        <div class="card">
+          <div class="card-title">Agent Enrollment</div>
+          <div class="card-desc">
+            Enroll this agent with the Wazuh manager using certificate-based OAuth2 authentication.
+          </div>
+
+          <div class="enroll-info-banner">
+            <div class="enroll-info-icon">🔐</div>
+            <div>
+              <div class="enroll-info-title">What happens during enrollment</div>
+              <div class="enroll-info-text">
+                Clicking <strong>Start Enrollment</strong> will open your browser automatically.
+                Log in with your Adorsys credentials — the browser will close itself when done
+                and the agent will be enrolled.
+              </div>
+            </div>
+          </div>
+
+          <div id="enroll-start-area">
+            <div class="toggle-row" style="margin-bottom: 16px;">
+              <div class="toggle-info">
+                <div class="toggle-title">Overwrite Existing Credentials</div>
+                <div class="toggle-desc">Replace any existing enrollment certificates for this agent.</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="enroll-overwrite" checked />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <button class="btn btn-primary btn-enroll-start" id="btn-start-enroll" type="button">
+              🔐 Start Enrollment
+            </button>
+          </div>
+
+          <div id="enroll-terminal-area" style="display:none">
+            <div class="terminal" id="enroll-terminal">
+              <div class="terminal-placeholder" id="enroll-terminal-placeholder">
+                <span class="spinner"></span> Running enrollment…
+              </div>
+            </div>
+            <div class="status-banner" id="enroll-status-banner"></div>
+            <button class="btn btn-ghost" id="btn-retry-enroll" type="button"
+              style="display:none; margin-top:12px; width:100%; justify-content:center;">↺ Re-run Enrollment</button>
+          </div>
+        </div>
+
+        <div id="enroll-result-screen" style="display:none">
+          <div class="card" style="text-align:center; padding:40px 24px;">
+            <div class="result-icon" id="enroll-result-icon"></div>
+            <div class="result-title" id="enroll-result-title"></div>
+            <div class="result-desc" id="enroll-result-desc"></div>
+            <button class="btn btn-primary" id="btn-close-enroll" type="button">Close Application</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ========== Footer ========== -->
+    <footer class="app-footer">
+      <button class="btn btn-ghost" id="btn-back" type="button" style="visibility:hidden">← Back</button>
+      <span class="footer-hint" id="footer-hint">Step 1 of 4</span>
+      <button class="btn btn-primary" id="btn-next" type="button">Next →</button>
+    </footer>
+  </div>
+</body>
+
+</html>
