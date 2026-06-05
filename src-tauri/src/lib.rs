@@ -171,7 +171,6 @@ async fn run_install(
     };
 
     let resolved_path = resolve_script(&app)?;
-    let win_cmd = format!("Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{}\"' -Verb RunAs -Wait", resolved_path);
 
     let (cmd_str, args, use_sudo) = if cfg!(target_os = "windows") {
         (
@@ -180,8 +179,8 @@ async fn run_install(
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
-                "-Command",
-                &win_cmd as &str,
+                "-File",
+                &resolved_path as &str,
             ],
             false,
         )
