@@ -47,9 +47,14 @@ fn classify_line(line: &str) -> &'static str {
 /// When installed from a .deb the script is already executable.
 /// When running in dev mode we copy to /tmp first to ensure it's writable.
 fn resolve_script(app: &AppHandle) -> Result<String, String> {
+    let script_name = if cfg!(windows) {
+        "setup-agent.ps1"
+    } else {
+        "setup-agent.sh"
+    };
     let resource_path = app
         .path()
-        .resolve("setup-agent.sh", tauri::path::BaseDirectory::Resource)
+        .resolve(script_name, tauri::path::BaseDirectory::Resource)
         .map_err(|e| format!("Failed to resolve resource path: {}", e))?;
 
     // If the file is already executable, use it directly (installed .deb case)
@@ -140,10 +145,19 @@ async fn run_install(
 
     #[cfg(windows)]
     let mut cmd = {
-        let mut c = Command::new("bash");
-        c.arg(&resolved_path)
-            .args(&args)
-            .env("WAZUH_MANAGER", &config.wazuh_manager)
+        let mut c = Command::new("powershell.exe");
+        c.arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-File")
+            .arg(&resolved_path);
+
+        if config.ids_engine == "suricata" {
+            c.arg("-InstallSuricata");
+        } else if config.ids_engine == "snort" {
+            c.arg("-InstallSnort");
+        }
+
+        c.env("WAZUH_MANAGER", &config.wazuh_manager)
             .env("WAZUH_AGENT_VERSION", &config.wazuh_agent_version)
             .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
             .env("LOG_LEVEL", &config.log_level)
@@ -260,7 +274,8 @@ async fn run_enroll(
 
     #[cfg(windows)]
     let mut cmd = {
-        let mut c = Command::new("/var/ossec/bin/wazuh-cert-oauth2-client");
+        let mut c =
+            Command::new("C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe");
         c.arg("o-auth2")
             .arg("--issuer")
             .arg(&issuer)

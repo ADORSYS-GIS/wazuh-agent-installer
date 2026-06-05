@@ -38,6 +38,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Run frontend formatting check
+        run: npm run format:check
+
+      - name: Run frontend lint checks
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update

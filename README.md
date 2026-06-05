@@ -2,19 +2,21 @@
 
 [![CI](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml)
 
-A desktop GUI application that provides a guided, wizard-style interface for installing and configuring a full Wazuh security agent stack on Linux, macOS and Windows.
+A desktop GUI application that provides a guided, wizard-style interface for installing and configuring a full Wazuh security agent stack on Linux, macOS, and Windows.
 
-Instead of running a shell script manually from the terminal, this app walks the user through configuration, previews the installation plan, then executes the setup script with elevated privileges — streaming real-time logs directly into the UI.
+Instead of running installation commands manually in the terminal, this app walks the user through configuration, previews the installation plan, and then executes the setup scripts (Bash on Linux/macOS, PowerShell on Windows) with elevated privileges — streaming real-time logs directly into the UI.
 
 ---
 
 ## Features
 
-- **4-step wizard:** Configure → Components → Review → Install
-- **Real-time log streaming** — terminal-style view during installation
-- **Privilege escalation** via `pkexec` (no terminal sudo required)
-- **System tray integration** — minimize to tray, left-click to toggle, right-click for menu
-- **OAuth2 enrollment** — guided certificate-based authentication flow from within the app, no browser switching required
+- **5-step wizard:** Configure → Components → Review → Install → Enroll
+- **Cross-platform support:** Native installation on Linux, macOS, and Windows
+- **Modular branding:** Customize logo, color palette, preconfigured manager addresses, and endpoints using a single configuration file
+- **Real-time log streaming:** Terminal-style view during installation and enrollment
+- **Privilege escalation:** Runs natively with elevated system permissions
+- **System tray integration:** Minimize to tray, left-click to toggle, right-click for menu
+- **OAuth2 enrollment:** Guided certificate-based authentication flow from within the app
 
 ---
 
@@ -31,8 +33,21 @@ Instead of running a shell script manually from the terminal, this app walks the
 **Configurable (user choice)**
 
 - **Suricata** (IDS or IPS mode) — network intrusion detection/prevention
-- **Snort** — classic open-source network IDS
-- **Trivy** _(optional)_ — vulnerability and misconfiguration scanner
+- **Trivy** _(optional, Linux/macOS only)_ — vulnerability and misconfiguration scanner
+
+---
+
+## Branding & Customization
+
+All branding elements and preconfigured values are controlled from [src/config.ts](file:///home/adorsys/adorsys/wazuh/wazuh-agent-installer/src/config.ts). This is the **single source of truth** for:
+- Company logo
+- Application title and version
+- Color themes (primary, secondary, backgrounds, borders, status highlights)
+- List of default Wazuh Managers
+- OAuth2 Issuers and Certificate Endpoint options
+- Default agent version
+
+To update the branding, simply edit `src/config.ts` and build the application.
 
 ---
 
@@ -68,7 +83,7 @@ source "$HOME/.cargo/env"
 
 ### Node.js
 
-Any recent LTS version (18+). Install via [nvm](https://github.com/nvm-sh/nvm) or your package manager.
+Any recent LTS version (18+).
 
 ---
 
@@ -80,6 +95,16 @@ npm install
 
 # Run in development mode (hot-reload)
 npm run tauri dev
+```
+
+---
+
+## Local CI Validation
+
+To verify code quality, formatting, compilation, and lints (both frontend and backend) before pushing to Git, run the unified developer CI script:
+
+```bash
+./run-ci.sh
 ```
 
 ---
@@ -104,12 +129,15 @@ Output is written to `src-tauri/target/release/bundle/`.
 
 ```
 .
-├── setup-agent.sh              # The bundled install script
+├── setup-agent.sh              # Bundled install script for Linux & macOS
+├── setup-agent.ps1             # Bundled install script for Windows
+├── run-ci.sh                   # Unified local CI runner check script
 ├── src/
-│   ├── index.html              # App UI — 4-step wizard
-│   ├── main.js                 # Frontend logic (Tauri IPC, event handling)
-│   ├── styles.css              # Design system
-│   └── assets/                 # Static assets (icons, images)
+│   ├── index.html              # App UI — 5-step wizard
+│   ├── config.ts               # Branding and manager configuration source of truth
+│   ├── main.ts                 # Frontend logic (Tauri IPC, event handling)
+│   ├── styles.css              # Design system using brand CSS custom properties
+│   └── assets/                 # Static assets (logo, icons)
 └── src-tauri/
     ├── src/
     │   ├── lib.rs              # Rust backend — tray, install commands, log streaming
@@ -123,22 +151,12 @@ Output is written to `src-tauri/target/release/bundle/`.
 
 ---
 
-## How it works
-
-1. The user fills in the **Configure** step — Wazuh Manager address, agent name, version, and log level.
-2. On the **Components** step, they choose an IDS engine (Suricata or Snort) and optionally enable Trivy.
-3. The **Review** step shows a summary of all selected options before execution.
-4. On **Install**, the frontend invokes the Rust backend via Tauri's IPC bridge. Rust spawns the setup agent wrapper script (which downloads and runs the OS-specific installer) with elevated privileges and streams stdout/stderr back to the UI in real time.
-5. On completion, a success or failure screen is shown. The app minimizes to the system tray and remains accessible.
-
----
-
 ## Tech stack
 
 | Layer                | Technology                      |
 | -------------------- | ------------------------------- |
 | Desktop framework    | [Tauri v2](https://tauri.app)   |
-| Frontend             | Vanilla HTML / CSS / JavaScript |
+| Frontend             | HTML / CSS / TypeScript + Vite  |
 | Backend              | Rust (Tokio async runtime)      |
-| Privilege escalation | `pkexec` (Linux)                |
-| Install script       | Bash (`setup-agent.sh`)         |
+| Privilege escalation | `pkexec` (Linux), User-elevation prompt (Windows) |
+| Install script       | Bash (`setup-agent.sh`) & PowerShell (`setup-agent.ps1`) |

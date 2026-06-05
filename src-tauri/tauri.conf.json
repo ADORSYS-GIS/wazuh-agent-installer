@@ -1,10 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Wazuh Agent Installer",
-  "version": "1.0.9",
+  "version": "1.0.0",
   "identifier": "com.adorsys.wazuh-agent-installer",
   "build": {
-    "frontendDist": "../src"
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "withGlobalTauri": true,
@@ -30,7 +33,8 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "../setup-agent.sh": "./"
+      "../setup-agent.sh": "./",
+      "../setup-agent.ps1": "./"
     },
     "icon": [
     "icons/32x32.png",
