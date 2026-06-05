@@ -42,8 +42,6 @@ export const BRAND_CONFIG = {
   },
 
   // Wazuh Agent default configuration
-  wazuhAgentVersion: "4.14.1-1",
-
   managers: [
     { value: "manager.wazuh.adorsys.team", label: "manager.wazuh.adorsys.team (prod)" },
     { value: "single-cluster.dev.wazuh.adorsys.team", label: "single-cluster.dev.wazuh.adorsys.team (dev)" },
