@@ -16,6 +16,8 @@ jobs:
         include:
           - platform: ubuntu-22.04
             args: ''
+          - platform: ubuntu-24.04-arm
+            args: ''
           - platform: macos-latest
             args: '--target universal-apple-darwin'
           - platform: windows-latest
@@ -40,7 +42,7 @@ jobs:
 
       # ── Linux system dependencies ─────────────────────────────────────────
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
