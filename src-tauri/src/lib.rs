@@ -39,7 +39,6 @@ struct ComponentStatus {
 pub struct InstallConfig {
     pub wazuh_manager: String,
     pub wazuh_agent_name: String,
-    pub wazuh_agent_version: String,
     pub log_level: String,
     pub ids_engine: String,
     pub suricata_mode: String,
@@ -159,7 +158,6 @@ async fn run_install(
     command
         .env("WAZUH_MANAGER", &config.wazuh_manager)
         .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
-        .env("WAZUH_VERSION", &config.wazuh_agent_version)
         .env("IDS_ENGINE", &config.ids_engine)
         .env("SURICATA_MODE", &config.suricata_mode)
         .env(
