@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-22.04, ubuntu-24.04-arm]
+        platform: [ubuntu-22.04, ubuntu-22.04-arm]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
