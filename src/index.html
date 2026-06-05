@@ -50,25 +50,18 @@
           <section id="tab-setup" class="tab-panel active">
             <h2 class="section-title">Agent Configuration</h2>
 
-            <div class="form-grid-2col">
-              <div class="form-group">
-                <label class="form-label" for="wazuh-manager">Wazuh Manager</label>
-                <select class="form-input form-select" id="wazuh-manager">
-                  <option value="">— Select a manager —</option>
-                </select>
-                <input
-                  class="form-input"
-                  type="text"
-                  id="wazuh-manager-custom"
-                  placeholder="Enter manager address"
-                  style="display: none; margin-top: 6px"
-                />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label" for="agent-version">Agent Version</label>
-                <div class="form-static" id="agent-version">4.14.1-1</div>
-              </div>
+            <div class="form-group" style="max-width: 400px">
+              <label class="form-label" for="wazuh-manager">Wazuh Manager</label>
+              <select class="form-input form-select" id="wazuh-manager">
+                <option value="">— Select a manager —</option>
+              </select>
+              <input
+                class="form-input"
+                type="text"
+                id="wazuh-manager-custom"
+                placeholder="Enter manager address"
+                style="display: none; margin-top: 6px"
+              />
             </div>
 
             <h3 class="subsection-title">Network IDS Engine</h3>
