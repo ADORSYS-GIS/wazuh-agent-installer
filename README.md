@@ -64,16 +64,16 @@ To update the branding, simply edit `src/config.ts` and build the application.
 
 ---
 
-## Building a release
+## Releases
 
-```bash
-npm run tauri build
-```
+Pre-built binaries for Linux, macOS, and Windows are published automatically via GitHub Actions on every tagged version.
 
-Output is written to `src-tauri/target/release/bundle/`.
+Download the latest release from the [**GitHub Releases page**](https://github.com/ADORSYS-GIS/wazuh-agent-installer/releases/latest).
 
-| Platform | Package                                    |
-| -------- | ------------------------------------------ |
-| Linux    | `.deb`, `.AppImage`                        |
-| macOS    | `.dmg` (universal — Intel + Apple Silicon) |
-| Windows  | `.msi`, `.exe`                             |
+| Platform | Package                                     |
+| -------- | ------------------------------------------- |
+| Linux    | `.deb`, `.AppImage` (AMD64 and ARM64)       |
+| macOS    | `.dmg` (universal — Intel + Apple Silicon)  |
+| Windows  | `.msi`, `.exe`                              |
+
+> Releases are tagged as `v<major>.<minor>.<patch>` and built from the `main` branch. Artifacts are signed and their checksums are published alongside each release.
