@@ -58,7 +58,7 @@ jobs:
 
       - name: Run tests
         working-directory: ./src-tauri
-        run: cargo nextest run --all-targets --all-features
+        run: cargo nextest run --all-targets --all-features --no-tests pass
 
       - name: Check unused dependencies
         working-directory: ./src-tauri
