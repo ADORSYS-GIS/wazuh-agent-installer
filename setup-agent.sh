@@ -7,7 +7,8 @@ set -eu
 # downloaded to a temporary location and is executed remotely.
 
 REPO_URL="https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent"
-REF="${WAZUH_AGENT_REPO_REF:-main}"
+export WAZUH_AGENT_REPO_REF="${WAZUH_AGENT_REPO_REF:-main}"
+REF="$WAZUH_AGENT_REPO_REF"
 export WAZUH_AGENT_VERSION="4.14.1-1"
 
 SCRIPT_NAME="setup-agent.sh"

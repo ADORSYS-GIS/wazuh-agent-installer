@@ -3,7 +3,8 @@ param(
     [string]$Ref = $env:WAZUH_AGENT_REPO_REF
 )
 
-if (-not $Ref) { $Ref = 'main' }
+if (-not $env:WAZUH_AGENT_REPO_REF) { $env:WAZUH_AGENT_REPO_REF = 'main' }
+$Ref = $env:WAZUH_AGENT_REPO_REF
 
 $env:WAZUH_AGENT_VERSION = "4.14.1-1"
 
