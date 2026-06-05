@@ -433,7 +433,11 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
         ),
         (
             "Agent Status Monitor".to_string(),
-            format!("{}/bin/wazuh-agent-status", ossec_path),
+            if cfg!(target_os = "macos") {
+                "/usr/local/bin/wazuh-agent-status".to_string()
+            } else {
+                format!("{}/bin/wazuh-agent-status", ossec_path)
+            },
         ),
         ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
         (
