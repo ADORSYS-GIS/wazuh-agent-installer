@@ -443,7 +443,7 @@ async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentSta
         (
             "Suricata".to_string(),
             if cfg!(target_os = "macos") {
-                "/opt/homebrew/bin/suricata".to_string()
+                "/usr/local/bin/suricata".to_string()
             } else {
                 "/usr/bin/suricata".to_string()
             },
