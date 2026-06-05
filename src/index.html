@@ -98,7 +98,17 @@
             </div>
 
             <div class="card compact" id="install-log-card" style="display: none; margin-top: 24px">
-              <div class="card-title">Installation Progress</div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
+                <div class="card-title" style="margin-bottom: 0">Installation Progress</div>
+                <button
+                  class="btn btn-secondary"
+                  id="btn-save-install-logs"
+                  type="button"
+                  style="display: none; padding: 4px 12px; font-size: 12px; height: auto"
+                >
+                  ⬇ Save Logs
+                </button>
+              </div>
               <div class="terminal" id="terminal">
                 <div class="terminal-placeholder" id="terminal-placeholder">
                   <span class="spinner"></span> Waiting to start…
@@ -171,6 +181,17 @@
             </div>
 
             <div id="enroll-terminal-area" style="display: none">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
+                <h3 class="subsection-title" style="margin-bottom: 0; margin-top: 0">Enrollment Output</h3>
+                <button
+                  class="btn btn-secondary"
+                  id="btn-save-enroll-logs"
+                  type="button"
+                  style="display: none; padding: 4px 12px; font-size: 12px; height: auto"
+                >
+                  ⬇ Save Logs
+                </button>
+              </div>
               <div class="terminal" id="enroll-terminal">
                 <div class="terminal-placeholder" id="enroll-terminal-placeholder">
                   <span class="spinner"></span> Running enrollment…

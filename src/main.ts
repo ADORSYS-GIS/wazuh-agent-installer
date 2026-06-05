@@ -412,6 +412,7 @@ async function startInstall() {
     unlistenLog();
     isInstalling = false;
     updateInstallButtonState();
+    enableSaveLogs("btn-save-install-logs", "terminal", "install");
   }
 }
 
@@ -483,6 +484,7 @@ async function startEnrollment() {
     isEnrolling = false;
     updateEnrollButtonState();
     refreshComponents();
+    enableSaveLogs("btn-save-enroll-logs", "enroll-terminal", "enroll");
   }
 }
 
@@ -526,3 +528,29 @@ async function refreshComponents() {
 
 // ---- Start ----
 boot();
+// ---- Helpers ----
+
+function enableSaveLogs(buttonId: string, terminalId: string, prefix: string) {
+  const btn = document.getElementById(buttonId);
+  const term = document.getElementById(terminalId);
+  if (!btn || !term) return;
+  btn.style.display = "inline-flex";
+  btn.onclick = () => {
+    const clone = term.cloneNode(true) as HTMLElement;
+    const placeholder = clone.querySelector(".terminal-placeholder");
+    if (placeholder) placeholder.remove();
+
+    const logs = clone.innerText.trim();
+    if (!logs) return;
+
+    const blob = new Blob([logs], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `wazuh-${prefix}-logs.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+}
