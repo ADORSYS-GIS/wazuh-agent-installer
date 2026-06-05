@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::process::Stdio;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
@@ -48,6 +48,50 @@ pub struct InstallConfig {
 }
 
 // ---- Commands ----
+
+fn resolve_script(app: &AppHandle) -> Result<String, String> {
+    let script_name = if cfg!(windows) {
+        "setup-agent.ps1"
+    } else {
+        "setup-agent.sh"
+    };
+    let resource_path = app
+        .path()
+        .resolve(script_name, tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("Failed to resolve resource path: {}", e))?;
+
+    // If the file is already executable, use it directly (installed .deb case)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&resource_path) {
+            let mode = meta.permissions().mode();
+            if mode & 0o111 != 0 {
+                // Already executable — use in place
+                return resource_path
+                    .to_str()
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| "Script path contains invalid UTF-8".to_string());
+            }
+        }
+        // Not executable — copy to /tmp and chmod (dev mode)
+        let tmp_path = std::env::temp_dir().join("wazuh-setup-agent.sh");
+        std::fs::copy(&resource_path, &tmp_path)
+            .map_err(|e| format!("Failed to copy script to temp dir: {}", e))?;
+        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Failed to set script permissions: {}", e))?;
+        tmp_path
+            .to_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
+    }
+
+    #[cfg(not(unix))]
+    resource_path
+        .to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
+}
 
 #[tauri::command]
 fn get_platform() -> String {
@@ -122,6 +166,9 @@ async fn run_install(
         stored.clone()
     };
 
+    let resolved_path = resolve_script(&app)?;
+    let win_cmd = format!("Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{}\"' -Verb RunAs -Wait", resolved_path);
+
     let (cmd_str, args, use_sudo) = if cfg!(target_os = "windows") {
         (
             "powershell",
@@ -130,19 +177,12 @@ async fn run_install(
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File .\\setup-agent.ps1' -Verb RunAs -Wait",
+                &win_cmd as &str,
             ],
-            false
+            false,
         )
     } else {
-        (
-            "bash",
-            vec![
-                "-c",
-                "curl -sO https://packages.wazuh.com/4.x/wazuh-agent.sh && bash setup-agent.sh",
-            ],
-            true,
-        )
+        ("bash", vec![&resolved_path as &str], true)
     };
 
     let mut command = if use_sudo {
