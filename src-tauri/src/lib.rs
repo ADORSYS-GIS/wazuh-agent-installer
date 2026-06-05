@@ -308,20 +308,20 @@ async fn run_enroll(
 
     #[cfg(windows)]
     let (cmd, args, use_sudo) = {
-        let mut arg_str = format!("o-auth2 --issuer '{}' --endpoint '{}'", issuer, endpoint);
+        let mut args = vec![
+            "o-auth2".to_string(),
+            "--issuer".to_string(),
+            issuer,
+            "--endpoint".to_string(),
+            endpoint,
+        ];
         if overwrite {
-            arg_str.push_str(" --overwrite");
+            args.push("--overwrite".to_string());
         }
         (
-            "powershell",
-            vec![
-                "-NoProfile".to_string(),
-                "-ExecutionPolicy".to_string(),
-                "Bypass".to_string(),
-                "-Command".to_string(),
-                format!("Start-Process 'C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe' -ArgumentList '{}' -Verb RunAs -Wait", arg_str),
-            ],
-            false
+            "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe",
+            args,
+            false,
         )
     };
 
