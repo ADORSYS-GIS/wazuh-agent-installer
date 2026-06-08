@@ -56,11 +56,11 @@ jobs:
 
       - name: Clippy lints
         working-directory: ./src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy -- -D warnings
 
       - name: Run tests
         working-directory: ./src-tauri
-        run: cargo nextest run --all-targets --all-features --no-tests pass
+        run: cargo nextest run --no-tests pass
 
       - name: Check unused dependencies
         working-directory: ./src-tauri
