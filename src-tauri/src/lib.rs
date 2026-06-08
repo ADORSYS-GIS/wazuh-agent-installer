@@ -215,15 +215,22 @@ async fn run_install(
     let mut command = if use_sudo {
         let mut c = Command::new("sudo");
         c.arg("-S").arg("-p").arg("");
-        
+
         // Pass environment variables via `env` so `sudo` doesn't strip them
         c.arg("env");
         c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
         c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
         c.arg(format!("IDS_ENGINE={}", config.ids_engine));
         c.arg(format!("SURICATA_MODE={}", config.suricata_mode));
-        c.arg(format!("INSTALL_TRIVY={}", if config.install_trivy { "true" } else { "false" }));
-        
+        c.arg(format!(
+            "INSTALL_TRIVY={}",
+            if config.install_trivy {
+                "true"
+            } else {
+                "false"
+            }
+        ));
+
         c.arg(cmd_str).args(&args);
         c
     } else {
