@@ -44,11 +44,30 @@ pub struct InstallConfig {
     pub wazuh_manager: String,
     pub wazuh_agent_name: String,
     pub log_level: String,
+    // TODO: ids_engine is reserved for future Snort support; currently always "suricata"
     pub ids_engine: String,
     pub suricata_mode: String,
     pub install_trivy: bool,
     pub oauth_issuer: String,
     pub cert_endpoint: String,
+}
+
+// ---- Helpers ----
+
+/// Classify a log line as "error", "success", or "info" for UI highlighting.
+fn classify_line(line: &str) -> &'static str {
+    let l = line.to_lowercase();
+    if l.contains("[error]")
+        || l.contains("failed")
+        || l.contains("error:")
+        || l.contains("command not found")
+    {
+        "error"
+    } else if l.contains("[success]") || l.contains("successfully") || l.contains("completed") {
+        "success"
+    } else {
+        "info"
+    }
 }
 
 // ---- Commands ----
@@ -110,7 +129,9 @@ fn is_root() -> bool {
     }
     #[cfg(windows)]
     {
-        // On Windows we rely on the OS elevation prompt during command execution
+        // On Windows this always returns true. Actual elevation is handled by the OS UAC
+        // prompt at process launch time. Callers should not treat this as a reliable
+        // indicator of real administrator status — it's a platform-level no-op.
         true
     }
 }
@@ -166,9 +187,11 @@ async fn run_install(
         *stored = Some(pw);
     }
 
+    // Take the password out of state immediately after reading it, to minimize
+    // how long the plaintext remains in process memory.
     let pw_opt = {
-        let stored = state.sudo_password.lock().unwrap();
-        stored.clone()
+        let mut stored = state.sudo_password.lock().unwrap();
+        stored.take()
     };
 
     let resolved_path = resolve_script(&app)?;
@@ -289,9 +312,11 @@ async fn run_enroll(
         *stored = Some(pw);
     }
 
+    // Take the password out of state immediately after reading it, to minimize
+    // how long the plaintext remains in process memory.
     let pw_opt = {
-        let stored = state.sudo_password.lock().unwrap();
-        stored.clone()
+        let mut stored = state.sudo_password.lock().unwrap();
+        stored.take()
     };
 
     #[cfg(unix)]
@@ -391,7 +416,6 @@ async fn run_enroll(
                     level: level.into(),
                 },
             );
-            // had_error_flag is removed, we don't use it anymore
         }
     });
 
@@ -648,19 +672,4 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-fn classify_line(line: &str) -> &'static str {
-    let l = line.to_lowercase();
-    if l.contains("[error]")
-        || l.contains("failed")
-        || l.contains("error:")
-        || l.contains("command not found")
-    {
-        "error"
-    } else if l.contains("[success]") || l.contains("successfully") || l.contains("completed") {
-        "success"
-    } else {
-        "info"
-    }
 }

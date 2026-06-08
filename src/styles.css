@@ -495,6 +495,32 @@ input:checked + .slider:before {
   color: var(--brand-status-error);
 }
 
+/* Result Screen */
+.result-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.result-icon.success {
+  color: var(--brand-status-success);
+}
+
+.result-icon.error {
+  color: var(--brand-status-error);
+}
+
+.result-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.result-desc {
+  font-size: 14px;
+  color: var(--brand-text-secondary);
+  margin-bottom: 20px;
+}
+
 /* Components */
 .components-grid {
   display: grid;

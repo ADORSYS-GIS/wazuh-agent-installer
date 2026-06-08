@@ -228,6 +228,8 @@ function applyBrandTheme(): void {
   root.style.setProperty("--brand-status-success", BRAND_CONFIG.colors.statusSuccess);
   root.style.setProperty("--brand-status-error", BRAND_CONFIG.colors.statusError);
   root.style.setProperty("--brand-status-warn", BRAND_CONFIG.colors.statusWarn);
+  // --brand-status-info is used by .log-line.info in styles.css
+  root.style.setProperty("--brand-status-info", "#60a5fa");
 }
 
 function initializeAppHeaderAndOptions(): void {

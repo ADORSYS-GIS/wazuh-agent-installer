@@ -1,10 +1,9 @@
 param(
     [string]$RepoUrl = "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent",
-    [string]$Ref = $env:WAZUH_AGENT_REPO_REF
+    [string]$Ref = $(
+        if ($env:WAZUH_AGENT_REPO_REF) { $env:WAZUH_AGENT_REPO_REF } else { 'main' }
+    )
 )
-
-if (-not $env:WAZUH_AGENT_REPO_REF) { $env:WAZUH_AGENT_REPO_REF = 'main' }
-$Ref = $env:WAZUH_AGENT_REPO_REF
 
 $env:WAZUH_AGENT_VERSION = "4.14.1-1"
 
