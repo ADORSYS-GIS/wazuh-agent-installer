@@ -4,41 +4,41 @@
 
 export const BRAND_CONFIG = {
   // Brand Metadata
-  companyName: "Adorsys",
+  companyName: "Sky EngPro",
   appTitle: "Wazuh Agent Installer",
   appVersion: "v1.0.0",
-  logo: "assets/adorsys-logo.png", // Path relative to public/build folder
+  logo: "assets/sky-engpro-logo.png", // Path relative to public/build folder
 
   // Brand Theme Palette (dynamically injected into :root variables)
   colors: {
     // Primary brand color and hover/ghost variants
-    primary: "#1a73e8",
-    primaryHover: "#4d9af5",
-    primaryGhost: "rgba(26, 115, 232, 0.15)",
-    teal: "#00c4b4",
-    tealDim: "rgba(0, 196, 180, 0.12)",
+    primary: "#FF991C",
+    primaryHover: "#e6891a",
+    primaryGhost: "rgba(255, 153, 28, 0.12)",
+    teal: "#FF991C",
+    tealDim: "rgba(255, 153, 28, 0.10)",
 
-    // Dark theme surface backgrounds
-    bgRoot: "#0b0e14",
-    bgCard: "#12161f",
-    bgCardHover: "#181d28",
-    bgInput: "#161b26",
-    bgInputFocus: "#1a2030",
-    bgTerminal: "#090c10",
+    // Light theme surface backgrounds
+    bgRoot: "#f8f6f3",
+    bgCard: "#ffffff",
+    bgCardHover: "#f3f0ec",
+    bgInput: "#f3f0ec",
+    bgInputFocus: "#ede9e4",
+    bgTerminal: "#1a1a2e",
 
     // Text colors
-    textPrimary: "#e8ecf1",
-    textSecondary: "#8b95a5",
-    textMuted: "#5a6476",
-    textAccent: "#4d9af5",
+    textPrimary: "#1a1a2e",
+    textSecondary: "#78716c",
+    textMuted: "#a8a29e",
+    textAccent: "#FF991C",
 
     // Status colors
-    statusSuccess: "#34d399",
-    statusSuccessDim: "rgba(52, 211, 153, 0.12)",
-    statusError: "#f87171",
-    statusErrorDim: "rgba(248, 113, 113, 0.12)",
-    statusWarn: "#fbbf24",
-    statusWarnDim: "rgba(251, 191, 36, 0.12)",
+    statusSuccess: "#16a34a",
+    statusSuccessDim: "rgba(22, 163, 74, 0.10)",
+    statusError: "#dc2626",
+    statusErrorDim: "rgba(220, 38, 38, 0.10)",
+    statusWarn: "#d97706",
+    statusWarnDim: "rgba(217, 119, 6, 0.10)",
   },
 
   // Wazuh Agent default configuration
