@@ -25,6 +25,7 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           workspaces: './src-tauri -> target'
+          shared-key: 'bust-cache-1'
 
       - name: Install CI tools
         uses: taiki-e/install-action@d9be7d8cda89035c9c843f78bd44d4f72d8403d4
