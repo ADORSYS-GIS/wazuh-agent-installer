@@ -1,22 +1,18 @@
 # Wazuh Agent Installer
 
-[![CI](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml)
-
-A desktop GUI application that provides a guided, wizard-style interface for installing and configuring a full Wazuh security agent stack on Linux, macOS, and Windows.
-
-Instead of running installation commands manually in the terminal, this app walks the user through configuration, previews the installation plan, and then executes the setup scripts (Bash on Linux/macOS, PowerShell on Windows) with elevated privileges — streaming real-time logs directly into the UI.
+A desktop GUI application that provides a guided interface for installing and configuring a full Wazuh security agent stack on Linux, macOS, and Windows.
 
 ---
 
 ## Features
 
-- **5-step wizard:** Configure → Components → Review → Install → Enroll
-- **Cross-platform support:** Native installation on Linux, macOS, and Windows
-- **Modular branding:** Customize logo, color palette, preconfigured manager addresses, and endpoints using a single configuration file
-- **Real-time log streaming:** Terminal-style view during installation and enrollment
-- **Privilege escalation:** Runs natively with elevated system permissions
-- **System tray integration:** Minimize to tray, left-click to toggle, right-click for menu
-- **OAuth2 enrollment:** Guided certificate-based authentication flow from within the app
+- **Sidebar UI:** Intuitive layout with Setup, Enrollment, and Components tabs.
+- **Cross-platform support:** Native installation on Linux, macOS, and Windows.
+- **Modular branding:** Customize logo, color palette, preconfigured manager addresses, and endpoints using a single configuration file.
+- **Secure Privileges:** Validates `sudo` authentication upfront and securely pipes it via `stdin` across installation sub-processes (no plaintext password caching to disk).
+- **Component Auditing:** Detects and verifies the presence of security binaries and active-response scripts across root-owned directories.
+- **Real-time log streaming:** Terminal-style view during installation and enrollment.
+- **OAuth2 enrollment:** Guided certificate-based authentication flow from within the app using PKCE.
 
 ---
 
@@ -37,9 +33,26 @@ Instead of running installation commands manually in the terminal, this app walk
 
 ---
 
+## Quick start
+
+To develop locally or test the application, you'll need Node.js 18+ and Rust installed.
+
+```bash
+# Install frontend dependencies
+npm install
+
+# Run the local CI check to ensure the project compiles and passes lints
+./run-ci.sh
+
+# Run in development mode (hot-reload)
+npm run tauri dev
+```
+
+---
+
 ## Branding & Customization
 
-All branding elements and preconfigured values are controlled from [src/config.ts](file:///home/adorsys/adorsys/wazuh/wazuh-agent-installer/src/config.ts). This is the **single source of truth** for:
+All branding elements and preconfigured values are controlled from `src/config.ts`. This is the **single source of truth** for:
 - Company logo
 - Application title and version
 - Color themes (primary, secondary, backgrounds, borders, status highlights)
@@ -51,112 +64,16 @@ To update the branding, simply edit `src/config.ts` and build the application.
 
 ---
 
-## Prerequisites
+## Releases
 
-### System dependencies
+Pre-built binaries for Linux, macOS, and Windows are published automatically via GitHub Actions on every tagged version.
 
-**Linux (Debian/Ubuntu)**
+Download the latest release from the [**GitHub Releases page**](https://github.com/ADORSYS-GIS/wazuh-agent-installer/releases/latest).
 
-```bash
-sudo apt update
-sudo apt install -y \
-  libwebkit2gtk-4.1-dev \
-  libgtk-3-dev \
-  libsoup-3.0-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev \
-  policykit-1
-```
+| Platform | Package                                     |
+| -------- | ------------------------------------------- |
+| Linux    | `.deb`, `.AppImage` (AMD64 and ARM64)       |
+| macOS    | `.dmg` (universal — Intel + Apple Silicon)  |
+| Windows  | `.msi`, `.exe`                              |
 
-**macOS**
-
-```bash
-xcode-select --install
-```
-
-### Rust
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
-```
-
-### Node.js
-
-Any recent LTS version (18+).
-
----
-
-## Quick start
-
-```bash
-# Install frontend dependencies
-npm install
-
-# Run in development mode (hot-reload)
-npm run tauri dev
-```
-
----
-
-## Local CI Validation
-
-To verify code quality, formatting, compilation, and lints (both frontend and backend) before pushing to Git, run the unified developer CI script:
-
-```bash
-./run-ci.sh
-```
-
----
-
-## Building a release
-
-```bash
-npm run tauri build
-```
-
-Output is written to `src-tauri/target/release/bundle/`.
-
-| Platform | Package                                    |
-| -------- | ------------------------------------------ |
-| Linux    | `.deb`, `.AppImage`                        |
-| macOS    | `.dmg` (universal — Intel + Apple Silicon) |
-| Windows  | `.msi`, `.exe`                             |
-
----
-
-## Project structure
-
-```
-.
-├── setup-agent.sh              # Bundled install script for Linux & macOS
-├── setup-agent.ps1             # Bundled install script for Windows
-├── run-ci.sh                   # Unified local CI runner check script
-├── src/
-│   ├── index.html              # App UI — 5-step wizard
-│   ├── config.ts               # Branding and manager configuration source of truth
-│   ├── main.ts                 # Frontend logic (Tauri IPC, event handling)
-│   ├── styles.css              # Design system using brand CSS custom properties
-│   └── assets/                 # Static assets (logo, icons)
-└── src-tauri/
-    ├── src/
-    │   ├── lib.rs              # Rust backend — tray, install commands, log streaming
-    │   └── main.rs             # Entry point
-    ├── capabilities/
-    │   └── default.json        # Tauri permission scopes
-    ├── icons/                  # App icons (all required sizes)
-    ├── Cargo.toml              # Rust dependencies
-    └── tauri.conf.json         # Tauri configuration
-```
-
----
-
-## Tech stack
-
-| Layer                | Technology                      |
-| -------------------- | ------------------------------- |
-| Desktop framework    | [Tauri v2](https://tauri.app)   |
-| Frontend             | HTML / CSS / TypeScript + Vite  |
-| Backend              | Rust (Tokio async runtime)      |
-| Privilege escalation | `pkexec` (Linux), User-elevation prompt (Windows) |
-| Install script       | Bash (`setup-agent.sh`) & PowerShell (`setup-agent.ps1`) |
+> Releases are tagged as `v<major>.<minor>.<patch>` and built from the `main` branch. Artifacts are signed and their checksums are published alongside each release.

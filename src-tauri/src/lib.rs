@@ -1,40 +1,67 @@
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::process::Stdio;
+use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager,
+    AppHandle, Emitter, Manager, State,
 };
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LogLine {
-    pub line: String,
-    pub level: String, // "info" | "error" | "success"
+// ---- State ----
+
+pub struct AppState {
+    pub sudo_password: Mutex<Option<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+// ---- Types ----
+
+#[derive(Serialize, Clone)]
+struct LogLine {
+    line: String,
+    level: String,
+}
+
+#[derive(Serialize, Clone)]
+struct InstallResult {
+    success: bool,
+    exit_code: i32,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct ComponentStatus {
+    name: String,
+    installed: bool,
+    version: Option<String>,
+    path: String,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
 pub struct InstallConfig {
     pub wazuh_manager: String,
-    pub wazuh_agent_version: String,
     pub wazuh_agent_name: String,
-    pub ids_engine: String,    // "suricata" | "snort"
-    pub suricata_mode: String, // "ids" | "ips"
-    pub install_trivy: bool,
     pub log_level: String,
+    // TODO: ids_engine is reserved for future Snort support; currently always "suricata"
+    pub ids_engine: String,
+    pub suricata_mode: String,
+    pub install_trivy: bool,
+    pub oauth_issuer: String,
+    pub cert_endpoint: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct InstallResult {
-    pub success: bool,
-    pub exit_code: i32,
-    pub message: String,
-}
+// ---- Helpers ----
 
+/// Classify a log line as "error", "success", or "info" for UI highlighting.
 fn classify_line(line: &str) -> &'static str {
     let l = line.to_lowercase();
-    if l.contains("[error]") || l.contains("failed") || l.contains("error:") {
+    if l.contains("[error]")
+        || l.contains("failed")
+        || l.contains("error:")
+        || l.contains("command not found")
+    {
         "error"
     } else if l.contains("[success]") || l.contains("successfully") || l.contains("completed") {
         "success"
@@ -43,9 +70,8 @@ fn classify_line(line: &str) -> &'static str {
     }
 }
 
-/// Resolve the bundled setup-agent.sh path and return it as a String.
-/// When installed from a .deb the script is already executable.
-/// When running in dev mode we copy to /tmp first to ensure it's writable.
+// ---- Commands ----
+
 fn resolve_script(app: &AppHandle) -> Result<String, String> {
     let script_name = if cfg!(windows) {
         "setup-agent.ps1"
@@ -91,426 +117,576 @@ fn resolve_script(app: &AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn run_install(
-    app: AppHandle,
-    config: InstallConfig,
-    script_path: Option<String>,
-) -> Result<InstallResult, String> {
-    // Resolve script: prefer caller-supplied path, fall back to bundled resource
-    let resolved_path = match script_path {
-        Some(ref p) if !p.is_empty() => p.clone(),
-        _ => resolve_script(&app)?,
-    };
+fn get_platform() -> String {
+    env::consts::OS.to_string()
+}
 
-    // Build CLI args from config
-    let mut args: Vec<String> = vec![];
-
-    if config.ids_engine == "suricata" {
-        args.push("-s".to_string());
-        let mode = if config.suricata_mode.is_empty() {
-            "ids".to_string()
-        } else {
-            config.suricata_mode.clone()
-        };
-        args.push(mode);
-    } else if config.ids_engine == "snort" {
-        args.push("-n".to_string());
-    }
-
-    if config.install_trivy {
-        args.push("-t".to_string());
-    }
-
-    // On Linux/macOS use pkexec for a GUI privilege prompt.
-    // On Windows, run bash directly (WSL or Git Bash) — the script handles elevation internally.
+#[tauri::command]
+fn is_root() -> bool {
     #[cfg(unix)]
-    let mut cmd = {
-        let mut c = Command::new("pkexec");
-        c.arg("env")
-            .arg(format!("WAZUH_MANAGER={}", &config.wazuh_manager))
-            .arg(format!(
-                "WAZUH_AGENT_VERSION={}",
-                &config.wazuh_agent_version
-            ))
-            .arg(format!("WAZUH_AGENT_NAME={}", &config.wazuh_agent_name))
-            .arg(format!("LOG_LEVEL={}", &config.log_level))
-            .arg("bash")
-            .arg(&resolved_path)
-            .args(&args)
+    unsafe {
+        libc::geteuid() == 0
+    }
+    #[cfg(windows)]
+    {
+        // On Windows this always returns true. Actual elevation is handled by the OS UAC
+        // prompt at process launch time. Callers should not treat this as a reliable
+        // indicator of real administrator status — it's a platform-level no-op.
+        true
+    }
+}
+
+#[allow(unused_variables)]
+#[tauri::command]
+async fn verify_sudo(password: String, state: State<'_, AppState>) -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        let mut child = Command::new("sudo")
+            .arg("-S")
+            .arg("-k")
+            .arg("-p")
+            .arg("")
+            .arg("id")
+            .arg("-u")
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        c
-    };
+            .spawn()
+            .map_err(|e| format!("Failed to spawn sudo: {}", e))?;
 
-    #[cfg(windows)]
-    let mut cmd = {
-        let mut c = Command::new("powershell.exe");
-        c.arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-File")
-            .arg(&resolved_path);
-
-        if config.ids_engine == "suricata" {
-            c.arg("-InstallSuricata");
-        } else if config.ids_engine == "snort" {
-            c.arg("-InstallSnort");
+        if let Some(mut stdin) = child.stdin.take() {
+            let pwd = format!("{}\n", password);
+            let _ = stdin.write_all(pwd.as_bytes()).await;
         }
 
-        c.env("WAZUH_MANAGER", &config.wazuh_manager)
-            .env("WAZUH_AGENT_VERSION", &config.wazuh_agent_version)
-            .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
-            .env("LOG_LEVEL", &config.log_level)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+        let output = child.wait_with_output().await.map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            let mut stored_pw = state.sudo_password.lock().unwrap();
+            *stored_pw = Some(password);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+    #[cfg(windows)]
+    {
+        Ok(true)
+    }
+}
+
+#[tauri::command]
+async fn run_install(
+    config: InstallConfig,
+    password: Option<String>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    if let Some(pw) = password {
+        let mut stored = state.sudo_password.lock().unwrap();
+        *stored = Some(pw);
+    }
+
+    // Take the password out of state immediately after reading it, to minimize
+    // how long the plaintext remains in process memory.
+    let pw_opt = {
+        let mut stored = state.sudo_password.lock().unwrap();
+        stored.take()
+    };
+
+    let resolved_path = resolve_script(&app)?;
+
+    let (cmd_str, args, use_sudo) = if cfg!(target_os = "windows") {
+        (
+            "powershell",
+            vec![
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                &resolved_path as &str,
+            ],
+            false,
+        )
+    } else {
+        ("bash", vec![&resolved_path as &str], true)
+    };
+
+    let mut command = if use_sudo {
+        let mut c = Command::new("sudo");
+        c.arg("-S").arg("-p").arg("");
+
+        // Pass environment variables via `env` so `sudo` doesn't strip them
+        c.arg("env");
+        c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
+        c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
+        c.arg(format!("IDS_ENGINE={}", config.ids_engine));
+        c.arg(format!("SURICATA_MODE={}", config.suricata_mode));
+        c.arg(format!(
+            "INSTALL_TRIVY={}",
+            if config.install_trivy {
+                "true"
+            } else {
+                "false"
+            }
+        ));
+
+        c.arg(cmd_str).args(&args);
+        c
+    } else {
+        let mut c = Command::new(cmd_str);
+        c.args(&args);
         c
     };
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn process: {}", e))?;
+    command
+        .env("WAZUH_MANAGER", &config.wazuh_manager)
+        .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
+        .env("IDS_ENGINE", &config.ids_engine)
+        .env("SURICATA_MODE", &config.suricata_mode)
+        .env(
+            "INSTALL_TRIVY",
+            if config.install_trivy {
+                "true"
+            } else {
+                "false"
+            },
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    // Stream stdout
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+
+    if use_sudo {
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Some(pw) = pw_opt {
+                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
+            }
+        }
+    }
+
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-    let app_stdout = app.clone();
-    let stdout_task = tokio::spawn(async move {
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+    let app_clone1 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
             let level = classify_line(&line);
-            let _ = app_stdout.emit(
+            let _ = app_clone1.emit(
                 "install-log",
                 LogLine {
                     line,
-                    level: level.to_string(),
+                    level: level.into(),
                 },
             );
         }
     });
 
-    let app_stderr = app.clone();
-    let stderr_task = tokio::spawn(async move {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app_stderr.emit(
+    let app_clone2 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if line.contains("Password:") || line.trim().is_empty() {
+                continue;
+            }
+            let level = classify_line(&line);
+            let _ = app_clone2.emit(
                 "install-log",
                 LogLine {
                     line,
-                    level: "error".to_string(),
+                    level: level.into(),
                 },
             );
         }
     });
 
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| format!("Failed to wait for process: {}", e))?;
-
-    let _ = tokio::join!(stdout_task, stderr_task);
-
-    let exit_code = status.code().unwrap_or(-1);
-    let success = status.success();
-
-    let message = if success {
-        "Wazuh Agent installed successfully!".to_string()
-    } else {
-        format!("Installation failed with exit code {}", exit_code)
-    };
-
-    let _ = app.emit(
-        "install-done",
-        InstallResult {
-            success,
-            exit_code,
-            message: message.clone(),
-        },
-    );
+    let status = child.wait().await.map_err(|e| e.to_string())?;
 
     Ok(InstallResult {
-        success,
-        exit_code,
-        message,
+        success: status.success(),
+        exit_code: status.code().unwrap_or(-1),
+        message: if status.success() {
+            "Installation complete".into()
+        } else {
+            "Installation failed".into()
+        },
     })
 }
-
-use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::Mutex;
-
-// Shared stdin handle for the enrollment process
-type EnrollStdin = Arc<Mutex<Option<ChildStdin>>>;
 
 #[tauri::command]
 async fn run_enroll(
-    app: AppHandle,
     issuer: String,
     endpoint: String,
     overwrite: bool,
+    password: Option<String>,
+    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<InstallResult, String> {
-    // Use sudo for privilege elevation (allows OAuth2 callback unlike pkexec).
+    if let Some(pw) = password {
+        let mut stored = state.sudo_password.lock().unwrap();
+        *stored = Some(pw);
+    }
+
+    // Take the password out of state immediately after reading it, to minimize
+    // how long the plaintext remains in process memory.
+    let pw_opt = {
+        let mut stored = state.sudo_password.lock().unwrap();
+        stored.take()
+    };
+
     #[cfg(unix)]
-    let mut cmd = {
-        let mut c = Command::new("sudo");
-        c.arg("/var/ossec/bin/wazuh-cert-oauth2-client")
-            .arg("o-auth2")
-            .arg("--issuer")
-            .arg(&issuer)
-            .arg("--endpoint")
-            .arg(&endpoint)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+    let (cmd, args, use_sudo) = {
+        let mut args = vec![
+            "o-auth2".to_string(),
+            "--issuer".to_string(),
+            issuer,
+            "--endpoint".to_string(),
+            endpoint,
+        ];
         if overwrite {
-            c.arg("--overwrite");
+            args.push("--overwrite".to_string());
         }
-        c
+        let exe = if cfg!(target_os = "macos") {
+            "/Library/Ossec/bin/wazuh-cert-oauth2-client"
+        } else {
+            "/var/ossec/bin/wazuh-cert-oauth2-client"
+        };
+        (exe, args, true)
     };
 
     #[cfg(windows)]
-    let mut cmd = {
-        let mut c =
-            Command::new("C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe");
-        c.arg("o-auth2")
-            .arg("--issuer")
-            .arg(&issuer)
-            .arg("--endpoint")
-            .arg(&endpoint)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+    let (cmd, args, use_sudo) = {
+        let mut args = vec![
+            "o-auth2".to_string(),
+            "--issuer".to_string(),
+            issuer,
+            "--endpoint".to_string(),
+            endpoint,
+        ];
         if overwrite {
-            c.arg("--overwrite");
+            args.push("--overwrite".to_string());
         }
+        (
+            "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe",
+            args,
+            false,
+        )
+    };
+
+    let mut command = if use_sudo {
+        let mut c = Command::new("sudo");
+        c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
+        c
+    } else {
+        let mut c = Command::new(cmd);
+        c.args(&args);
         c
     };
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to start enrollment: {}", e))?;
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    // Store stdin in app state so JS can send the OAuth2 code to it
-    let stdin = child.stdin.take();
-    let stdin_state: EnrollStdin = app.state::<EnrollStdin>().inner().clone();
-    {
-        let mut guard = stdin_state.lock().await;
-        *guard = stdin;
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+
+    if use_sudo {
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Some(pw) = pw_opt {
+                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
+            }
+        }
     }
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-    // Track whether an error line was seen in the output
-    let had_error_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-
-    let app_stdout = app.clone();
-    let stdout_task = tokio::spawn(async move {
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            // Detect when the client has printed the URL and is waiting for the code
-            let is_code_prompt = line.contains("Please open this URL in your browser")
-                || line.contains("Please copy this code")
-                || line.contains("paste it into your application")
-                || line.contains("Enter the code");
-            let level = if is_code_prompt {
-                "success"
-            } else {
-                classify_line(&line)
-            };
-            let _ = app_stdout.emit(
+    let app_clone1 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let level = classify_line(&line);
+            let _ = app_clone1.emit(
                 "enroll-log",
                 LogLine {
                     line,
-                    level: level.to_string(),
+                    level: level.into(),
                 },
             );
-            if is_code_prompt {
-                let _ = app_stdout.emit("enroll-needs-code", true);
-            }
         }
     });
 
-    let app_stderr = app.clone();
-    let had_error_flag_clone = had_error_flag.clone();
-    let stderr_task = tokio::spawn(async move {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            // Track error lines
-            if line.to_lowercase().contains("error") || line.contains("invalid_grant") {
-                had_error_flag_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+    let app_clone2 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if line.contains("Password:") || line.trim().is_empty() {
+                continue;
             }
-            // Also detect code prompt on stderr
-            let is_code_prompt = line.contains("Please open this URL in your browser")
-                || line.contains("Please copy this code")
-                || line.contains("paste it into your application")
-                || line.contains("Enter the code");
-            let level = if is_code_prompt { "success" } else { "error" };
-            let _ = app_stderr.emit(
+            let level = classify_line(&line);
+            let _ = app_clone2.emit(
                 "enroll-log",
                 LogLine {
                     line,
-                    level: level.to_string(),
+                    level: level.into(),
                 },
             );
-            if is_code_prompt {
-                let _ = app_stderr.emit("enroll-needs-code", true);
-            }
         }
     });
 
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| format!("Enrollment process error: {}", e))?;
-
-    let _ = tokio::join!(stdout_task, stderr_task);
-
-    // Clear stdin state
-    {
-        let mut guard = stdin_state.lock().await;
-        *guard = None;
-    }
-
-    let exit_code = status.code().unwrap_or(-1);
-    // pkexec bash -c can return 0 even if inner command failed.
-    // Check error log state via a shared flag instead.
-    let had_error = had_error_flag.load(std::sync::atomic::Ordering::SeqCst);
-    let success = status.success() && !had_error;
-    let message = if success {
-        "Agent enrolled successfully!".to_string()
-    } else {
-        "Enrollment failed — check the log above for details".to_string()
-    };
+    let status = child.wait().await.map_err(|e| e.to_string())?;
 
     Ok(InstallResult {
-        success,
-        exit_code,
-        message,
+        success: status.success(),
+        exit_code: status.code().unwrap_or(-1),
+        message: if status.success() {
+            "Enrollment complete".into()
+        } else {
+            "Enrollment failed".into()
+        },
     })
 }
 
 #[tauri::command]
-async fn send_enroll_input(app: AppHandle, code: String) -> Result<(), String> {
-    let stdin_state: EnrollStdin = app.state::<EnrollStdin>().inner().clone();
-    let mut guard = stdin_state.lock().await;
-    if let Some(ref mut stdin) = *guard {
-        let input = format!("{}\n", code.trim());
-        stdin
-            .write_all(input.as_bytes())
-            .await
-            .map_err(|e| format!("Failed to send code: {}", e))?;
-        stdin
-            .flush()
-            .await
-            .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+async fn check_components(
+    password: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ComponentStatus>, String> {
+    let pw_opt = password.or_else(|| {
+        let stored = state.sudo_password.lock().unwrap();
+        stored.clone()
+    });
+
+    let ossec_path = if cfg!(windows) {
+        r"C:\Program Files (x86)\ossec-agent"
+    } else if cfg!(target_os = "macos") {
+        "/Library/Ossec"
     } else {
-        return Err("No active enrollment process".to_string());
+        "/var/ossec"
+    };
+
+    let components = vec![
+        (
+            "Wazuh Agent".to_string(),
+            if cfg!(windows) {
+                format!("{}\\wazuh-agent.exe", ossec_path)
+            } else {
+                format!("{}/bin/wazuh-agentd", ossec_path)
+            },
+        ),
+        (
+            "OAuth2 Client".to_string(),
+            if cfg!(windows) {
+                format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path)
+            } else {
+                format!("{}/bin/wazuh-cert-oauth2-client", ossec_path)
+            },
+        ),
+        (
+            "Agent Status Monitor".to_string(),
+            if cfg!(windows) {
+                r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string()
+            } else if cfg!(target_os = "macos") {
+                "/usr/local/bin/wazuh-agent-status".to_string()
+            } else {
+                format!("{}/bin/wazuh-agent-status", ossec_path)
+            },
+        ),
+        (
+            "YARA".to_string(),
+            if cfg!(windows) {
+                "yara64.exe".to_string()
+            } else {
+                "/usr/local/bin/yara".to_string()
+            },
+        ),
+        (
+            "Suricata".to_string(),
+            if cfg!(windows) {
+                "suricata.exe".to_string()
+            } else if cfg!(target_os = "macos") {
+                "/usr/local/bin/suricata".to_string()
+            } else {
+                "/usr/bin/suricata".to_string()
+            },
+        ),
+        (
+            "Trivy".to_string(),
+            if cfg!(windows) {
+                "trivy.exe".to_string()
+            } else {
+                "/usr/local/bin/trivy".to_string()
+            },
+        ),
+        (
+            "USB DLP Scripts".to_string(),
+            if cfg!(windows) {
+                format!(
+                    "{}\\active-response\\bin\\disable-usb-storage.ps1",
+                    ossec_path
+                )
+            } else if cfg!(target_os = "macos") {
+                format!(
+                    "{}/active-response/bin/disable-usb-storage-macos.sh",
+                    ossec_path
+                )
+            } else {
+                format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path)
+            },
+        ),
+    ];
+
+    let mut results = Vec::new();
+
+    for (name, path) in components {
+        #[cfg(unix)]
+        let installed = {
+            if let Some(ref pw) = pw_opt {
+                let mut cmd = Command::new("sudo");
+                cmd.arg("-S")
+                    .arg("-p")
+                    .arg("")
+                    .arg("test")
+                    .arg("-f")
+                    .arg(&path)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                if let Ok(mut child) = cmd.spawn() {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
+                    }
+                    if let Ok(status) = child.wait().await {
+                        status.success()
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                std::path::Path::new(&path).exists()
+            }
+        };
+
+        #[cfg(windows)]
+        let installed = {
+            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
+                Command::new(&path)
+                    .arg("--help")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .await
+                    .is_ok()
+            } else if path.ends_with("wazuh-agent.exe") {
+                std::path::Path::new(&path).exists()
+                    || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
+                        .exists()
+                    || Command::new("sc")
+                        .args(["query", "WazuhSvc"])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success())
+            } else {
+                std::path::Path::new(&path).exists()
+            }
+        };
+
+        results.push(ComponentStatus {
+            name,
+            installed,
+            version: None, // Can implement version extraction via commands later
+            path,
+        });
     }
-    Ok(())
+
+    Ok(results)
 }
 
 #[tauri::command]
-async fn hide_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.hide().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
+async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
+    let mut path = dirs::download_dir().unwrap_or_else(|| std::env::current_dir().unwrap());
+    let filename = format!("wazuh-{}-logs.txt", prefix);
+    path.push(filename);
 
-#[tauri::command]
-fn validate_config(config: InstallConfig) -> Result<(), String> {
-    if config.wazuh_manager.is_empty() {
-        return Err("Wazuh Manager address is required".to_string());
-    }
-    if config.wazuh_agent_name.is_empty() {
-        return Err("Agent name is required".to_string());
-    }
-    if config.wazuh_agent_version.is_empty() {
-        return Err("Agent version is required".to_string());
-    }
-    if config.ids_engine != "suricata" && config.ids_engine != "snort" {
-        return Err("IDS engine must be 'suricata' or 'snort'".to_string());
-    }
-    if config.ids_engine == "suricata"
-        && config.suricata_mode != "ids"
-        && config.suricata_mode != "ips"
-    {
-        return Err("Suricata mode must be 'ids' or 'ips'".to_string());
-    }
-    Ok(())
+    std::fs::write(&path, logs).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let app_state = AppState {
+        sudo_password: Mutex::new(None),
+    };
+
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .manage(EnrollStdin::new(Mutex::new(None)))
+        .plugin(tauri_plugin_opener::init())
+        .manage(app_state)
         .invoke_handler(tauri::generate_handler![
+            is_root,
+            get_platform,
+            verify_sudo,
             run_install,
-            validate_config,
-            hide_window,
             run_enroll,
-            send_enroll_input
+            check_components,
+            save_logs
         ])
         .setup(|app| {
-            // ---- Build tray menu ----
             let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            // ---- Load tray icon — use the app's default window icon ----
-            let icon = app
-                .default_window_icon()
-                .cloned()
-                .expect("No default window icon found");
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(unix)]
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    let _ = window.set_icon(icon);
+                }
+            }
 
-            // ---- Create the tray icon ----
-            TrayIconBuilder::new()
-                .icon(icon)
-                .tooltip("Wazuh Agent Installer")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    // Left-click toggles the window
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
+            if let Some(icon) = app.default_window_icon().cloned() {
+                TrayIconBuilder::new()
+                    .icon(icon)
+                    .tooltip("Wazuh Agent Installer")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
                         }
-                    }
-                })
-                .build(app)?;
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    })
+                    .build(app)?;
+            }
 
             Ok(())
         })

@@ -5,135 +5,72 @@
     <link rel="stylesheet" href="styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Wazuh Agent Installer</title>
-    <meta name="description" content="Install and configure Wazuh security agent with a guided setup wizard" />
+    <meta name="description" content="Install and configure Wazuh security agent" />
     <script type="module" src="/main.ts" defer></script>
   </head>
 
   <body>
-    <div id="app">
-      <!-- ========== Header ========== -->
-      <header class="app-header">
-        <img class="logo" id="app-logo" src="assets/adorsys-logo.png" alt="Adorsys" />
-        <h1 id="app-title">Wazuh Agent Installer</h1>
-        <span class="version" id="app-version">v1.0.0</span>
-      </header>
+    <!-- ========== Sudo Password Overlay ========== -->
+    <div id="sudo-overlay" style="display: none">
+      <div class="sudo-card">
+        <div class="sudo-icon">🛡️</div>
+        <h2>Authentication Required</h2>
+        <p>GuardPost needs administrative privileges to install Wazuh components.</p>
+        <div id="sudo-error" class="sudo-error" style="display: none"></div>
+        <input type="password" id="sudo-password" placeholder="Enter your system password" autofocus />
+        <button id="btn-sudo-submit" class="btn btn-primary" disabled>Continue</button>
+      </div>
+    </div>
 
-      <!-- ========== Stepper ========== -->
-      <nav class="stepper" id="stepper">
-        <div class="step-item active" data-step="0">
-          <div class="step-circle">1</div>
-          <span class="step-label">Configure</span>
-        </div>
-        <div class="step-connector" data-connector="0"></div>
-        <div class="step-item" data-step="1">
-          <div class="step-circle">2</div>
-          <span class="step-label">Components</span>
-        </div>
-        <div class="step-connector" data-connector="1"></div>
-        <div class="step-item" data-step="2">
-          <div class="step-circle">3</div>
-          <span class="step-label">Review</span>
-        </div>
-        <div class="step-connector" data-connector="2"></div>
-        <div class="step-item" data-step="3">
-          <div class="step-circle">4</div>
-          <span class="step-label">Install</span>
-        </div>
-        <div class="step-connector" data-connector="3"></div>
-        <div class="step-item" data-step="4">
-          <div class="step-circle">5</div>
-          <span class="step-label">Enroll</span>
-        </div>
-      </nav>
-
-      <!-- ========== Content ========== -->
-      <div class="content-area">
-        <!-- Step 0: Configure -->
-        <section class="step-panel active" id="panel-0">
-          <div class="card compact">
-            <div class="card-header-row">
-              <div>
-                <div class="card-title">Agent Configuration</div>
-                <div class="card-desc">Select the Wazuh manager and enrollment endpoints.</div>
-              </div>
-              <button class="btn btn-ghost btn-sm" id="btn-skip-to-enroll" type="button">Skip to Enrollment →</button>
-            </div>
-
-            <div class="form-grid-2col">
-              <div class="form-group">
-                <label class="form-label" for="wazuh-manager">Wazuh Manager</label>
-                <select class="form-input form-select" id="wazuh-manager">
-                  <option value="">— Select a manager —</option>
-                </select>
-                <input
-                  class="form-input"
-                  type="text"
-                  id="wazuh-manager-custom"
-                  placeholder="Enter manager address"
-                  style="display: none; margin-top: 6px"
-                />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label" for="agent-version">Agent Version</label>
-                <div class="form-static" id="agent-version">4.14.1-1</div>
-              </div>
-
-              <div class="form-group">
-                <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
-                <select class="form-input form-select" id="oauth-issuer">
-                  <option value="">— Select issuer —</option>
-                </select>
-                <input
-                  class="form-input"
-                  type="text"
-                  id="oauth-issuer-custom"
-                  placeholder="https://login.example.com/realms/myrealm"
-                  style="display: none; margin-top: 6px"
-                />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
-                <select class="form-input form-select" id="cert-endpoint">
-                  <option value="">— Select endpoint —</option>
-                </select>
-                <input
-                  class="form-input"
-                  type="text"
-                  id="cert-endpoint-custom"
-                  placeholder="https://cert.example.com/api/register-agent"
-                  style="display: none; margin-top: 6px"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Step 1: Components -->
-        <section class="step-panel" id="panel-1">
-          <div class="core-banner compact">
-            <h3>⬢ Core Components (Always Installed)</h3>
-            <div class="core-chips">
-              <span class="core-chip">Wazuh Agent</span>
-              <span class="core-chip">Cert OAuth2 Client</span>
-              <span class="core-chip">Agent Status Monitor</span>
-              <span class="core-chip">Yara Integration</span>
-              <span class="core-chip">USB DLP Scripts</span>
+    <div id="app" style="display: none">
+      <div class="app-layout">
+        <!-- ========== Sidebar ========== -->
+        <aside class="sidebar">
+          <div class="sidebar-brand">
+            <img class="logo" id="app-logo" src="assets/adorsys-logo.png" alt="Logo" />
+            <div class="brand-text">
+              <h1 id="app-title">Wazuh Installer</h1>
             </div>
           </div>
 
-          <div class="components-grid">
-            <div class="card compact">
-              <div class="card-title">Network IDS Engine</div>
-              <div class="card-desc">Suricata is installed as the network intrusion detection system.</div>
+          <nav class="sidebar-nav">
+            <button class="nav-item active" data-target="tab-setup"><span class="nav-icon">⚙️</span> Setup</button>
+            <button class="nav-item" data-target="tab-enrollment"><span class="nav-icon">🔐</span> Enrollment</button>
+            <button class="nav-item" data-target="tab-components"><span class="nav-icon">🧩</span> Overview</button>
+          </nav>
 
+          <div class="sidebar-footer">
+            <span class="version" id="app-version">v1.0.0</span>
+          </div>
+        </aside>
+
+        <!-- ========== Main Content ========== -->
+        <main class="main-content">
+          <!-- Setup Tab -->
+          <section id="tab-setup" class="tab-panel active">
+            <h2 class="section-title">Agent Configuration</h2>
+
+            <div class="form-group" style="max-width: 400px">
+              <label class="form-label" for="wazuh-manager">Wazuh Manager</label>
+              <select class="form-input form-select" id="wazuh-manager">
+                <option value="">— Select a manager —</option>
+              </select>
+              <input
+                class="form-input"
+                type="text"
+                id="wazuh-manager-custom"
+                placeholder="Enter manager address"
+                style="display: none; margin-top: 6px"
+              />
+            </div>
+
+            <h3 class="subsection-title">Network IDS Engine</h3>
+            <div class="card compact suricata-card">
               <div class="suricata-info-card compact">
                 <div class="rc-badge-inline">default</div>
                 <div class="rc-title">Suricata</div>
                 <div class="rc-desc">High-performance IDS/IPS engine with multi-threading support.</div>
               </div>
-
               <div class="sub-option visible" id="suricata-mode-section">
                 <label class="form-label">Suricata Mode</label>
                 <div class="pill-group" id="suricata-mode-group">
@@ -143,12 +80,10 @@
               </div>
             </div>
 
-            <div class="card compact">
-              <div class="card-title">Optional Tools</div>
-              <div class="card-desc">Additional security scanners to include.</div>
+            <div class="card compact" style="margin-top: 16px">
               <div class="toggle-row compact">
                 <div class="toggle-info">
-                  <div class="toggle-title">Trivy</div>
+                  <div class="toggle-title">Install Trivy</div>
                   <div class="toggle-desc">Vulnerability scanner for containers and filesystems.</div>
                 </div>
                 <label class="toggle-switch">
@@ -157,69 +92,79 @@
                 </label>
               </div>
             </div>
-          </div>
-        </section>
 
-        <!-- Step 2: Review -->
-        <section class="step-panel" id="panel-2">
-          <div class="card compact">
-            <div class="card-title">Review Configuration</div>
-            <div class="card-desc">Confirm the settings below before starting the installation.</div>
-            <ul class="summary-list compact" id="summary-list">
-              <!-- populated by JS -->
-            </ul>
-          </div>
-        </section>
+            <div class="action-row">
+              <button id="btn-start-install" class="btn btn-primary" disabled>⚡ Start Installation</button>
+            </div>
 
-        <!-- Step 3: Install -->
-        <section class="step-panel" id="panel-3">
-          <div class="card compact" id="install-card">
-            <div class="card-title">Installation Progress</div>
-            <div class="card-desc">The setup script is running. Logs are streamed in real-time below.</div>
-            <div class="terminal" id="terminal">
-              <div class="terminal-placeholder" id="terminal-placeholder">
-                <span class="spinner"></span> Waiting to start…
+            <div class="card compact" id="install-log-card" style="display: none; margin-top: 24px">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
+                <div class="card-title" style="margin-bottom: 0">Installation Progress</div>
+                <button
+                  class="btn btn-secondary"
+                  id="btn-save-install-logs"
+                  type="button"
+                  style="display: none; padding: 4px 12px; font-size: 12px; height: auto"
+                >
+                  ⬇ Save Logs
+                </button>
               </div>
-            </div>
-            <div class="status-banner" id="status-banner"></div>
-          </div>
-
-          <!-- Result overlay (hidden until done) -->
-          <div id="result-screen" style="display: none">
-            <div class="card compact" style="text-align: center; padding: 28px 20px">
-              <div class="result-icon" id="result-icon"></div>
-              <div class="result-title" id="result-title"></div>
-              <div class="result-desc" id="result-desc"></div>
-              <div class="result-actions">
-                <button class="btn btn-primary" id="btn-enroll" type="button">Enroll Agent →</button>
-                <button class="btn btn-ghost" id="btn-close" type="button">Close Application</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Step 4: Enroll -->
-        <section class="step-panel" id="panel-4">
-          <div class="card compact">
-            <div class="card-title">Agent Enrollment</div>
-            <div class="card-desc">
-              Enroll this agent with <strong id="enroll-manager-label">the Wazuh manager</strong> using
-              certificate-based OAuth2.
-            </div>
-
-            <div class="enroll-info-banner compact">
-              <div class="enroll-info-icon">🔐</div>
-              <div>
-                <div class="enroll-info-title">What happens during enrollment</div>
-                <div class="enroll-info-text">
-                  Clicking <strong>Start Enrollment</strong> will open your browser. Log in with your credentials — the
-                  browser will close itself when done and the agent will be enrolled.
+              <div class="terminal" id="terminal">
+                <div class="terminal-placeholder" id="terminal-placeholder">
+                  <span class="spinner"></span> Waiting to start…
                 </div>
               </div>
+              <div class="status-banner" id="status-banner"></div>
             </div>
 
-            <div id="enroll-start-area">
-              <div class="toggle-row compact" style="margin-bottom: 12px">
+            <div id="result-screen" style="display: none; margin-top: 24px">
+              <div class="card compact" style="text-align: center; padding: 28px 20px">
+                <div class="result-icon" id="result-icon"></div>
+                <div class="result-title" id="result-title"></div>
+                <div class="result-desc" id="result-desc"></div>
+                <button class="btn btn-primary" id="btn-go-enroll" type="button" style="margin-top: 16px">
+                  Go to Enrollment →
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Enrollment Tab -->
+          <section id="tab-enrollment" class="tab-panel">
+            <h2 class="section-title">Agent Enrollment</h2>
+
+            <div class="card compact" style="margin-bottom: 24px">
+              <div class="form-grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
+                  <select class="form-input form-select" id="oauth-issuer">
+                    <option value="">— Select issuer —</option>
+                  </select>
+                  <input
+                    class="form-input"
+                    type="text"
+                    id="oauth-issuer-custom"
+                    placeholder="https://login.example.com/realms/myrealm"
+                    style="display: none; margin-top: 6px"
+                  />
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
+                  <select class="form-input form-select" id="cert-endpoint">
+                    <option value="">— Select endpoint —</option>
+                  </select>
+                  <input
+                    class="form-input"
+                    type="text"
+                    id="cert-endpoint-custom"
+                    placeholder="https://cert.example.com/api/register-agent"
+                    style="display: none; margin-top: 6px"
+                  />
+                </div>
+              </div>
+
+              <div class="toggle-row compact" style="margin-top: 16px">
                 <div class="toggle-info">
                   <div class="toggle-title">Overwrite Existing Credentials</div>
                   <div class="toggle-desc">Replace any existing enrollment certificates for this agent.</div>
@@ -229,12 +174,24 @@
                   <span class="slider"></span>
                 </label>
               </div>
-              <button class="btn btn-primary btn-enroll-start" id="btn-start-enroll" type="button">
-                🔐 Start Enrollment
-              </button>
+
+              <div class="action-row" style="margin-top: 20px">
+                <button id="btn-start-enroll" class="btn btn-primary" disabled>🔐 Run Enrollment</button>
+              </div>
             </div>
 
             <div id="enroll-terminal-area" style="display: none">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
+                <h3 class="subsection-title" style="margin-bottom: 0; margin-top: 0">Enrollment Output</h3>
+                <button
+                  class="btn btn-secondary"
+                  id="btn-save-enroll-logs"
+                  type="button"
+                  style="display: none; padding: 4px 12px; font-size: 12px; height: auto"
+                >
+                  ⬇ Save Logs
+                </button>
+              </div>
               <div class="terminal" id="enroll-terminal">
                 <div class="terminal-placeholder" id="enroll-terminal-placeholder">
                   <span class="spinner"></span> Running enrollment…
@@ -247,28 +204,24 @@
                 type="button"
                 style="display: none; margin-top: 10px; width: 100%; justify-content: center"
               >
-                ↺ Re-run Enrollment
+                ↺ Retry Enrollment
               </button>
             </div>
-          </div>
+          </section>
 
-          <div id="enroll-result-screen" style="display: none">
-            <div class="card compact" style="text-align: center; padding: 28px 20px">
-              <div class="result-icon" id="enroll-result-icon"></div>
-              <div class="result-title" id="enroll-result-title"></div>
-              <div class="result-desc" id="enroll-result-desc"></div>
-              <button class="btn btn-primary" id="btn-close-enroll" type="button">Close Application</button>
+          <!-- Components Tab -->
+          <section id="tab-components" class="tab-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px">
+              <h2 class="section-title" style="margin: 0">System Overview</h2>
+              <button id="btn-refresh-components" class="btn btn-ghost btn-sm">↺ Refresh</button>
             </div>
-          </div>
-        </section>
-      </div>
 
-      <!-- ========== Footer ========== -->
-      <footer class="app-footer">
-        <button class="btn btn-ghost" id="btn-back" type="button" style="visibility: hidden">← Back</button>
-        <span class="footer-hint" id="footer-hint">Step 1 of 5</span>
-        <button class="btn btn-primary" id="btn-next" type="button" disabled>Next →</button>
-      </footer>
+            <div id="components-grid" class="components-grid">
+              <!-- Component cards injected here -->
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
   </body>
 </html>
