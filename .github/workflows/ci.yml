@@ -67,5 +67,6 @@ jobs:
         run: cargo nextest run --no-tests pass
 
       - name: Check unused dependencies
+        if: matrix.platform == 'ubuntu-22.04'
         working-directory: ./src-tauri
         run: cargo machete --with-metadata
