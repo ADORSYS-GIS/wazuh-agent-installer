@@ -236,6 +236,44 @@ body {
   margin-bottom: 16px;
 }
 
+.suricata-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.suricata-info-card {
+  background: var(--brand-bg-input);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 16px;
+  position: relative;
+}
+
+.rc-badge-inline {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--brand-primary-ghost);
+  color: var(--brand-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.rc-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.rc-desc {
+  font-size: 13px;
+  color: var(--brand-text-secondary);
+}
+
 .form-grid-2col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -322,6 +360,17 @@ body {
 .btn-primary:hover:not(:disabled) {
   background: var(--brand-primary-hover);
   transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: var(--brand-bg-input);
+  color: var(--brand-text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--brand-bg-input-focus);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .btn-ghost {

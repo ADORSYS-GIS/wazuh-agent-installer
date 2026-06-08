@@ -500,7 +500,9 @@ async function refreshComponents() {
   if (btn) btn.innerHTML = `<span class="spinner" style="margin-right: 6px"></span> Refreshing...`;
 
   try {
-    const components = await invoke<ComponentStatus[]>("check_components");
+    const components = await invoke<ComponentStatus[]>("check_components", {
+      password: sudoPassword || null,
+    });
     grid.innerHTML = "";
 
     components.forEach((comp) => {

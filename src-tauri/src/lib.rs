@@ -214,7 +214,17 @@ async fn run_install(
 
     let mut command = if use_sudo {
         let mut c = Command::new("sudo");
-        c.arg("-S").arg("-p").arg("").arg(cmd_str).args(&args);
+        c.arg("-S").arg("-p").arg("");
+        
+        // Pass environment variables via `env` so `sudo` doesn't strip them
+        c.arg("env");
+        c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
+        c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
+        c.arg(format!("IDS_ENGINE={}", config.ids_engine));
+        c.arg(format!("SURICATA_MODE={}", config.suricata_mode));
+        c.arg(format!("INSTALL_TRIVY={}", if config.install_trivy { "true" } else { "false" }));
+        
+        c.arg(cmd_str).args(&args);
         c
     } else {
         let mut c = Command::new(cmd_str);
@@ -433,11 +443,14 @@ async fn run_enroll(
 }
 
 #[tauri::command]
-async fn check_components(state: State<'_, AppState>) -> Result<Vec<ComponentStatus>, String> {
-    let pw_opt = {
+async fn check_components(
+    password: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ComponentStatus>, String> {
+    let pw_opt = password.or_else(|| {
         let stored = state.sudo_password.lock().unwrap();
         stored.clone()
-    };
+    });
 
     let ossec_path = if cfg!(windows) {
         r"C:\Program Files (x86)\ossec-agent"
