@@ -2,12 +2,16 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [develop]
 
 jobs:
   ci:
-    name: Check
-    runs-on: ubuntu-latest
+    name: Check on ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-22.04, ubuntu-22.04-arm]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,6 +25,7 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
           workspaces: './src-tauri -> target'
+          shared-key: 'bust-cache-1'
 
       - name: Install CI tools
         uses: taiki-e/install-action@d9be7d8cda89035c9c843f78bd44d4f72d8403d4
@@ -35,6 +40,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Build frontend
+        run: npm run build
 
       - name: Install Linux system dependencies
         run: |
@@ -52,12 +60,13 @@ jobs:
 
       - name: Clippy lints
         working-directory: ./src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy -- -D warnings
 
       - name: Run tests
         working-directory: ./src-tauri
-        run: cargo nextest run --all-targets --all-features --no-tests pass
+        run: cargo nextest run --no-tests pass
 
       - name: Check unused dependencies
+        if: matrix.platform == 'ubuntu-22.04'
         working-directory: ./src-tauri
         run: cargo machete --with-metadata

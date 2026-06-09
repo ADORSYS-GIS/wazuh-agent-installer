@@ -4324,6 +4324,8 @@ dependencies = [
 name = "wazuh-agent-installer"
 version = "1.0.0"
 dependencies = [
+ "dirs",
+ "libc",
  "serde",
  "tauri",
  "tauri-build",

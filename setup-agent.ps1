@@ -1,9 +1,11 @@
 param(
     [string]$RepoUrl = "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent",
-    [string]$Ref = $env:WAZUH_AGENT_REPO_REF
+    [string]$Ref = $(
+        if ($env:WAZUH_AGENT_REPO_REF) { $env:WAZUH_AGENT_REPO_REF } else { 'main' }
+    )
 )
 
-if (-not $Ref) { $Ref = 'main' }
+$env:WAZUH_AGENT_VERSION = "4.14.1-1"
 
 $ScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 
