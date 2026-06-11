@@ -49,6 +49,14 @@ try {
         exit 1
     }
 
+    # --- INJECTED HOTFIX FOR CERT AUTH ---
+    if ($env:INSTALL_CERT_AUTH -eq "FALSE") {
+        $scriptContent = Get-Content -Path $scriptPath -Raw
+        $scriptContent = $scriptContent -replace 'SectionSeparator "Installing OAuth2Client"\s+Install-OAuth2Client', ''
+        Set-Content -Path $scriptPath -Value $scriptContent
+    }
+    # -------------------------------------
+
     # Execute the downloaded script
     & $scriptPath @args
 } finally {

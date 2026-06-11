@@ -78,6 +78,12 @@ if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
 fi
 
 chmod +x "$SCRIPT_FILE"
+
+# --- INJECTED HOTFIX FOR CERT AUTH ---
+if [ "$INSTALL_CERT_AUTH" = "FALSE" ]; then
+    sed -i '/info_message "Installing wazuh-cert-oauth2-client"/,/fi/ s/^/# /' "$SCRIPT_FILE"
+fi
+# -------------------------------------
 # Prefer bash for execution (many scripts use bash-specific constructs like [[ ]])
 if command -v bash >/dev/null 2>&1; then
     exec bash "$SCRIPT_FILE" "$@"
