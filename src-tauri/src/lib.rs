@@ -230,6 +230,8 @@ async fn run_install(
                 "false"
             }
         ));
+        c.arg("INSTALL_CERT_AUTH=FALSE");
+        c.arg("WAZUH_AGENT_REPO_REF=feat/optional-cert-auth");
 
         c.arg(cmd_str).args(&args);
         c
@@ -252,6 +254,8 @@ async fn run_install(
                 "false"
             },
         )
+        .env("INSTALL_CERT_AUTH", "FALSE")
+        .env("WAZUH_AGENT_REPO_REF", "feat/optional-cert-auth")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
