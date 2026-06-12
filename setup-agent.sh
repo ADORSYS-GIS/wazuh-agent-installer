@@ -84,7 +84,8 @@ chmod +x "$SCRIPT_FILE"
 
 # --- INJECTED HOTFIX FOR CERT AUTH ---
 if [ "$INSTALL_CERT_AUTH" = "FALSE" ]; then
-    sed -i '/info_message "Installing wazuh-cert-oauth2-client"/,/fi/ s/^/# /' "$SCRIPT_FILE"
+    sed -i.bak '/info_message "Installing wazuh-cert-oauth2-client"/,/fi/ s/^/# /' "$SCRIPT_FILE"
+    rm -f "${SCRIPT_FILE}.bak"
 fi
 # -------------------------------------
 # Prefer bash for execution (many scripts use bash-specific constructs like [[ ]])
