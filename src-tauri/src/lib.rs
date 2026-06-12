@@ -433,7 +433,8 @@ async fn run_enroll(
 
     let agent_key = KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256).map_err(|e| format!("Failed to generate key: {}", e))?;
     let agent_key_pem = agent_key.serialize_pem();
-    let mut params = CertificateParams::new(vec![a_name.clone()]);
+    let san_name = if a_name.is_ascii() { a_name.clone() } else { "wazuh-agent".to_string() };
+    let mut params = CertificateParams::new(vec![san_name]);
     let mut dn = rcgen::DistinguishedName::new();
     dn.push(DnType::CountryName, "DE");
     dn.push(DnType::LocalityName, "Bayern");
