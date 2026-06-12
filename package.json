@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite src",
-    "build": "tsc && vite build src",
+    "build": "tsc && vite build",
     "tauri": "tauri",
     "lint": "eslint \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.{ts,css,html}\" \"*.json\" \".prettierrc\" \".eslintrc.json\"",
