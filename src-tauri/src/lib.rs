@@ -533,34 +533,35 @@ async fn run_enroll(
             
             if [ -f '{conf_path}' ]; then
                 # Only replace the first <address> element inside <server>
-                sed -i 's/<address>.*<\\/address>/<address>167.235.217.255<\\/address>/g' '{conf_path}'
+                sed -i.bak 's/<address>.*<\\/address>/<address>167.235.217.255<\\/address>/g' '{conf_path}'
                 
                 # Crude XML replacement for cert path, inside <enrollment>
                 if grep -q '<enrollment>' '{conf_path}'; then
                     if grep -q '<manager_address>' '{conf_path}'; then
-                        sed -i 's/<manager_address>.*<\\/manager_address>/<manager_address>91.98.223.191<\\/manager_address>/g' '{conf_path}'
+                        sed -i.bak 's/<manager_address>.*<\\/manager_address>/<manager_address>91.98.223.191<\\/manager_address>/g' '{conf_path}'
                     else
-                        sed -i '/<enrollment>/a \\    <manager_address>91.98.223.191</manager_address>\\n    <port>1515</port>' '{conf_path}'
+                        sed -i.bak '/<enrollment>/a \\    <manager_address>91.98.223.191</manager_address>\\n    <port>1515</port>' '{conf_path}'
                     fi
                 
                     if grep -q '<agent_name>' '{conf_path}'; then
-                        sed -i 's/<agent_name>.*<\\/agent_name>/<agent_name>{agent_name}<\\/agent_name>/g' '{conf_path}'
+                        sed -i.bak 's/<agent_name>.*<\\/agent_name>/<agent_name>{agent_name}<\\/agent_name>/g' '{conf_path}'
                     else
-                        sed -i '/<enrollment>/a \\    <agent_name>{agent_name}</agent_name>' '{conf_path}'
+                        sed -i.bak '/<enrollment>/a \\    <agent_name>{agent_name}</agent_name>' '{conf_path}'
                     fi
                 
                     if ! grep -q '<agent_certificate_path>' '{conf_path}'; then
-                        sed -i '/<enrollment>/a \\    <agent_certificate_path>{cert_path}</agent_certificate_path>' '{conf_path}'
+                        sed -i.bak '/<enrollment>/a \\    <agent_certificate_path>{cert_path}</agent_certificate_path>' '{conf_path}'
                     fi
                     if ! grep -q '<agent_key_path>' '{conf_path}'; then
-                        sed -i '/<enrollment>/a \\    <agent_key_path>{key_path}</agent_key_path>' '{conf_path}'
+                        sed -i.bak '/<enrollment>/a \\    <agent_key_path>{key_path}</agent_key_path>' '{conf_path}'
                     fi
                     if ! grep -q '<server_ca_path>' '{conf_path}'; then
-                        sed -i '/<enrollment>/a \\    <server_ca_path>{ca_path}</server_ca_path>' '{conf_path}'
+                        sed -i.bak '/<enrollment>/a \\    <server_ca_path>{ca_path}</server_ca_path>' '{conf_path}'
                     fi
                 else
-                    sed -i '/<client>/a \\  <enrollment>\\n    <manager_address>91.98.223.191</manager_address>\\n    <port>1515</port>\\n    <agent_name>{agent_name}</agent_name>\\n    <agent_certificate_path>{cert_path}</agent_certificate_path>\\n    <agent_key_path>{key_path}</agent_key_path>\\n    <server_ca_path>{ca_path}</server_ca_path>\\n  </enrollment>' '{conf_path}'
+                    sed -i.bak '/<client>/a \\  <enrollment>\\n    <manager_address>91.98.223.191</manager_address>\\n    <port>1515</port>\\n    <agent_name>{agent_name}</agent_name>\\n    <agent_certificate_path>{cert_path}</agent_certificate_path>\\n    <agent_key_path>{key_path}</agent_key_path>\\n    <server_ca_path>{ca_path}</server_ca_path>\\n  </enrollment>' '{conf_path}'
                 fi
+                rm -f '{conf_path}.bak'
             fi
             
             if command -v systemctl >/dev/null 2>&1; then
