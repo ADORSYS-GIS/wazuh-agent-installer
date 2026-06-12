@@ -2,12 +2,14 @@
 // Wazuh Agent Installer — Brand & Dynamic Configuration
 // ============================================================
 
+import logoUrl from "./assets/sky-engpro-logo.png";
+
 export const BRAND_CONFIG = {
   // Brand Metadata
   companyName: "Sky EngPro",
   appTitle: "Wazuh Agent Installer",
   appVersion: "v1.0.0",
-  logo: "assets/sky-engpro-logo.png", // Path relative to public/build folder
+  logo: logoUrl, // Handled by Vite bundler
 
   // Brand Theme Palette (dynamically injected into :root variables)
   colors: {
