@@ -6,6 +6,8 @@ param(
 )
 
 $env:WAZUH_AGENT_VERSION = "4.14.1-1"
+$env:WAZUH_AGENT_STATUS_VERSION = "v0.5.0-skyengpro"
+$env:WAZUH_AGENT_STATUS_REPO_REF = "v0.5.0-skyengpro"
 
 $ScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 

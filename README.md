@@ -64,11 +64,25 @@ To update the branding, simply edit `src/config.ts` and build the application.
 
 ---
 
-## Releases
+## Installation via Scripts
 
-Pre-built binaries for Linux, macOS, and Windows are published automatically via GitHub Actions on every tagged version.
+For macOS and Ubuntu, you can use our installation scripts which handle downloading the latest release and installing it securely.
 
-Download the latest release from the [**GitHub Releases page**](https://github.com/ADORSYS-GIS/wazuh-agent-installer/releases/latest).
+### macOS
+macOS blocks direct DMG downloads via Gatekeeper (showing a virus warning). To securely bypass this, use the provided installation script:
+```bash
+curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/macos.sh | bash
+```
+
+### Ubuntu
+You can easily download and install the latest `.deb` package on Ubuntu using this one-liner:
+```bash
+curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/ubuntu.sh | bash
+```
+
+### Manual Downloads
+
+Alternatively, you can download the pre-built binaries from the [**GitHub Releases page**](https://github.com/ADORSYS-GIS/wazuh-agent-installer/releases/latest).
 
 | Platform | Package                                     |
 | -------- | ------------------------------------------- |

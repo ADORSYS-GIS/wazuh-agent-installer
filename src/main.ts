@@ -87,12 +87,7 @@ const navItems = document.querySelectorAll<HTMLElement>(".nav-item");
 const tabPanels = document.querySelectorAll<HTMLElement>(".tab-panel");
 
 // Config inputs
-const elManagerSelect = document.getElementById("wazuh-manager") as HTMLSelectElement | null;
-const elManagerCustom = document.getElementById("wazuh-manager-custom") as HTMLInputElement | null;
-const elIssuerSelect = document.getElementById("oauth-issuer") as HTMLSelectElement | null;
-const elIssuerCustom = document.getElementById("oauth-issuer-custom") as HTMLInputElement | null;
-const elEndpointSelect = document.getElementById("cert-endpoint") as HTMLSelectElement | null;
-const elEndpointCustom = document.getElementById("cert-endpoint-custom") as HTMLInputElement | null;
+const elAgentName = document.getElementById("agent-name") as HTMLInputElement | null;
 const elTrivy = document.getElementById("install-trivy") as HTMLInputElement | null;
 
 // IDS mode pills
@@ -120,7 +115,6 @@ const enrollStatusBanner = document.getElementById("enroll-status-banner");
 async function boot() {
   applyBrandTheme();
   initializeAppHeaderAndOptions();
-  setupCustomInputListeners();
   setupRadioCards();
 
   // Tab handling
@@ -242,9 +236,7 @@ function initializeAppHeaderAndOptions(): void {
   if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
   document.title = BRAND_CONFIG.appTitle;
 
-  populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
-  populateDropdown("oauth-issuer", BRAND_CONFIG.oauthIssuers);
-  populateDropdown("cert-endpoint", BRAND_CONFIG.certEndpoints);
+  // Removed dropdown population for manager, oauth_issuer, cert_endpoint
 }
 
 function populateDropdown(selectId: string, options: { value: string; label: string }[]): void {
@@ -267,25 +259,7 @@ function populateDropdown(selectId: string, options: { value: string; label: str
   selectEl.appendChild(otherOpt);
 }
 
-function setupCustomInputListeners(): void {
-  const bindSelectToCustom = (sel: HTMLSelectElement | null, cus: HTMLInputElement | null, updateBtn: () => void) => {
-    sel?.addEventListener("change", () => {
-      if (sel.value === "other" && cus) {
-        cus.style.display = "block";
-        cus.focus();
-      } else if (cus) {
-        cus.style.display = "none";
-        cus.value = "";
-      }
-      updateBtn();
-    });
-    cus?.addEventListener("input", updateBtn);
-  };
-
-  bindSelectToCustom(elManagerSelect, elManagerCustom, updateInstallButtonState);
-  bindSelectToCustom(elIssuerSelect, elIssuerCustom, updateEnrollButtonState);
-  bindSelectToCustom(elEndpointSelect, elEndpointCustom, updateEnrollButtonState);
-}
+  // No custom input listeners needed anymore
 
 function setupRadioCards(): void {
   suricataModePills.forEach((pill) => {
@@ -298,47 +272,33 @@ function setupRadioCards(): void {
 
 // ---- Data Retrieval ----
 
-function getManagerValue(): string {
-  return elManagerSelect?.value === "other"
-    ? (elManagerCustom?.value.trim() ?? "")
-    : (elManagerSelect?.value.trim() ?? "");
-}
-
-function getIssuerValue(): string {
-  return elIssuerSelect?.value === "other"
-    ? (elIssuerCustom?.value.trim() ?? "")
-    : (elIssuerSelect?.value.trim() ?? "");
-}
-
-function getEndpointValue(): string {
-  return elEndpointSelect?.value === "other"
-    ? (elEndpointCustom?.value.trim() ?? "")
-    : (elEndpointSelect?.value.trim() ?? "");
+function getAgentName(): string {
+  return elAgentName?.value.trim() ?? "";
 }
 
 function getConfig() {
   const selectedModePill = document.querySelector("#suricata-mode-group .pill.selected") as HTMLElement | null;
   return {
-    wazuh_manager: getManagerValue(),
-    wazuh_agent_name: "wazuh-agent",
+    wazuh_manager: "167.235.217.255", // Hardcoded SkyEngPro IP
+    wazuh_agent_name: getAgentName(),
     log_level: "INFO",
     ids_engine: "suricata",
     suricata_mode: selectedModePill ? (selectedModePill.dataset.mode ?? "ids") : "ids",
     install_trivy: elTrivy ? elTrivy.checked : false,
-    oauth_issuer: getIssuerValue(),
-    cert_endpoint: getEndpointValue(),
+    oauth_issuer: "",
+    cert_endpoint: "",
   };
 }
 
 function updateInstallButtonState() {
   if (btnStartInstall) {
-    btnStartInstall.disabled = !getManagerValue() || isInstalling;
+    btnStartInstall.disabled = isInstalling;
   }
 }
 
 function updateEnrollButtonState() {
   if (btnStartEnroll) {
-    btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
+    btnStartEnroll.disabled = isEnrolling;
   }
 }
 
@@ -441,9 +401,7 @@ function showInstallResult(success: boolean, desc: string) {
 async function startEnrollment() {
   if (isEnrolling) return;
 
-  const issuer = getIssuerValue();
-  const endpoint = getEndpointValue();
-  if (!issuer || !endpoint) return;
+  const agentName = getAgentName();
 
   isEnrolling = true;
   updateEnrollButtonState();
@@ -466,8 +424,7 @@ async function startEnrollment() {
 
   try {
     const result = await invoke<InstallResult>("run_enroll", {
-      issuer,
-      endpoint,
+      agentName,
       overwrite,
       password: sudoPassword || null,
     });

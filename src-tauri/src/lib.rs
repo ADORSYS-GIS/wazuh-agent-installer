@@ -9,6 +9,52 @@ use tauri::{
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use rcgen::{Certificate, CertificateParams, KeyPair, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa, BasicConstraints};
+
+const ROOT_CA_KEY_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/Shyem90Ti8j0Dmd
+l3Moe2Iv5MC2NwDvRao8o9DD0KGhRANCAARcOtAxYWjYncJ79k0ppY82XxJvcziD
+ZLpkcFBMIJIp4GfbV3syOsQZ/OY9KC+Ll9BJbNDZJ/1qZAkZcCSkXRAT
+-----END PRIVATE KEY-----"#;
+
+const ROOT_CA_PEM: &str = r#"-----BEGIN CERTIFICATE-----
+MIIB6TCCAY+gAwIBAgIUDh3PiCMN481t4sU48qZIUaCuNsIwCgYIKoZIzj0EAwIw
+SjELMAkGA1UEBhMCREUxDzANBgNVBAcMBkJheWVybjESMBAGA1UECgwJU2t5RW5n
+UHJvMRYwFAYDVQQDDA13YXp1aC1yb290LWNhMB4XDTI2MDYxMTE2MTU1OFoXDTM2
+MDYwODE2MTU1OFowSjELMAkGA1UEBhMCREUxDzANBgNVBAcMBkJheWVybjESMBAG
+A1UECgwJU2t5RW5nUHJvMRYwFAYDVQQDDA13YXp1aC1yb290LWNhMFkwEwYHKoZI
+zj0CAQYIKoZIzj0DAQcDQgAEXDrQMWFo2J3Ce/ZNKaWPNl8Sb3M4g2S6ZHBQTCCS
+KeBn21d7MjrEGfzmPSgvi5fQSWzQ2Sf9amQJGXAkpF0QE6NTMFEwHQYDVR0OBBYE
+FCGKYwmbb4Xbcn3/9uQ+wBXFpeYdMB8GA1UdIwQYMBaAFCGKYwmbb4Xbcn3/9uQ+
+wBXFpeYdMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAL9hx15P
+RZu2jXTMVOE4XQs544SYXdyN0o9mEac3PfECAiB9NhE0/xYcoAT0Eo6+MjP5Qq9z
+OzCto8KGAt1CbW2iLA==
+-----END CERTIFICATE-----
+"#;
+
+const MANAGER_TRUSTED_CA: &str = r#"-----BEGIN CERTIFICATE-----
+MIIDdTCCAl2gAwIBAgIUPbYlU4PUUi+jgQJgkcifMkXX1lcwDQYJKoZIhvcNAQEL
+BQAwSjELMAkGA1UEBhMCREUxDzANBgNVBAcMBkJheWVybjESMBAGA1UECgwJU2t5
+RW5nUHJvMRYwFAYDVQQDDA13YXp1aC1yb290LWNhMB4XDTI2MDYxMDE4NTYxNVoX
+DTM2MDYwNzE4NTYxNVowSjELMAkGA1UEBhMCREUxDzANBgNVBAcMBkJheWVybjES
+MBAGA1UECgwJU2t5RW5nUHJvMRYwFAYDVQQDDA13YXp1aC1yb290LWNhMIIBIjAN
+BgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArxgxf1WcFyzR8B9fcDljzzqcmPsZ
+pEGs0SqLTM8bXmT4kmsJnXxY5tKNkHw/np9DVM5yLmPI0hbN7i4ixQJcJelBrEp1
+ZjZhDPTcj+qi27q0AvaWlMuyLW+84II/Ca2ezIQ7PAkDSDJMPQD4YK11cGnqlXw4
+PI7LWNX8azu2+ijvJlB14HY1cRIRe7/gDHqM33OdXDKnfPcHeZyvKhjmjgIzVXnb
+cu3sjBdRmxS4isq+bgFyUZnak/CxkdRehzUe+80BmtkcFVi4cSJSnI4hMjnP7B4g
+3jF0i8Pzsy7jsDg559stHsQTAQNvvBkau5uMNUMWIsDJJTQcqzPb+pJaxwIDAQAB
+o1MwUTAdBgNVHQ4EFgQUBzB5FvbS4zGJcDYBkRmdmJ2aSw8wHwYDVR0jBBgwFoAU
+BzB5FvbS4zGJcDYBkRmdmJ2aSw8wDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0B
+AQsFAAOCAQEAPreO6x63DuXOIPngydBUhLbwgrZQC4dQyWtYE62DRF7JpgcUUcVX
+mIIKP1UtfJYn+WY1Qv2MXYmY55Cwi2cXT3qMTKTuIghIModw7bubpMLAWloxSYAB
+RvFghJcj+CR0r6T6HnQH+/0DP6Vc94aaMtXCENvU7jRqUxza4NKLVUzvgwuyktP0
+89BG8HlgxR4gl9f4Xq/sCG2fTgYwLkrDdwfDr4QNL3lDiTO5h7PAmm+JNUhhp8ej
+7SZCCrRLXPr9j14n3lMsqn50L6EOUKG2VIXuTWWR1U7l6UmJf5PuAoNOPUdWxfCO
+qZSWKMImizUDsWwGeot4U1bqUje+HxsIjw==
+-----END CERTIFICATE-----
+"#;
+
 
 // ---- State ----
 
@@ -231,6 +277,8 @@ async fn run_install(
             }
         ));
         c.arg("INSTALL_CERT_AUTH=FALSE");
+        c.arg("WAZUH_AGENT_STATUS_VERSION=v0.5.0-skyengpro");
+        c.arg("WAZUH_AGENT_STATUS_REPO_REF=v0.5.0-skyengpro");
 
         c.arg(cmd_str).args(&args);
         c
@@ -254,6 +302,8 @@ async fn run_install(
             },
         )
         .env("INSTALL_CERT_AUTH", "FALSE")
+        .env("WAZUH_AGENT_STATUS_VERSION", "v0.5.0-skyengpro")
+        .env("WAZUH_AGENT_STATUS_REPO_REF", "v0.5.0-skyengpro")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -319,79 +369,227 @@ async fn run_install(
 
 #[tauri::command]
 async fn run_enroll(
-    issuer: String,
-    endpoint: String,
-    overwrite: bool,
+    app: AppHandle,
+    agent_name: Option<String>,
+    overwrite: Option<bool>,
     password: Option<String>,
     state: State<'_, AppState>,
-    app: AppHandle,
 ) -> Result<InstallResult, String> {
+    let overwrite = overwrite.unwrap_or(false);
+
     if let Some(pw) = password {
         let mut stored = state.sudo_password.lock().unwrap();
         *stored = Some(pw);
     }
-
-    // Take the password out of state immediately after reading it, to minimize
-    // how long the plaintext remains in process memory.
     let pw_opt = {
         let mut stored = state.sudo_password.lock().unwrap();
         stored.take()
     };
 
-    #[cfg(unix)]
-    let (cmd, args, use_sudo) = {
-        let mut args = vec![
-            "o-auth2".to_string(),
-            "--issuer".to_string(),
-            issuer,
-            "--endpoint".to_string(),
-            endpoint,
-        ];
-        if overwrite {
-            args.push("--overwrite".to_string());
-        }
-        let exe = if cfg!(target_os = "macos") {
-            "/Library/Ossec/bin/wazuh-cert-oauth2-client"
-        } else {
-            "/var/ossec/bin/wazuh-cert-oauth2-client"
-        };
-        (exe, args, true)
+    let log = |msg: &str, is_error: bool| {
+        let _ = app.emit(
+            "enroll-log",
+            LogLine {
+                line: msg.to_string(),
+                level: if is_error { "error".into() } else { "info".into() },
+            },
+        );
     };
 
-    #[cfg(windows)]
-    let (cmd, args, use_sudo) = {
-        let mut args = vec![
-            "o-auth2".to_string(),
-            "--issuer".to_string(),
-            issuer,
-            "--endpoint".to_string(),
-            endpoint,
-        ];
+    log("Starting manual certificate generation...", false);
+
+    let ossec_etc = if cfg!(windows) {
+        "C:\\Program Files (x86)\\ossec-agent"
+    } else if cfg!(target_os = "macos") {
+        "/Library/Ossec/etc"
+    } else {
+        "/var/ossec/etc"
+    };
+
+    let cert_path = format!("{}/sslagent.cert", ossec_etc);
+    let key_path = format!("{}/sslagent.key", ossec_etc);
+    let ca_path = format!("{}/rootCA.pem", ossec_etc);
+    let conf_path = format!("{}/ossec.conf", ossec_etc);
+
+    if !overwrite && std::path::Path::new(&cert_path).exists() {
+        log("Certificates already exist and 'Overwrite' is unchecked. SKIPPING ENROLLMENT SCRIPT!", true);
+        return Ok(InstallResult {
+            success: true,
+            exit_code: 0,
+            message: "Certificates already exist".into(),
+        });
+    }
+
+    let a_name = if agent_name.clone().unwrap_or_default().trim().is_empty() {
+        hostname::get()
+            .unwrap_or_else(|_| std::ffi::OsString::from("wazuh-agent"))
+            .to_string_lossy()
+            .to_string()
+    } else {
+        agent_name.unwrap().trim().to_string()
+    };
+
+    log(&format!("Generating certificate for agent: {}", a_name), false);
+
+    let agent_key = KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256).map_err(|e| format!("Failed to generate key: {}", e))?;
+    let agent_key_pem = agent_key.serialize_pem();
+    let mut params = CertificateParams::new(vec![a_name.clone()]);
+    let mut dn = rcgen::DistinguishedName::new();
+    dn.push(DnType::CountryName, "DE");
+    dn.push(DnType::LocalityName, "Bayern");
+    dn.push(DnType::OrganizationName, "SkyEngPro");
+    dn.push(DnType::CommonName, a_name.clone());
+    params.distinguished_name = dn;
+    params.is_ca = IsCa::NoCa;
+    params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+    params.key_pair = Some(agent_key);
+
+    let root_key = KeyPair::from_pem(ROOT_CA_KEY_PEM).map_err(|e| format!("Invalid Root CA Key: {}", e))?;
+    
+    let mut root_params = CertificateParams::new(vec!["wazuh-root-ca".to_string()]);
+    let mut root_dn = DistinguishedName::new();
+    root_dn.push(DnType::CountryName, "DE");
+    root_dn.push(DnType::LocalityName, "Bayern");
+    root_dn.push(DnType::OrganizationName, "SkyEngPro");
+    root_dn.push(DnType::CommonName, "wazuh-root-ca");
+    root_params.distinguished_name = root_dn;
+    root_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    root_params.key_pair = Some(root_key);
+    
+    let root_cert = Certificate::from_params(root_params).map_err(|e| format!("Root Cert Error: {}", e))?;
+    let agent_cert = Certificate::from_params(params).map_err(|e| format!("Agent Cert Error: {}", e))?;
+
+    let temp_dir = std::env::temp_dir();
+    let temp_cert = temp_dir.join("sslagent.cert");
+    let temp_key = temp_dir.join("sslagent.key");
+
+    std::fs::write(&temp_cert, agent_cert.serialize_pem_with_signer(&root_cert).map_err(|e| e.to_string())?).unwrap();
+    std::fs::write(&temp_key, agent_key_pem).unwrap();
+
+    log("Certificates generated successfully. Applying configuration...", false);
+
+    let (cmd, args, use_sudo) = if cfg!(windows) {
+        let mut script = format!("
+            $ErrorActionPreference = 'Stop';
+            $CertDest = '{cert_path}';
+            $KeyDest = '{key_path}';
+            $ConfPath = '{conf_path}';
+            Copy-Item -Path '{temp_cert}' -Destination $CertDest -Force;
+            Copy-Item -Path '{temp_key}' -Destination $KeyDest -Force;
+            [System.IO.File]::WriteAllText('{ca_path}', '{MANAGER_TRUSTED_CA}');
+            if (Test-Path $ConfPath) {{
+                [xml]$xml = Get-Content $ConfPath;
+                if ($xml.ossec_config.client.server) {{
+                    $xml.ossec_config.client.server.address = '167.235.217.255';
+                }}
+                if (-not $xml.ossec_config.client.enrollment) {{
+                    $enrollment = $xml.CreateElement('enrollment');
+                    $xml.ossec_config.client.AppendChild($enrollment) | Out-Null;
+                }}
+                
+                $enrollment = $xml.ossec_config.client.enrollment;
+                
+                $nodes = @(
+                    @('manager_address', '91.98.223.191'),
+                    @('port', '1515'),
+                    @('agent_name', '{agent_name}'),
+                    @('agent_certificate_path', $CertDest),
+                    @('agent_key_path', $KeyDest),
+                    @('server_ca_path', '{ca_path}')
+                );
+                
+                foreach ($node in $nodes) {{
+                    $name = $node[0];
+                    $val = $node[1];
+                    if (-not $enrollment.$name) {{
+                        $newEl = $xml.CreateElement($name);
+                        $newEl.InnerText = $val;
+                        $enrollment.AppendChild($newEl) | Out-Null;
+                    }} else {{
+                        $enrollment.$name = $val;
+                    }}
+                }}
+                $xml.Save($ConfPath);
+            }}
+            Restart-Service -Name WazuhSvc -Force;
+            ",
+            cert_path=cert_path, key_path=key_path, conf_path=conf_path, temp_cert=temp_cert.display(), temp_key=temp_key.display(), agent_name=a_name, ca_path=ca_path, MANAGER_TRUSTED_CA=MANAGER_TRUSTED_CA
+        );
+        let script_path = temp_dir.join("enroll.ps1");
+        std::fs::write(&script_path, script).unwrap();
+        ("powershell".to_string(), vec!["-ExecutionPolicy".to_string(), "Bypass".to_string(), "-File".to_string(), script_path.to_string_lossy().to_string()], false)
+    } else {
+        let mut script = format!("set -e\n");
         if overwrite {
-            args.push("--overwrite".to_string());
+            script.push_str("rm -f /var/ossec/etc/client.keys /Library/Ossec/etc/client.keys || true\n");
         }
-        (
-            "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe",
-            args,
-            false,
-        )
+        script.push_str(&format!(
+            "cp '{temp_cert}' '{cert_path}'
+            cp '{temp_key}' '{key_path}'
+            cat << 'EOF' > '{ca_path}'
+{MANAGER_TRUSTED_CA}EOF
+            chown root:wazuh '{cert_path}' '{key_path}' '{ca_path}' || true
+            chmod 640 '{cert_path}' '{key_path}' '{ca_path}'
+            
+            if [ -f '{conf_path}' ]; then
+                # Only replace the first <address> element inside <server>
+                sed -i 's/<address>.*<\\/address>/<address>167.235.217.255<\\/address>/g' '{conf_path}'
+                
+                # Crude XML replacement for cert path, inside <enrollment>
+                if grep -q '<enrollment>' '{conf_path}'; then
+                    if grep -q '<manager_address>' '{conf_path}'; then
+                        sed -i 's/<manager_address>.*<\\/manager_address>/<manager_address>91.98.223.191<\\/manager_address>/g' '{conf_path}'
+                    else
+                        sed -i '/<enrollment>/a \\    <manager_address>91.98.223.191</manager_address>\\n    <port>1515</port>' '{conf_path}'
+                    fi
+                
+                    if grep -q '<agent_name>' '{conf_path}'; then
+                        sed -i 's/<agent_name>.*<\\/agent_name>/<agent_name>{agent_name}<\\/agent_name>/g' '{conf_path}'
+                    else
+                        sed -i '/<enrollment>/a \\    <agent_name>{agent_name}</agent_name>' '{conf_path}'
+                    fi
+                
+                    if ! grep -q '<agent_certificate_path>' '{conf_path}'; then
+                        sed -i '/<enrollment>/a \\    <agent_certificate_path>{cert_path}</agent_certificate_path>' '{conf_path}'
+                    fi
+                    if ! grep -q '<agent_key_path>' '{conf_path}'; then
+                        sed -i '/<enrollment>/a \\    <agent_key_path>{key_path}</agent_key_path>' '{conf_path}'
+                    fi
+                    if ! grep -q '<server_ca_path>' '{conf_path}'; then
+                        sed -i '/<enrollment>/a \\    <server_ca_path>{ca_path}</server_ca_path>' '{conf_path}'
+                    fi
+                else
+                    sed -i '/<client>/a \\  <enrollment>\\n    <manager_address>91.98.223.191</manager_address>\\n    <port>1515</port>\\n    <agent_name>{agent_name}</agent_name>\\n    <agent_certificate_path>{cert_path}</agent_certificate_path>\\n    <agent_key_path>{key_path}</agent_key_path>\\n    <server_ca_path>{ca_path}</server_ca_path>\\n  </enrollment>' '{conf_path}'
+                fi
+            fi
+            
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl restart wazuh-agent
+            elif command -v launchctl >/dev/null 2>&1; then
+                /Library/Ossec/bin/wazuh-control restart
+            else
+                /var/ossec/bin/wazuh-control restart
+            fi
+            ",
+            temp_cert=temp_cert.display(), cert_path=cert_path, temp_key=temp_key.display(), key_path=key_path,
+            ca_path=ca_path, MANAGER_TRUSTED_CA=MANAGER_TRUSTED_CA, conf_path=conf_path, agent_name=a_name
+        ));
+        let script_path = temp_dir.join("enroll.sh");
+        std::fs::write(&script_path, script).unwrap();
+        ("bash".to_string(), vec![script_path.to_string_lossy().to_string()], true)
     };
 
     let mut command = if use_sudo {
         let mut c = Command::new("sudo");
-        c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
+        c.arg("-S").arg("-p").arg("").arg(&cmd).args(&args);
         c
     } else {
-        let mut c = Command::new(cmd);
+        let mut c = Command::new(&cmd);
         c.args(&args);
         c
     };
 
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|e| e.to_string())?;
 
     if use_sudo {
@@ -402,52 +600,23 @@ async fn run_enroll(
         }
     }
 
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
+    let output = child.wait_with_output().await.map_err(|e| e.to_string())?;
+    
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        log(&format!("Failed to configure agent: {}", err), true);
+        return Ok(InstallResult {
+            success: false,
+            exit_code: output.status.code().unwrap_or(-1),
+            message: "Configuration failed".into(),
+        });
+    }
 
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "enroll-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if line.contains("Password:") || line.trim().is_empty() {
-                continue;
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "enroll-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
+    log("Agent successfully enrolled and restarted!", false);
     Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "Enrollment complete".into()
-        } else {
-            "Enrollment failed".into()
-        },
+        success: true,
+        exit_code: 0,
+        message: "Enrollment complete".into(),
     })
 }
 

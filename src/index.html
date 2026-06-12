@@ -50,18 +50,8 @@
           <section id="tab-setup" class="tab-panel active">
             <h2 class="section-title">Agent Configuration</h2>
 
-            <div class="form-group" style="max-width: 400px">
-              <label class="form-label" for="wazuh-manager">Wazuh Manager</label>
-              <select class="form-input form-select" id="wazuh-manager">
-                <option value="">— Select a manager —</option>
-              </select>
-              <input
-                class="form-input"
-                type="text"
-                id="wazuh-manager-custom"
-                placeholder="Enter manager address"
-                style="display: none; margin-top: 6px"
-              />
+            <div class="form-group" style="max-width: 400px; display: none;">
+              <!-- Removed Wazuh Manager Dropdown (Hardcoded in backend) -->
             </div>
 
             <h3 class="subsection-title">Network IDS Engine</h3>
@@ -134,35 +124,15 @@
             <h2 class="section-title">Agent Enrollment</h2>
 
             <div class="card compact" style="margin-bottom: 24px">
-              <div class="form-grid-2col">
                 <div class="form-group">
-                  <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
-                  <select class="form-input form-select" id="oauth-issuer">
-                    <option value="">— Select issuer —</option>
-                  </select>
+                  <label class="form-label" for="agent-name">Agent Name</label>
                   <input
                     class="form-input"
                     type="text"
-                    id="oauth-issuer-custom"
-                    placeholder="https://login.example.com/realms/myrealm"
-                    style="display: none; margin-top: 6px"
+                    id="agent-name"
+                    placeholder="e.g. win-server-01 (leave empty to use hostname)"
                   />
                 </div>
-
-                <div class="form-group">
-                  <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
-                  <select class="form-input form-select" id="cert-endpoint">
-                    <option value="">— Select endpoint —</option>
-                  </select>
-                  <input
-                    class="form-input"
-                    type="text"
-                    id="cert-endpoint-custom"
-                    placeholder="https://cert.example.com/api/register-agent"
-                    style="display: none; margin-top: 6px"
-                  />
-                </div>
-              </div>
 
               <div class="toggle-row compact" style="margin-top: 16px">
                 <div class="toggle-info">
