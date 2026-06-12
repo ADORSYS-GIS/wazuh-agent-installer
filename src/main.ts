@@ -55,7 +55,7 @@ const invoke = hasTauri
       }
       if (cmd === "check_components") {
         return [
-          { name: "Wazuh Agent", installed: true, version: "4.14.1", path: "/var/ossec/bin/wazuh-agent" },
+          { name: "Wazuh Agent", installed: true, version: "4.14.4", path: "/var/ossec/bin/wazuh-agent" },
           { name: "OAuth2 Client", installed: false, version: null, path: "/var/ossec/bin/wazuh-cert-oauth2-client" },
         ] as unknown as T;
       }

@@ -9,7 +9,7 @@ set -eu
 REPO_URL="https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent"
 export WAZUH_AGENT_REPO_REF="${WAZUH_AGENT_REPO_REF:-main}"
 REF="$WAZUH_AGENT_REPO_REF"
-export WAZUH_AGENT_VERSION="4.14.1-1"
+export WAZUH_AGENT_VERSION="4.14.4-1"
 export WAZUH_AGENT_STATUS_VERSION="v0.5.0-skyengpro"
 export WAZUH_AGENT_STATUS_REPO_REF="v0.5.0-skyengpro"
 export APP_VERSION="0.5.0-skyengpro"
