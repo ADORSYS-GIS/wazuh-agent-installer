@@ -12,6 +12,7 @@ REF="$WAZUH_AGENT_REPO_REF"
 export WAZUH_AGENT_VERSION="4.14.1-1"
 export WAZUH_AGENT_STATUS_VERSION="v0.5.0-skyengpro"
 export WAZUH_AGENT_STATUS_REPO_REF="v0.5.0-skyengpro"
+export APP_VERSION="0.5.0-skyengpro"
 
 SCRIPT_NAME="setup-agent.sh"
 
