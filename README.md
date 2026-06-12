@@ -71,13 +71,13 @@ For macOS and Ubuntu, you can use our installation scripts which handle download
 ### macOS
 macOS blocks direct DMG downloads via Gatekeeper (showing a virus warning). To securely bypass this, use the provided installation script:
 ```bash
-curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/macos.sh | bash
+curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feat/sky-engpro-branding/install-scripts/macos.sh | bash
 ```
 
 ### Ubuntu
 You can easily download and install the latest `.deb` package on Ubuntu using this one-liner:
 ```bash
-curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/ubuntu.sh | bash
+curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feat/sky-engpro-branding/install-scripts/ubuntu.sh | bash
 ```
 
 ### Manual Downloads
