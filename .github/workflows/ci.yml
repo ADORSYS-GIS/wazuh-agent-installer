@@ -52,7 +52,8 @@ jobs:
             libgtk-3-dev \
             libsoup-3.0-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            xdg-utils
 
       - name: Check formatting
         working-directory: ./src-tauri
