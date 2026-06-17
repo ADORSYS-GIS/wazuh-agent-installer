@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite src",
-    "build": "tsc && vite build src",
+    "dev": "vite",
+    "build": "tsc && vite build",
     "tauri": "tauri",
     "lint": "eslint \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.{ts,css,html}\" \"*.json\" \".prettierrc\" \".eslintrc.json\"",
