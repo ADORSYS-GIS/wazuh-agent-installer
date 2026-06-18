@@ -13,6 +13,7 @@ export WAZUH_AGENT_VERSION="4.14.4-1"
 export WAZUH_AGENT_STATUS_VERSION="v0.5.0-rc.12"
 export WAZUH_AGENT_STATUS_REPO_REF="v0.5.0-rc.12"
 export APP_VERSION="v0.5.0-rc.12"
+export INSTALL_CERT_AUTH="TRUE"
 SCRIPT_NAME="setup-agent.sh"
 
 OS_TYPE="$(uname -s)"
