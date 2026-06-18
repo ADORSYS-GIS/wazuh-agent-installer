@@ -488,10 +488,8 @@ async fn check_components(
             "Agent Status Monitor".to_string(),
             if cfg!(windows) {
                 r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string()
-            } else if cfg!(target_os = "macos") {
-                "/usr/local/bin/wazuh-agent-status".to_string()
             } else {
-                format!("{}/bin/wazuh-agent-status", ossec_path)
+                "/usr/local/bin/wazuh-agent-status".to_string()
             },
         ),
         (
