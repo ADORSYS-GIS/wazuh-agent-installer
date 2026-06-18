@@ -11,8 +11,8 @@ export WAZUH_AGENT_REPO_REF="${WAZUH_AGENT_REPO_REF:-fix/error-message-helper-fu
 REF="$WAZUH_AGENT_REPO_REF"
 export WAZUH_AGENT_VERSION="4.14.4-1"
 export WAZUH_AGENT_STATUS_VERSION="0.5.0-rc.12"
-export WAZUH_AGENT_STATUS_REPO_REF="v0.5.0-rc.12"
-export APP_VERSION="v0.5.0-rc.12"
+export WAZUH_AGENT_STATUS_REPO_REF="user-main"
+export APP_VERSION="0.5.0-rc.12"
 export INSTALL_CERT_AUTH="TRUE"
 SCRIPT_NAME="setup-agent.sh"
 

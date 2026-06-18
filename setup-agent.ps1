@@ -8,8 +8,8 @@ param(
 $env:WAZUH_AGENT_REPO_REF = $Ref
 $env:WAZUH_AGENT_VERSION = "4.14.4-1"
 $env:WAZUH_AGENT_STATUS_VERSION = "0.5.0-rc.12"
-$env:WAZUH_AGENT_STATUS_REPO_REF = "v0.5.0-rc.12"
-$env:APP_VERSION = "v0.5.0-rc.12"
+$env:WAZUH_AGENT_STATUS_REPO_REF = "user-main"
+$env:APP_VERSION = "0.5.0-rc.12"
 $env:INSTALL_CERT_AUTH = "TRUE"
 $ScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 
