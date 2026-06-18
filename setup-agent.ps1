@@ -5,7 +5,7 @@ param(
     )
 )
 
-$env:WAZUH_AGENT_VERSION = "4.14.1-1"
+$env:WAZUH_AGENT_VERSION = "4.14.4"
 
 $ScriptRoot = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
 
