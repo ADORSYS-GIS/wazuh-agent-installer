@@ -361,10 +361,7 @@ async fn run_enroll(
         } else {
             "/var/ossec/bin/wazuh-cert-oauth2-client"
         };
-        // On macOS, do NOT run via sudo — the OAuth2 flow needs to open a browser window
-        // which is blocked when the process runs in a non-GUI sudo context.
-        let needs_sudo = !cfg!(target_os = "macos");
-        (exe, args, needs_sudo)
+        (exe, args, true)
     };
 
     #[cfg(windows)]
@@ -386,17 +383,19 @@ async fn run_enroll(
         )
     };
 
+    let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
     let mut command = if use_sudo {
         let mut c = Command::new("sudo");
-        c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
+        // -S reads password from stdin; -E preserves the caller's environment so
+        // macOS GUI session tokens are kept and the browser can be opened.
+        c.arg("-S").arg("-p").arg("").arg("-E").arg(cmd).args(&args);
         c
     } else {
         let mut c = Command::new(cmd);
         c.args(&args);
         c
     };
-
-    let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
 
     command
         .env("PATH", format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path))
