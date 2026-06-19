@@ -33,6 +33,10 @@ Write-Host "Downloading from: $DownloadUrl"
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath
 
 Write-Host "📦 Installing package..." -ForegroundColor Cyan
-Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /quiet /norestart" -Wait -NoNewWindow
+$process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /passive /norestart" -Wait -NoNewWindow -PassThru
 
-Write-Host "✅ Wazuh Agent Installer installed successfully! You can find it in your Start Menu." -ForegroundColor Green
+if ($process.ExitCode -eq 0) {
+    Write-Host "✅ Wazuh Agent Installer installed successfully! You can find it in your Start Menu." -ForegroundColor Green
+} else {
+    Write-Host "❌ Installation failed with exit code: $($process.ExitCode). Please try running PowerShell as Administrator." -ForegroundColor Red
+}
