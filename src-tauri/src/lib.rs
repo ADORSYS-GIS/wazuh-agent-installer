@@ -361,11 +361,11 @@ async fn run_enroll(
         } else {
             "/var/ossec/bin/wazuh-cert-oauth2-client"
         };
-        // On macOS, the OAuth2 client must run as the regular user (not root) so it can
-        // open a browser window. The binary handles any needed privilege escalation itself.
-        // On Linux, sudo is required to write certificates into /var/ossec/etc/.
-        let needs_sudo = !cfg!(target_os = "macos");
-        (exe, args, needs_sudo)
+        // The binary is installed with root-only permissions, so we need sudo on all Unix
+        // platforms. On macOS, sudo kills the GUI context so the binary cannot open a
+        // browser. We intercept the "Opened your default browser to: <URL>" line from
+        // stderr and open it ourselves from Tauri's GUI process instead.
+        (exe, args, true)
     };
 
     #[cfg(windows)]
@@ -439,6 +439,15 @@ async fn run_enroll(
         while let Ok(Some(line)) = reader.next_line().await {
             if line.contains("Password:") || line.trim().is_empty() {
                 continue;
+            }
+            // The OAuth2 binary cannot open a browser when run under sudo on macOS
+            // (sudo strips the GUI session). We intercept the URL it prints and open
+            // it ourselves from Tauri which runs in the full GUI context.
+            if let Some(url_start) = line.find("Opened your default browser to: ") {
+                let url = line[url_start + "Opened your default browser to: ".len()..].trim();
+                if !url.is_empty() {
+                    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+                }
             }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
