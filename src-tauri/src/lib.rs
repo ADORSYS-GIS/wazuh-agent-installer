@@ -218,6 +218,11 @@ async fn run_install(
 
         // Pass environment variables via `env` so `sudo` doesn't strip them
         c.arg("env");
+        
+        // Inject PATH so macOS GUI apps can find Homebrew and other user binaries
+        let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        c.arg(format!("PATH=/opt/homebrew/bin:/usr/local/bin:{}", current_path));
+
         c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
         c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
         c.arg(format!("IDS_ENGINE={}", config.ids_engine));
@@ -239,7 +244,10 @@ async fn run_install(
         c
     };
 
+    let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
     command
+        .env("PATH", format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path))
         .env("WAZUH_MANAGER", &config.wazuh_manager)
         .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
         .env("IDS_ENGINE", &config.ids_engine)
@@ -385,7 +393,10 @@ async fn run_enroll(
         c
     };
 
+    let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
     command
+        .env("PATH", format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
