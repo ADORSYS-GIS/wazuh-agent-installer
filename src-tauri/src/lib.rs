@@ -361,7 +361,11 @@ async fn run_enroll(
         } else {
             "/var/ossec/bin/wazuh-cert-oauth2-client"
         };
-        (exe, args, true)
+        // On macOS, the OAuth2 client must run as the regular user (not root) so it can
+        // open a browser window. The binary handles any needed privilege escalation itself.
+        // On Linux, sudo is required to write certificates into /var/ossec/etc/.
+        let needs_sudo = !cfg!(target_os = "macos");
+        (exe, args, needs_sudo)
     };
 
     #[cfg(windows)]
@@ -387,18 +391,7 @@ async fn run_enroll(
 
     let mut command = if use_sudo {
         let mut c = Command::new("sudo");
-        c.arg("-S").arg("-p").arg("");
-
-        // On macOS, `sudo` strips the GUI bootstrap context, so any attempt to open
-        // a browser silently fails. `launchctl asuser <uid>` runs the process inside
-        // the real user's GUI session while still being root — which is what we need.
-        #[cfg(target_os = "macos")]
-        {
-            let uid = unsafe { libc::getuid() };
-            c.arg("launchctl").arg("asuser").arg(uid.to_string());
-        }
-
-        c.arg(cmd).args(&args);
+        c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
         c
     } else {
         let mut c = Command::new(cmd);
