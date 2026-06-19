@@ -10,6 +10,9 @@ use tauri::{
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 // ---- State ----
 
 pub struct AppState {
@@ -53,6 +56,21 @@ pub struct InstallConfig {
 }
 
 // ---- Helpers ----
+
+/// Create a background command, hiding the console window on Windows.
+fn create_command(cmd: &str) -> Command {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut std_cmd = std::process::Command::new(cmd);
+        std_cmd.creation_flags(CREATE_NO_WINDOW);
+        Command::from(std_cmd)
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(cmd)
+    }
+}
 
 /// Classify a log line as "error", "success", or "info" for UI highlighting.
 fn classify_line(line: &str) -> &'static str {
@@ -141,7 +159,7 @@ fn is_root() -> bool {
 async fn verify_sudo(password: String, state: State<'_, AppState>) -> Result<bool, String> {
     #[cfg(unix)]
     {
-        let mut child = Command::new("sudo")
+        let mut child = create_command("sudo")
             .arg("-S")
             .arg("-k")
             .arg("-p")
@@ -213,7 +231,7 @@ async fn run_install(
     };
 
     let mut command = if use_sudo {
-        let mut c = Command::new("sudo");
+        let mut c = create_command("sudo");
         c.arg("-S").arg("-p").arg("");
 
         // Pass environment variables via `env` so `sudo` doesn't strip them
@@ -239,7 +257,7 @@ async fn run_install(
         c.arg(cmd_str).args(&args);
         c
     } else {
-        let mut c = Command::new(cmd_str);
+        let mut c = create_command(cmd_str);
         c.args(&args);
         c
     };
@@ -390,11 +408,11 @@ async fn run_enroll(
     let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
 
     let mut command = if use_sudo {
-        let mut c = Command::new("sudo");
+        let mut c = create_command("sudo");
         c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
         c
     } else {
-        let mut c = Command::new(cmd);
+        let mut c = create_command(cmd);
         c.args(&args);
         c
     };
@@ -566,7 +584,7 @@ async fn check_components(
         #[cfg(unix)]
         let installed = {
             if let Some(ref pw) = pw_opt {
-                let mut cmd = Command::new("sudo");
+                let mut cmd = create_command("sudo");
                 cmd.arg("-S")
                     .arg("-p")
                     .arg("")
@@ -596,7 +614,7 @@ async fn check_components(
         #[cfg(windows)]
         let installed = {
             if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
-                Command::new(&path)
+                create_command(&path)
                     .arg("--help")
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
@@ -607,7 +625,7 @@ async fn check_components(
                 std::path::Path::new(&path).exists()
                     || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
                         .exists()
-                    || Command::new("sc")
+                    || create_command("sc")
                         .args(["query", "WazuhSvc"])
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
