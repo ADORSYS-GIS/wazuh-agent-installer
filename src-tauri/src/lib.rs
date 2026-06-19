@@ -361,7 +361,10 @@ async fn run_enroll(
         } else {
             "/var/ossec/bin/wazuh-cert-oauth2-client"
         };
-        (exe, args, true)
+        // On macOS, do NOT run via sudo — the OAuth2 flow needs to open a browser window
+        // which is blocked when the process runs in a non-GUI sudo context.
+        let needs_sudo = !cfg!(target_os = "macos");
+        (exe, args, needs_sudo)
     };
 
     #[cfg(windows)]
