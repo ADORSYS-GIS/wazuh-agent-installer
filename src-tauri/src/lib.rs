@@ -387,9 +387,18 @@ async fn run_enroll(
 
     let mut command = if use_sudo {
         let mut c = Command::new("sudo");
-        // -S reads password from stdin; -E preserves the caller's environment so
-        // macOS GUI session tokens are kept and the browser can be opened.
-        c.arg("-S").arg("-p").arg("").arg("-E").arg(cmd).args(&args);
+        c.arg("-S").arg("-p").arg("");
+
+        // On macOS, `sudo` strips the GUI bootstrap context, so any attempt to open
+        // a browser silently fails. `launchctl asuser <uid>` runs the process inside
+        // the real user's GUI session while still being root — which is what we need.
+        #[cfg(target_os = "macos")]
+        {
+            let uid = unsafe { libc::getuid() };
+            c.arg("launchctl").arg("asuser").arg(uid.to_string());
+        }
+
+        c.arg(cmd).args(&args);
         c
     } else {
         let mut c = Command::new(cmd);
