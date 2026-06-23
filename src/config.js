@@ -1,12 +1,13 @@
 // ============================================================
 // Wazuh Agent Installer — Brand & Dynamic Configuration
 // ============================================================
+import logoUrl from "./assets/adorsys-logo.png";
 export const BRAND_CONFIG = {
     // Brand Metadata
     companyName: "Adorsys",
     appTitle: "Wazuh Agent Installer",
     appVersion: "v1.0.0",
-    logo: "assets/adorsys-logo.png", // Path relative to public/build folder
+    logo: logoUrl,
     // Brand Theme Palette (dynamically injected into :root variables)
     colors: {
         // Primary brand color and hover/ghost variants
