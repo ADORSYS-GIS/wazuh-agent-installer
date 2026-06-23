@@ -57,6 +57,108 @@ pub struct InstallConfig {
 
 // ---- Helpers ----
 
+async fn get_component_version(name: &str, path: &str, use_sudo: bool, pw_opt: Option<&String>) -> Option<String> {
+    if name == "USB DLP Scripts" {
+        return Some("Installed".to_string());
+    }
+
+    let mut args = vec![];
+    let cmd_target;
+
+    if name == "Wazuh Agent" {
+        #[cfg(unix)]
+        {
+            cmd_target = path.replace("wazuh-agentd", "wazuh-control").replace("ossec-agentd", "wazuh-control");
+            args.push("info".to_string());
+        }
+        #[cfg(windows)]
+        {
+            cmd_target = path.to_string();
+            args.push("-V".to_string());
+        }
+    } else if name == "Suricata" {
+        cmd_target = path.to_string();
+        args.push("-V".to_string());
+    } else {
+        cmd_target = path.to_string();
+        args.push("--version".to_string());
+    }
+
+    let mut cmd = if use_sudo {
+        #[cfg(unix)]
+        {
+            let mut c = create_command("sudo");
+            c.arg("-S").arg("-p").arg("").arg(&cmd_target).args(&args);
+            c
+        }
+        #[cfg(windows)]
+        {
+            let mut c = create_command(&cmd_target);
+            c.args(&args);
+            c
+        }
+    } else {
+        let mut c = create_command(&cmd_target);
+        c.args(&args);
+        c
+    };
+
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    if let Ok(mut child) = cmd.spawn() {
+        if use_sudo {
+            #[cfg(unix)]
+            if let Some(mut stdin) = child.stdin.take() {
+                if let Some(pw) = pw_opt {
+                    let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
+                }
+            }
+        }
+        
+        if let Ok(output) = child.wait_with_output().await {
+            let out_str = String::from_utf8_lossy(&output.stdout).to_string() + &String::from_utf8_lossy(&output.stderr).to_string();
+            
+            if name == "YARA" {
+                return out_str.lines().next().map(|s| s.trim().to_string());
+            } else if name == "Suricata" {
+                if let Some(idx) = out_str.find("version ") {
+                    let rest = &out_str[idx + 8..];
+                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                }
+            } else if name == "Trivy" {
+                if let Some(idx) = out_str.find("Version: ") {
+                    let rest = &out_str[idx + 9..];
+                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                }
+            } else if name == "Wazuh Agent" {
+                if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
+                    let rest = &out_str[idx + 15..];
+                    if let Some(end) = rest.find("\"") {
+                        return Some(rest[..end].to_string());
+                    }
+                } else if let Some(idx) = out_str.find("Wazuh v") {
+                    let rest = &out_str[idx + 7..];
+                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                }
+            } else {
+                for line in out_str.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.chars().any(|c| c.is_digit(10)) {
+                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                        for p in parts {
+                            if p.chars().any(|c| c.is_digit(10)) && p.contains(".") {
+                                return Some(p.to_string());
+                            }
+                        }
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Create a background command, hiding the console window on Windows.
 fn create_command(cmd: &str) -> Command {
     #[cfg(windows)]
@@ -637,10 +739,17 @@ async fn check_components(
             }
         };
 
+        let version = if installed {
+            let needs_sudo = cfg!(unix) && (name == "Wazuh Agent" || name == "Suricata" || name == "Trivy" || path.contains("/var/ossec"));
+            get_component_version(&name, &path, needs_sudo, pw_opt.as_ref()).await
+        } else {
+            None
+        };
+
         results.push(ComponentStatus {
             name,
             installed,
-            version: None, // Can implement version extraction via commands later
+            version,
             path,
         });
     }
