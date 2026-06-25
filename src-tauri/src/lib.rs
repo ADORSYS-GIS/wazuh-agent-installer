@@ -73,8 +73,10 @@ async fn get_component_version(name: &str, path: &str, use_sudo: bool, pw_opt: O
         }
         #[cfg(windows)]
         {
-            cmd_target = path.to_string();
-            args.push("-V".to_string());
+            cmd_target = "powershell".to_string();
+            args.push("-NoProfile".to_string());
+            args.push("-Command".to_string());
+            args.push(format!("(Get-Item '{}').VersionInfo.ProductVersion", path));
         }
     } else if name == "Suricata" {
         cmd_target = path.to_string();
@@ -139,6 +141,11 @@ async fn get_component_version(name: &str, path: &str, use_sudo: bool, pw_opt: O
                 } else if let Some(idx) = out_str.find("Wazuh v") {
                     let rest = &out_str[idx + 7..];
                     return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                } else if cfg!(windows) {
+                    let trimmed = out_str.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
                 }
             } else {
                 for line in out_str.lines() {
