@@ -638,7 +638,7 @@ async fn check_components(
         (
             "Agent Status Monitor".to_string(),
             if cfg!(windows) {
-                format!("{}\\wazuh-agent-status-windows-amd64.exe", ossec_path)
+                r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string()
             } else {
                 "/usr/local/bin/wazuh-agent-status".to_string()
             },
