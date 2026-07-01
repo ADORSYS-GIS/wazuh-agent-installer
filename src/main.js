@@ -447,6 +447,7 @@ async function refreshComponents() {
           <div class="comp-name">${comp.name}</div>
           <div class="comp-badge ${badgeClass}">${badgeText}</div>
         </div>
+        <div class="comp-desc">${getComponentDescription(comp.name)}</div>
         ${comp.version ? `<div class="comp-version">📦 ${comp.version}</div>` : ""}
         <div class="comp-path">${comp.path}</div>
       `;
@@ -486,4 +487,24 @@ function enableSaveLogs(buttonId, terminalId, prefix) {
             alert(`Failed to save logs: ${e}`);
         }
     };
+}
+function getComponentDescription(name) {
+    switch (name) {
+        case "Wazuh Agent":
+            return "Core security agent responsible for system monitoring, log collection, and threat detection.";
+        case "OAuth2 Client":
+            return "Custom daemon that automatically negotiates certificates and authenticates the agent with the central cluster.";
+        case "Agent Status Monitor":
+            return "Background service ensuring the Wazuh agent remains healthy and restarts automatically if it crashes.";
+        case "YARA":
+            return "Malware identification engine used to perform file content pattern matching for advanced threats.";
+        case "Suricata":
+            return "High performance Network IDS, IPS and Network Security Monitoring engine.";
+        case "Trivy":
+            return "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.";
+        case "USB DLP Scripts":
+            return "Active response scripts to monitor, block, and manage unauthorized USB storage devices.";
+        default:
+            return "Security component managed by the Wazuh Installer.";
+    }
 }

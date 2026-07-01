@@ -57,7 +57,12 @@ pub struct InstallConfig {
 
 // ---- Helpers ----
 
-async fn get_component_version(name: &str, path: &str, use_sudo: bool, pw_opt: Option<&String>) -> Option<String> {
+async fn get_component_version(
+    name: &str,
+    path: &str,
+    use_sudo: bool,
+    pw_opt: Option<&String>,
+) -> Option<String> {
     if name == "USB DLP Scripts" {
         return Some("Installed".to_string());
     }
@@ -68,7 +73,9 @@ async fn get_component_version(name: &str, path: &str, use_sudo: bool, pw_opt: O
     if name == "Wazuh Agent" {
         #[cfg(unix)]
         {
-            cmd_target = path.replace("wazuh-agentd", "wazuh-control").replace("ossec-agentd", "wazuh-control");
+            cmd_target = path
+                .replace("wazuh-agentd", "wazuh-control")
+                .replace("ossec-agentd", "wazuh-control");
             args.push("info".to_string());
         }
         #[cfg(windows)]
@@ -116,10 +123,11 @@ async fn get_component_version(name: &str, path: &str, use_sudo: bool, pw_opt: O
                 }
             }
         }
-        
+
         if let Ok(output) = child.wait_with_output().await {
-            let out_str = String::from_utf8_lossy(&output.stdout).to_string() + &String::from_utf8_lossy(&output.stderr).to_string();
-            
+            let out_str = String::from_utf8_lossy(&output.stdout).to_string()
+                + String::from_utf8_lossy(&output.stderr).as_ref();
+
             if name == "YARA" {
                 return out_str.lines().next().map(|s| s.trim().to_string());
             } else if name == "Suricata" {
@@ -150,10 +158,10 @@ async fn get_component_version(name: &str, path: &str, use_sudo: bool, pw_opt: O
             } else {
                 for line in out_str.lines() {
                     let trimmed = line.trim();
-                    if trimmed.chars().any(|c| c.is_digit(10)) {
+                    if trimmed.chars().any(|c| c.is_ascii_digit()) {
                         let parts: Vec<&str> = trimmed.split_whitespace().collect();
                         for p in parts {
-                            if p.chars().any(|c| c.is_digit(10)) && p.contains(".") {
+                            if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') {
                                 return Some(p.to_string());
                             }
                         }
@@ -345,10 +353,14 @@ async fn run_install(
 
         // Pass environment variables via `env` so `sudo` doesn't strip them
         c.arg("env");
-        
+
         // Inject PATH so macOS GUI apps can find Homebrew and other user binaries
-        let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-        c.arg(format!("PATH=/opt/homebrew/bin:/usr/local/bin:{}", current_path));
+        let current_path =
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        c.arg(format!(
+            "PATH=/opt/homebrew/bin:/usr/local/bin:{}",
+            current_path
+        ));
 
         c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
         c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
@@ -371,10 +383,14 @@ async fn run_install(
         c
     };
 
-    let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+    let current_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
 
     command
-        .env("PATH", format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path))
+        .env(
+            "PATH",
+            format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
+        )
         .env("WAZUH_MANAGER", &config.wazuh_manager)
         .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
         .env("IDS_ENGINE", &config.ids_engine)
@@ -514,7 +530,8 @@ async fn run_enroll(
         )
     };
 
-    let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+    let current_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
 
     let mut command = if use_sudo {
         let mut c = create_command("sudo");
@@ -527,7 +544,10 @@ async fn run_enroll(
     };
 
     command
-        .env("PATH", format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path))
+        .env(
+            "PATH",
+            format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -747,7 +767,11 @@ async fn check_components(
         };
 
         let version = if installed {
-            let needs_sudo = cfg!(unix) && (name == "Wazuh Agent" || name == "Suricata" || name == "Trivy" || path.contains("/var/ossec"));
+            let needs_sudo = cfg!(unix)
+                && (name == "Wazuh Agent"
+                    || name == "Suricata"
+                    || name == "Trivy"
+                    || path.contains("/var/ossec"));
             get_component_version(&name, &path, needs_sudo, pw_opt.as_ref()).await
         } else {
             None
