@@ -377,11 +377,7 @@ async fn run_install(
         ));
         c.arg(format!(
             "INSTALL_NETBIRD={}",
-            if config.install_netbird {
-                "1"
-            } else {
-                ""
-            }
+            if config.install_netbird { "1" } else { "" }
         ));
 
         c.arg(cmd_str).args(&args);
@@ -414,11 +410,7 @@ async fn run_install(
         )
         .env(
             "INSTALL_NETBIRD",
-            if config.install_netbird {
-                "1"
-            } else {
-                ""
-            },
+            if config.install_netbird { "1" } else { "" },
         )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -697,7 +689,12 @@ async fn run_netbird_up(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = command.spawn().map_err(|e| format!("Failed to spawn netbird: {}. Is the NetBird client installed?", e))?;
+    let mut child = command.spawn().map_err(|e| {
+        format!(
+            "Failed to spawn netbird: {}. Is the NetBird client installed?",
+            e
+        )
+    })?;
 
     if use_sudo {
         if let Some(mut stdin) = child.stdin.take() {
