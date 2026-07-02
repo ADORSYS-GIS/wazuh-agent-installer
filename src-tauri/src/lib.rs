@@ -51,6 +51,7 @@ pub struct InstallConfig {
     pub ids_engine: String,
     pub suricata_mode: String,
     pub install_trivy: bool,
+    pub install_netbird: bool,
     pub oauth_issuer: String,
     pub cert_endpoint: String,
 }
@@ -374,6 +375,14 @@ async fn run_install(
                 "false"
             }
         ));
+        c.arg(format!(
+            "INSTALL_NETBIRD={}",
+            if config.install_netbird {
+                "1"
+            } else {
+                ""
+            }
+        ));
 
         c.arg(cmd_str).args(&args);
         c
@@ -401,6 +410,14 @@ async fn run_install(
                 "true"
             } else {
                 "false"
+            },
+        )
+        .env(
+            "INSTALL_NETBIRD",
+            if config.install_netbird {
+                "1"
+            } else {
+                ""
             },
         )
         .stdin(Stdio::piped())
@@ -621,6 +638,125 @@ async fn run_enroll(
 }
 
 #[tauri::command]
+async fn run_netbird_up(
+    setup_key: String,
+    management_url: String,
+    password: Option<String>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    if setup_key.trim().is_empty() || management_url.trim().is_empty() {
+        return Err("Both setup key and management URL are required.".into());
+    }
+
+    if let Some(pw) = password {
+        let mut stored = state.sudo_password.lock().unwrap();
+        *stored = Some(pw);
+    }
+
+    let pw_opt = {
+        let mut stored = state.sudo_password.lock().unwrap();
+        stored.take()
+    };
+
+    let args = vec![
+        "up".to_string(),
+        "--setup-key".to_string(),
+        setup_key,
+        "--management-url".to_string(),
+        management_url,
+    ];
+
+    let current_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
+    // NetBird runs as a privileged daemon, so we need sudo on Unix. On Windows
+    // the installer process is already elevated via UAC.
+    #[cfg(unix)]
+    let (cmd, cmd_args, use_sudo) = ("netbird", args, true);
+
+    #[cfg(windows)]
+    let (cmd, cmd_args, use_sudo) = ("netbird", args, false);
+
+    let mut command = if use_sudo {
+        let mut c = create_command("sudo");
+        c.arg("-S").arg("-p").arg("").arg(cmd).args(&cmd_args);
+        c
+    } else {
+        let mut c = create_command(cmd);
+        c.args(&cmd_args);
+        c
+    };
+
+    command
+        .env(
+            "PATH",
+            format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command.spawn().map_err(|e| format!("Failed to spawn netbird: {}. Is the NetBird client installed?", e))?;
+
+    if use_sudo {
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Some(pw) = pw_opt {
+                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
+            }
+        }
+    }
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let app_clone1 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let level = classify_line(&line);
+            let _ = app_clone1.emit(
+                "netbird-log",
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let app_clone2 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if line.contains("Password:") || line.trim().is_empty() {
+                continue;
+            }
+            let level = classify_line(&line);
+            let _ = app_clone2.emit(
+                "netbird-log",
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+
+    Ok(InstallResult {
+        success: status.success(),
+        exit_code: status.code().unwrap_or(-1),
+        message: if status.success() {
+            "NetBird connected successfully".into()
+        } else {
+            "NetBird connection failed".into()
+        },
+    })
+}
+
+#[tauri::command]
 async fn check_components(
     password: Option<String>,
     state: State<'_, AppState>,
@@ -705,6 +841,14 @@ async fn check_components(
                 format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path)
             },
         ),
+        (
+            "NetBird".to_string(),
+            if cfg!(windows) {
+                "netbird.exe".to_string()
+            } else {
+                "/usr/local/bin/netbird".to_string()
+            },
+        ),
     ];
 
     let mut results = Vec::new();
@@ -742,7 +886,11 @@ async fn check_components(
 
         #[cfg(windows)]
         let installed = {
-            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
+            if path == "yara64.exe"
+                || path == "suricata.exe"
+                || path == "trivy.exe"
+                || path == "netbird.exe"
+            {
                 create_command(&path)
                     .arg("--help")
                     .stdout(Stdio::null())
@@ -814,6 +962,7 @@ pub fn run() {
             verify_sudo,
             run_install,
             run_enroll,
+            run_netbird_up,
             check_components,
             save_logs
         ])

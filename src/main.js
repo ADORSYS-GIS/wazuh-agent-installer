@@ -17,6 +17,9 @@ const invoke = hasTauri
         if (cmd === "run_enroll") {
             return { success: true, exit_code: 0, message: "Mock enroll successful" };
         }
+        if (cmd === "run_netbird_up") {
+            return { success: true, exit_code: 0, message: "Mock netbird up successful" };
+        }
         if (cmd === "check_components") {
             return [
                 { name: "Wazuh Agent", installed: true, version: "4.14.1", path: "/var/ossec/bin/wazuh-agent" },
@@ -35,6 +38,7 @@ const listen = hasTauri
 let sudoPassword = "";
 let isInstalling = false;
 let isEnrolling = false;
+let isConnectingNetbird = false;
 // ---- DOM refs ----
 // Overlays
 const sudoOverlay = document.getElementById("sudo-overlay");
@@ -53,6 +57,7 @@ const elIssuerCustom = document.getElementById("oauth-issuer-custom");
 const elEndpointSelect = document.getElementById("cert-endpoint");
 const elEndpointCustom = document.getElementById("cert-endpoint-custom");
 const elTrivy = document.getElementById("install-trivy");
+const elNetbirdInstall = document.getElementById("install-netbird");
 // IDS mode pills
 const suricataModePills = document.querySelectorAll("#suricata-mode-group .pill");
 // Install / Enroll Action Buttons
@@ -69,6 +74,15 @@ const resultScreen = document.getElementById("result-screen");
 const terminalEnrollArea = document.getElementById("enroll-terminal-area");
 const terminalEnroll = document.getElementById("enroll-terminal");
 const enrollStatusBanner = document.getElementById("enroll-status-banner");
+// NetBird
+const elNetbirdUrlSelect = document.getElementById("netbird-management-url");
+const elNetbirdUrlCustom = document.getElementById("netbird-management-url-custom");
+const elNetbirdSetupKey = document.getElementById("netbird-setup-key");
+const btnStartNetbird = document.getElementById("btn-start-netbird");
+const btnRetryNetbird = document.getElementById("btn-retry-netbird");
+const terminalNetbirdArea = document.getElementById("netbird-terminal-area");
+const terminalNetbird = document.getElementById("netbird-terminal");
+const netbirdStatusBanner = document.getElementById("netbird-status-banner");
 // ---- Initialization ----
 async function boot() {
     applyBrandTheme();
@@ -84,6 +98,8 @@ async function boot() {
     btnStartEnroll?.addEventListener("click", startEnrollment);
     btnRetryEnroll?.addEventListener("click", startEnrollment);
     btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
+    btnStartNetbird?.addEventListener("click", startNetbirdConnection);
+    btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
     btnRefreshComponents?.addEventListener("click", refreshComponents);
     const isRoot = await invoke("is_root");
     const platform = await invoke("get_platform");
@@ -192,6 +208,7 @@ function initializeAppHeaderAndOptions() {
     populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
     populateDropdown("oauth-issuer", BRAND_CONFIG.oauthIssuers);
     populateDropdown("cert-endpoint", BRAND_CONFIG.certEndpoints);
+    populateDropdown("netbird-management-url", BRAND_CONFIG.netbirdManagementUrls);
 }
 function populateDropdown(selectId, options) {
     const selectEl = document.getElementById(selectId);
@@ -230,6 +247,8 @@ function setupCustomInputListeners() {
     bindSelectToCustom(elManagerSelect, elManagerCustom, updateInstallButtonState);
     bindSelectToCustom(elIssuerSelect, elIssuerCustom, updateEnrollButtonState);
     bindSelectToCustom(elEndpointSelect, elEndpointCustom, updateEnrollButtonState);
+    bindSelectToCustom(elNetbirdUrlSelect, elNetbirdUrlCustom, updateNetbirdButtonState);
+    elNetbirdSetupKey?.addEventListener("input", updateNetbirdButtonState);
 }
 function setupRadioCards() {
     suricataModePills.forEach((pill) => {
@@ -255,6 +274,14 @@ function getEndpointValue() {
         ? (elEndpointCustom?.value.trim() ?? "")
         : (elEndpointSelect?.value.trim() ?? "");
 }
+function getNetbirdUrlValue() {
+    return elNetbirdUrlSelect?.value === "other"
+        ? (elNetbirdUrlCustom?.value.trim() ?? "")
+        : (elNetbirdUrlSelect?.value.trim() ?? "");
+}
+function getNetbirdSetupKey() {
+    return elNetbirdSetupKey?.value.trim() ?? "";
+}
 function getConfig() {
     const selectedModePill = document.querySelector("#suricata-mode-group .pill.selected");
     return {
@@ -264,6 +291,7 @@ function getConfig() {
         ids_engine: "suricata",
         suricata_mode: selectedModePill ? (selectedModePill.dataset.mode ?? "ids") : "ids",
         install_trivy: elTrivy ? elTrivy.checked : false,
+        install_netbird: elNetbirdInstall ? elNetbirdInstall.checked : false,
         oauth_issuer: getIssuerValue(),
         cert_endpoint: getEndpointValue(),
     };
@@ -276,6 +304,11 @@ function updateInstallButtonState() {
 function updateEnrollButtonState() {
     if (btnStartEnroll) {
         btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
+    }
+}
+function updateNetbirdButtonState() {
+    if (btnStartNetbird) {
+        btnStartNetbird.disabled = !getNetbirdUrlValue() || !getNetbirdSetupKey() || isConnectingNetbird;
     }
 }
 // ---- Installation Flow ----
@@ -423,6 +456,56 @@ async function startEnrollment() {
         enableSaveLogs("btn-save-enroll-logs", "enroll-terminal", "enroll");
     }
 }
+// ---- NetBird Connection Flow ----
+async function startNetbirdConnection() {
+    if (isConnectingNetbird)
+        return;
+    const managementUrl = getNetbirdUrlValue();
+    const setupKey = getNetbirdSetupKey();
+    if (!managementUrl || !setupKey)
+        return;
+    isConnectingNetbird = true;
+    updateNetbirdButtonState();
+    if (terminalNetbirdArea)
+        terminalNetbirdArea.style.display = "block";
+    if (btnRetryNetbird)
+        btnRetryNetbird.style.display = "none";
+    if (terminalNetbird) {
+        terminalNetbird.innerHTML =
+            '<div class="terminal-placeholder"><span class="spinner"></span> Running netbird up…</div>';
+    }
+    showStatusBanner(netbirdStatusBanner, "running", "Connecting to NetBird…");
+    const unlistenLog = await listen("netbird-log", (e) => {
+        appendLog(terminalNetbird, e.payload.line, e.payload.level);
+    });
+    try {
+        const result = await invoke("run_netbird_up", {
+            setupKey,
+            managementUrl,
+            password: sudoPassword || null,
+        });
+        if (result.success) {
+            showStatusBanner(netbirdStatusBanner, "success", "NetBird connected successfully!");
+        }
+        else {
+            showStatusBanner(netbirdStatusBanner, "error", `NetBird connection failed: exit code ${result.exit_code}`);
+            if (btnRetryNetbird)
+                btnRetryNetbird.style.display = "flex";
+        }
+    }
+    catch (err) {
+        showStatusBanner(netbirdStatusBanner, "error", `NetBird error: ${err}`);
+        if (btnRetryNetbird)
+            btnRetryNetbird.style.display = "flex";
+    }
+    finally {
+        unlistenLog();
+        isConnectingNetbird = false;
+        updateNetbirdButtonState();
+        refreshComponents();
+        enableSaveLogs("btn-save-netbird-logs", "netbird-terminal", "netbird");
+    }
+}
 // ---- Components Tab ----
 async function refreshComponents() {
     const grid = document.getElementById("components-grid");
@@ -504,6 +587,8 @@ function getComponentDescription(name) {
             return "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.";
         case "USB DLP Scripts":
             return "Active response scripts to monitor, block, and manage unauthorized USB storage devices.";
+        case "NetBird":
+            return "WireGuard-based overlay VPN client providing secure mesh networking between agents.";
         default:
             return "Security component managed by the Wazuh Installer.";
     }
