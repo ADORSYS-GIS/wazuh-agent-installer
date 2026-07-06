@@ -60,5 +60,8 @@ export const BRAND_CONFIG = {
     { value: "https://cert.wazuh.adorsys.team/api/register-agent", label: "cert.wazuh.adorsys.team (production)" },
     { value: "https://cert.dev.wazuh.adorsys.team/api/register-agent", label: "cert.dev.wazuh.adorsys.team (dev)" },
   ],
-  netbirdManagementUrls: [{ value: "https://netbird.guard.adorsys.com", label: "netbird.guard.adorsys.com" }],
+  netbirdManagementUrls: [
+    { value: "https://api.netbird.io:443", label: "NetBird Cloud (api.netbird.io)" },
+    { value: "https://netbird.guard.adorsys.com", label: "netbird.guard.adorsys.com" },
+  ],
 };

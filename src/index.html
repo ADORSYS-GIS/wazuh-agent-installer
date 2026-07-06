@@ -231,7 +231,9 @@
               <p class="toggle-desc" style="margin-bottom: 16px">
                 Connect this agent to a NetBird overlay network. The NetBird client must be installed
                 first — enable <strong>Install NetBird</strong> on the Setup tab, or install it
-                manually.
+                manually. If no management URL is selected, the public NetBird Cloud
+                (<strong>api.netbird.io</strong>) is used by default. The setup key is optional —
+                if omitted, <code>netbird up</code> will use the daemon's existing configuration.
               </p>
 
               <div class="form-grid-2col">
@@ -250,12 +252,12 @@
                 </div>
 
                 <div class="form-group">
-                  <label class="form-label" for="netbird-setup-key">Setup Key</label>
+                  <label class="form-label" for="netbird-setup-key">Setup Key <span style="color: var(--brand-text-muted); font-weight: normal">(optional)</span></label>
                   <input
                     class="form-input"
                     type="password"
                     id="netbird-setup-key"
-                    placeholder="Paste your NetBird setup key"
+                    placeholder="Paste your NetBird setup key (optional)"
                     autocomplete="off"
                   />
                 </div>

@@ -274,10 +274,13 @@ function getEndpointValue() {
         ? (elEndpointCustom?.value.trim() ?? "")
         : (elEndpointSelect?.value.trim() ?? "");
 }
+const NETBIRD_DEFAULT_URL = "https://api.netbird.io:443";
 function getNetbirdUrlValue() {
-    return elNetbirdUrlSelect?.value === "other"
-        ? (elNetbirdUrlCustom?.value.trim() ?? "")
-        : (elNetbirdUrlSelect?.value.trim() ?? "");
+    if (elNetbirdUrlSelect?.value === "other") {
+        return elNetbirdUrlCustom?.value.trim() ?? "";
+    }
+    const val = elNetbirdUrlSelect?.value.trim() ?? "";
+    return val || NETBIRD_DEFAULT_URL;
 }
 function getNetbirdSetupKey() {
     return elNetbirdSetupKey?.value.trim() ?? "";
@@ -308,7 +311,7 @@ function updateEnrollButtonState() {
 }
 function updateNetbirdButtonState() {
     if (btnStartNetbird) {
-        btnStartNetbird.disabled = !getNetbirdUrlValue() || !getNetbirdSetupKey() || isConnectingNetbird;
+        btnStartNetbird.disabled = isConnectingNetbird;
     }
 }
 // ---- Installation Flow ----
@@ -462,8 +465,6 @@ async function startNetbirdConnection() {
         return;
     const managementUrl = getNetbirdUrlValue();
     const setupKey = getNetbirdSetupKey();
-    if (!managementUrl || !setupKey)
-        return;
     isConnectingNetbird = true;
     updateNetbirdButtonState();
     if (terminalNetbirdArea)

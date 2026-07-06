@@ -336,10 +336,14 @@ function getEndpointValue(): string {
     : (elEndpointSelect?.value.trim() ?? "");
 }
 
+const NETBIRD_DEFAULT_URL = "https://api.netbird.io:443";
+
 function getNetbirdUrlValue(): string {
-  return elNetbirdUrlSelect?.value === "other"
-    ? (elNetbirdUrlCustom?.value.trim() ?? "")
-    : (elNetbirdUrlSelect?.value.trim() ?? "");
+  if (elNetbirdUrlSelect?.value === "other") {
+    return elNetbirdUrlCustom?.value.trim() ?? "";
+  }
+  const val = elNetbirdUrlSelect?.value.trim() ?? "";
+  return val || NETBIRD_DEFAULT_URL;
 }
 
 function getNetbirdSetupKey(): string {
@@ -375,7 +379,7 @@ function updateEnrollButtonState() {
 
 function updateNetbirdButtonState() {
   if (btnStartNetbird) {
-    btnStartNetbird.disabled = !getNetbirdUrlValue() || !getNetbirdSetupKey() || isConnectingNetbird;
+    btnStartNetbird.disabled = isConnectingNetbird;
   }
 }
 
@@ -534,7 +538,6 @@ async function startNetbirdConnection() {
 
   const managementUrl = getNetbirdUrlValue();
   const setupKey = getNetbirdSetupKey();
-  if (!managementUrl || !setupKey) return;
 
   isConnectingNetbird = true;
   updateNetbirdButtonState();

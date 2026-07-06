@@ -641,9 +641,12 @@ async fn run_netbird_up(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    if setup_key.trim().is_empty() || management_url.trim().is_empty() {
-        return Err("Both setup key and management URL are required.".into());
-    }
+    // Management URL defaults to the public NetBird Cloud when not provided.
+    let management_url = if management_url.trim().is_empty() {
+        "https://api.netbird.io:443".to_string()
+    } else {
+        management_url
+    };
 
     if let Some(pw) = password {
         let mut stored = state.sudo_password.lock().unwrap();
@@ -655,13 +658,18 @@ async fn run_netbird_up(
         stored.take()
     };
 
-    let args = vec![
+    let mut args = vec![
         "up".to_string(),
-        "--setup-key".to_string(),
-        setup_key,
         "--management-url".to_string(),
         management_url,
     ];
+
+    // Only pass --setup-key when one is provided; otherwise let the daemon
+    // use its existing configuration or attempt interactive login.
+    if !setup_key.trim().is_empty() {
+        args.push("--setup-key".to_string());
+        args.push(setup_key);
+    }
 
     let current_path =
         std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
@@ -847,7 +855,7 @@ async fn check_components(
             if cfg!(windows) {
                 "netbird.exe".to_string()
             } else {
-                "/usr/local/bin/netbird".to_string()
+                "/usr/bin/netbird".to_string()
             },
         ),
     ];
