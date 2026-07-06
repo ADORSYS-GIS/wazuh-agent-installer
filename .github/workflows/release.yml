@@ -66,6 +66,7 @@ jobs:
       # ── Determine release type ──────────────────────────────────────────
       - name: Determine if prerelease
         id: version
+        shell: bash
         run: |
           TAG="${{ github.ref_name }}"
           # Strip the leading 'v' then check for a '-' pre-release suffix
