@@ -379,6 +379,10 @@ async fn run_install(
             "INSTALL_NETBIRD={}",
             if config.install_netbird { "1" } else { "" }
         ));
+        c.arg(format!(
+            "WAZUH_AGENT_REPO_REF={}",
+            std::env::var("WAZUH_AGENT_REPO_REF").unwrap_or_else(|_| "develop".to_string())
+        ));
 
         c.arg(cmd_str).args(&args);
         c
@@ -411,6 +415,10 @@ async fn run_install(
         .env(
             "INSTALL_NETBIRD",
             if config.install_netbird { "1" } else { "" },
+        )
+        .env(
+            "WAZUH_AGENT_REPO_REF",
+            std::env::var("WAZUH_AGENT_REPO_REF").unwrap_or_else(|_| "develop".to_string()),
         )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
