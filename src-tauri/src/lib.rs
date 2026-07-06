@@ -333,19 +333,23 @@ async fn run_install(
     let resolved_path = resolve_script(&app)?;
 
     let (cmd_str, args, use_sudo) = if cfg!(target_os = "windows") {
-        (
-            "powershell",
-            vec![
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                &resolved_path as &str,
-            ],
-            false,
-        )
+        let mut script_args = vec![
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &resolved_path as &str,
+        ];
+        if config.install_netbird {
+            script_args.push("-InstallNetBird");
+        }
+        ("powershell", script_args, false)
     } else {
-        ("bash", vec![&resolved_path as &str], true)
+        let mut script_args = vec![&resolved_path as &str];
+        if config.install_netbird {
+            script_args.push("-b");
+        }
+        ("bash", script_args, true)
     };
 
     let mut command = if use_sudo {
@@ -374,10 +378,6 @@ async fn run_install(
             } else {
                 "false"
             }
-        ));
-        c.arg(format!(
-            "INSTALL_NETBIRD={}",
-            if config.install_netbird { "1" } else { "" }
         ));
         c.arg(format!(
             "WAZUH_AGENT_REPO_REF={}",
@@ -411,10 +411,6 @@ async fn run_install(
             } else {
                 "false"
             },
-        )
-        .env(
-            "INSTALL_NETBIRD",
-            if config.install_netbird { "1" } else { "" },
         )
         .env(
             "WAZUH_AGENT_REPO_REF",
