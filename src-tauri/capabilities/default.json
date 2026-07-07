@@ -5,6 +5,7 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "dialog:default",
     "shell:allow-execute",
     "shell:allow-open",
     "core:tray:default"

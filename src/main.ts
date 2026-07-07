@@ -65,6 +65,9 @@ const invoke = hasTauri
           { name: "OAuth2 Client", installed: false, version: null, path: "/var/ossec/bin/wazuh-cert-oauth2-client" },
         ] as unknown as T;
       }
+      if (cmd === "pick_velociraptor_config") {
+        return null as unknown as T;
+      }
       return {} as T;
     };
 
@@ -102,6 +105,12 @@ const elEndpointSelect = document.getElementById("cert-endpoint") as HTMLSelectE
 const elEndpointCustom = document.getElementById("cert-endpoint-custom") as HTMLInputElement | null;
 const elTrivy = document.getElementById("install-trivy") as HTMLInputElement | null;
 const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInputElement | null;
+const elVelociraptorInstall = document.getElementById("install-velociraptor") as HTMLInputElement | null;
+const elVelociraptorConfig = document.getElementById("velociraptor-config") as HTMLInputElement | null;
+const elVelociraptorConfigRow = document.getElementById("velociraptor-config-row") as HTMLElement | null;
+const btnBrowseVelociraptorConfig = document.getElementById(
+  "btn-browse-velociraptor-config"
+) as HTMLButtonElement | null;
 
 // IDS mode pills
 const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode-group .pill");
@@ -140,6 +149,7 @@ async function boot() {
   initializeAppHeaderAndOptions();
   setupCustomInputListeners();
   setupRadioCards();
+  setupVelociraptorConfig();
 
   // Tab handling
   navItems.forEach((item) => {
@@ -324,6 +334,44 @@ function setupRadioCards(): void {
   });
 }
 
+function setupVelociraptorConfig(): void {
+  // Show/hide the config file row based on the toggle state
+  elVelociraptorInstall?.addEventListener("change", () => {
+    if (elVelociraptorConfigRow) {
+      elVelociraptorConfigRow.style.display = elVelociraptorInstall.checked ? "block" : "none";
+    }
+    // Clear config path when toggled off
+    if (!elVelociraptorInstall.checked && elVelociraptorConfig) {
+      elVelociraptorConfig.value = "";
+    }
+  });
+
+  // Browse button opens a native file picker via Tauri dialog
+  btnBrowseVelociraptorConfig?.addEventListener("click", async () => {
+    try {
+      const path = await invoke<string | null>("pick_velociraptor_config");
+      if (path && elVelociraptorConfig) {
+        elVelociraptorConfig.value = path;
+        // Providing a config implies installing Velociraptor
+        if (elVelociraptorInstall && !elVelociraptorInstall.checked) {
+          elVelociraptorInstall.checked = true;
+          if (elVelociraptorConfigRow) elVelociraptorConfigRow.style.display = "block";
+        }
+      }
+    } catch (err) {
+      console.error("File picker error:", err);
+    }
+  });
+
+  // Typing a config path manually also implies install
+  elVelociraptorConfig?.addEventListener("input", () => {
+    if (elVelociraptorConfig.value.trim() && elVelociraptorInstall && !elVelociraptorInstall.checked) {
+      elVelociraptorInstall.checked = true;
+      if (elVelociraptorConfigRow) elVelociraptorConfigRow.style.display = "block";
+    }
+  });
+}
+
 // ---- Data Retrieval ----
 
 function getManagerValue(): string {
@@ -360,6 +408,11 @@ function getNetbirdSetupKey(): string {
 
 function getConfig() {
   const selectedModePill = document.querySelector("#suricata-mode-group .pill.selected") as HTMLElement | null;
+  const velociraptorConfig = elVelociraptorConfig?.value.trim() ?? "";
+  // Providing a config path implies installing Velociraptor
+  const installVelociraptor = elVelociraptorInstall
+    ? elVelociraptorInstall.checked || velociraptorConfig !== ""
+    : false;
   return {
     wazuh_manager: getManagerValue(),
     wazuh_agent_name: "wazuh-agent",
@@ -367,6 +420,8 @@ function getConfig() {
     suricata_mode: selectedModePill ? (selectedModePill.dataset.mode ?? "ids") : "ids",
     install_trivy: elTrivy ? elTrivy.checked : false,
     install_netbird: elNetbirdInstall ? elNetbirdInstall.checked : false,
+    install_velociraptor: installVelociraptor,
+    velociraptor_config: velociraptorConfig,
     oauth_issuer: getIssuerValue(),
     cert_endpoint: getEndpointValue(),
   };

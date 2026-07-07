@@ -70,4 +70,5 @@ export const COMPONENT_DESCRIPTIONS: Record<string, string> = {
   Trivy: "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.",
   "USB DLP Scripts": "Active response scripts to monitor, block, and manage unauthorized USB storage devices.",
   NetBird: "WireGuard-based overlay VPN client providing secure mesh networking between agents.",
+  Velociraptor: "Advanced endpoint visibility and incident response platform for hunting and monitoring.",
 };

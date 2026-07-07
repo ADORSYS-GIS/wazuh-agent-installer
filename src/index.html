@@ -107,6 +107,42 @@
               </div>
             </div>
 
+            <div class="card compact" style="margin-top: 16px">
+              <div class="toggle-row compact">
+                <div class="toggle-info">
+                  <div class="toggle-title">Install Velociraptor</div>
+                  <div class="toggle-desc">
+                    Endpoint visibility and incident response client. Optionally provide a config file to enable the
+                    service immediately.
+                  </div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="install-velociraptor" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="velociraptor-config-row" id="velociraptor-config-row" style="display: none; margin-top: 12px">
+                <label class="form-label" for="velociraptor-config">Config File (optional)</label>
+                <div style="display: flex; gap: 8px; align-items: center">
+                  <input
+                    class="form-input"
+                    type="text"
+                    id="velociraptor-config"
+                    placeholder="Path to client.config.yaml (optional)"
+                    style="flex: 1"
+                  />
+                  <button
+                    class="btn btn-secondary"
+                    id="btn-browse-velociraptor-config"
+                    type="button"
+                    style="flex-shrink: 0"
+                  >
+                    📁 Browse
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div class="action-row">
               <button id="btn-start-install" class="btn btn-primary" disabled>⚡ Start Installation</button>
             </div>

@@ -51,6 +51,8 @@ pub struct InstallConfig {
     pub suricata_mode: String,
     pub install_trivy: bool,
     pub install_netbird: bool,
+    pub install_velociraptor: bool,
+    pub velociraptor_config: String,
     pub oauth_issuer: String,
     pub cert_endpoint: String,
 }
@@ -462,11 +464,25 @@ async fn run_install(
         if config.install_netbird {
             script_args.push("-InstallNetBird");
         }
+        if config.install_velociraptor {
+            script_args.push("-InstallVelociraptor");
+        }
+        if !config.velociraptor_config.is_empty() {
+            script_args.push("-VelociraptorConfig");
+            script_args.push(&config.velociraptor_config as &str);
+        }
         ("powershell", script_args, false)
     } else {
         let mut script_args = vec![&resolved_path as &str];
         if config.install_netbird {
             script_args.push("-b");
+        }
+        if config.install_velociraptor {
+            script_args.push("-v");
+        }
+        if !config.velociraptor_config.is_empty() {
+            script_args.push("-c");
+            script_args.push(&config.velociraptor_config as &str);
         }
         ("bash", script_args, true)
     };
@@ -778,6 +794,14 @@ fn component_paths() -> Vec<(&'static str, String)> {
                 "/usr/bin/netbird".to_string()
             },
         ),
+        (
+            "Velociraptor",
+            if cfg!(windows) {
+                r"C:\Program Files\Velociraptor\velociraptor.exe".to_string()
+            } else {
+                "/opt/velociraptor/velociraptor".to_string()
+            },
+        ),
     ]
 }
 
@@ -865,6 +889,7 @@ async fn check_components(
                 && (name == "Wazuh Agent"
                     || name == "Suricata"
                     || name == "Trivy"
+                    || name == "Velociraptor"
                     || path.contains("/var/ossec"));
             get_component_version(name, &path, needs_sudo, pw_opt.as_ref()).await
         } else {
@@ -892,6 +917,21 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+async fn pick_velociraptor_config(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    app.dialog()
+        .file()
+        .add_filter("YAML config", &["yaml", "yml"])
+        .pick_file(move |path| {
+            let result = path.map(|p| p.to_string());
+            let _ = tx.send(result);
+        });
+    Ok(rx.await.unwrap_or(None))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState {
@@ -901,6 +941,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             is_root,
@@ -910,7 +951,8 @@ pub fn run() {
             run_enroll,
             run_netbird_up,
             check_components,
-            save_logs
+            save_logs,
+            pick_velociraptor_config
         ])
         .setup(|app| {
             let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
