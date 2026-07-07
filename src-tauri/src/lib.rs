@@ -46,7 +46,6 @@ struct ComponentStatus {
 pub struct InstallConfig {
     pub wazuh_manager: String,
     pub wazuh_agent_name: String,
-    pub log_level: String,
     // TODO: ids_engine is reserved for future Snort support; currently always "suricata"
     pub ids_engine: String,
     pub suricata_mode: String,
@@ -71,27 +70,31 @@ async fn get_component_version(
     let mut args = vec![];
     let cmd_target;
 
-    if name == "Wazuh Agent" {
-        #[cfg(unix)]
-        {
-            cmd_target = path
-                .replace("wazuh-agentd", "wazuh-control")
-                .replace("ossec-agentd", "wazuh-control");
-            args.push("info".to_string());
+    match name {
+        "Wazuh Agent" => {
+            #[cfg(unix)]
+            {
+                cmd_target = path
+                    .replace("wazuh-agentd", "wazuh-control")
+                    .replace("ossec-agentd", "wazuh-control");
+                args.push("info".to_string());
+            }
+            #[cfg(windows)]
+            {
+                cmd_target = "powershell".to_string();
+                args.push("-NoProfile".to_string());
+                args.push("-Command".to_string());
+                args.push(format!("(Get-Item '{}').VersionInfo.ProductVersion", path));
+            }
         }
-        #[cfg(windows)]
-        {
-            cmd_target = "powershell".to_string();
-            args.push("-NoProfile".to_string());
-            args.push("-Command".to_string());
-            args.push(format!("(Get-Item '{}').VersionInfo.ProductVersion", path));
+        "Suricata" => {
+            cmd_target = path.to_string();
+            args.push("-V".to_string());
         }
-    } else if name == "Suricata" {
-        cmd_target = path.to_string();
-        args.push("-V".to_string());
-    } else {
-        cmd_target = path.to_string();
-        args.push("--version".to_string());
+        _ => {
+            cmd_target = path.to_string();
+            args.push("--version".to_string());
+        }
     }
 
     let mut cmd = if use_sudo {
@@ -129,44 +132,50 @@ async fn get_component_version(
             let out_str = String::from_utf8_lossy(&output.stdout).to_string()
                 + String::from_utf8_lossy(&output.stderr).as_ref();
 
-            if name == "YARA" {
-                return out_str.lines().next().map(|s| s.trim().to_string());
-            } else if name == "Suricata" {
-                if let Some(idx) = out_str.find("version ") {
-                    let rest = &out_str[idx + 8..];
-                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+            match name {
+                "YARA" => {
+                    return out_str.lines().next().map(|s| s.trim().to_string());
                 }
-            } else if name == "Trivy" {
-                if let Some(idx) = out_str.find("Version: ") {
-                    let rest = &out_str[idx + 9..];
-                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
-                }
-            } else if name == "Wazuh Agent" {
-                if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
-                    let rest = &out_str[idx + 15..];
-                    if let Some(end) = rest.find("\"") {
-                        return Some(rest[..end].to_string());
-                    }
-                } else if let Some(idx) = out_str.find("Wazuh v") {
-                    let rest = &out_str[idx + 7..];
-                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
-                } else if cfg!(windows) {
-                    let trimmed = out_str.trim();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed.to_string());
+                "Suricata" => {
+                    if let Some(idx) = out_str.find("version ") {
+                        let rest = &out_str[idx + 8..];
+                        return Some(rest.split_whitespace().next().unwrap_or("").to_string());
                     }
                 }
-            } else {
-                for line in out_str.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.chars().any(|c| c.is_ascii_digit()) {
-                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                        for p in parts {
-                            if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') {
-                                return Some(p.to_string());
-                            }
+                "Trivy" => {
+                    if let Some(idx) = out_str.find("Version: ") {
+                        let rest = &out_str[idx + 9..];
+                        return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                    }
+                }
+                "Wazuh Agent" => {
+                    if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
+                        let rest = &out_str[idx + 15..];
+                        if let Some(end) = rest.find("\"") {
+                            return Some(rest[..end].to_string());
                         }
-                        return Some(trimmed.to_string());
+                    } else if let Some(idx) = out_str.find("Wazuh v") {
+                        let rest = &out_str[idx + 7..];
+                        return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                    } else if cfg!(windows) {
+                        let trimmed = out_str.trim();
+                        if !trimmed.is_empty() {
+                            return Some(trimmed.to_string());
+                        }
+                    }
+                }
+                _ => {
+                    for line in out_str.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.chars().any(|c| c.is_ascii_digit()) {
+                            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                            for p in parts {
+                                if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') {
+                                    return Some(p.to_string());
+                                }
+                            }
+                            return Some(trimmed.to_string());
+                        }
                     }
                 }
             }
@@ -229,32 +238,31 @@ fn inject_path(command: &mut Command) {
     );
 }
 
-/// Spawn a command, stream its stdout/stderr to the frontend via `event_name`,
-/// optionally write the sudo password to stdin, and return the exit result.
-///
-/// `intercept_browser_url` handles the macOS case where a sudo'd binary prints
-/// a URL to stderr that it cannot open itself (sudo strips the GUI session);
-/// Tauri opens it from the GUI process instead.
-///
-/// `spawn_err` overrides the generic spawn error message (used by `run_netbird_up`
-/// to hint that the NetBird client may not be installed).
-async fn run_streamed_command(
-    app: AppHandle,
-    mut command: Command,
-    use_sudo: bool,
-    pw_opt: Option<String>,
+/// Per-command configuration for [`run_streamed_command`].
+struct StreamConfig {
     event_name: &'static str,
     success_msg: &'static str,
     failure_msg: &'static str,
     intercept_browser_url: bool,
     spawn_err: Option<&'static str>,
+}
+
+/// Spawn a command, stream its stdout/stderr to the frontend via
+/// `cfg.event_name`, optionally write the sudo password to stdin, and return
+/// the exit result.
+async fn run_streamed_command(
+    app: AppHandle,
+    mut command: Command,
+    use_sudo: bool,
+    pw_opt: Option<String>,
+    cfg: StreamConfig,
 ) -> Result<InstallResult, String> {
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = command.spawn().map_err(|e| match spawn_err {
+    let mut child = command.spawn().map_err(|e| match cfg.spawn_err {
         Some(msg) => format!("{}: {}", msg, e),
         None => e.to_string(),
     })?;
@@ -271,6 +279,7 @@ async fn run_streamed_command(
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     let app_clone1 = app.clone();
+    let event_name = cfg.event_name;
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -286,6 +295,8 @@ async fn run_streamed_command(
     });
 
     let app_clone2 = app.clone();
+    let event_name = cfg.event_name;
+    let intercept_browser_url = cfg.intercept_browser_url;
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -294,8 +305,7 @@ async fn run_streamed_command(
             }
             if intercept_browser_url {
                 if let Some(url_start) = line.find("Opened your default browser to: ") {
-                    let url = line[url_start + "Opened your default browser to: ".len()..]
-                        .trim();
+                    let url = line[url_start + "Opened your default browser to: ".len()..].trim();
                     if !url.is_empty() {
                         let _ = tauri_plugin_opener::open_url(url, None::<&str>);
                     }
@@ -318,9 +328,9 @@ async fn run_streamed_command(
         success: status.success(),
         exit_code: status.code().unwrap_or(-1),
         message: if status.success() {
-            success_msg.into()
+            cfg.success_msg.into()
         } else {
-            failure_msg.into()
+            cfg.failure_msg.into()
         },
     })
 }
@@ -461,7 +471,7 @@ async fn run_install(
         ("bash", script_args, true)
     };
 
-    let mut command = if use_sudo {
+    let command = if use_sudo {
         let mut c = create_command("sudo");
         c.arg("-S").arg("-p").arg("");
 
@@ -496,40 +506,41 @@ async fn run_install(
         c.arg(cmd_str).args(&args);
         c
     } else {
+        // Windows: no sudo, so set env vars directly on the Command.
         let mut c = create_command(cmd_str);
         c.args(&args);
+        inject_path(&mut c);
+        c.env("WAZUH_MANAGER", &config.wazuh_manager)
+            .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
+            .env("IDS_ENGINE", &config.ids_engine)
+            .env("SURICATA_MODE", &config.suricata_mode)
+            .env(
+                "INSTALL_TRIVY",
+                if config.install_trivy {
+                    "true"
+                } else {
+                    "false"
+                },
+            )
+            .env(
+                "WAZUH_AGENT_REPO_REF",
+                std::env::var("WAZUH_AGENT_REPO_REF").unwrap_or_else(|_| "develop".to_string()),
+            );
         c
     };
-
-    inject_path(&mut command);
-    command
-        .env("WAZUH_MANAGER", &config.wazuh_manager)
-        .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
-        .env("IDS_ENGINE", &config.ids_engine)
-        .env("SURICATA_MODE", &config.suricata_mode)
-        .env(
-            "INSTALL_TRIVY",
-            if config.install_trivy {
-                "true"
-            } else {
-                "false"
-            },
-        )
-        .env(
-            "WAZUH_AGENT_REPO_REF",
-            std::env::var("WAZUH_AGENT_REPO_REF").unwrap_or_else(|_| "develop".to_string()),
-        );
 
     run_streamed_command(
         app,
         command,
         use_sudo,
         pw_opt,
-        "install-log",
-        "Installation complete",
-        "Installation failed",
-        false,
-        None,
+        StreamConfig {
+            event_name: "install-log",
+            success_msg: "Installation complete",
+            failure_msg: "Installation failed",
+            intercept_browser_url: false,
+            spawn_err: None,
+        },
     )
     .await
 }
@@ -605,11 +616,13 @@ async fn run_enroll(
         command,
         use_sudo,
         pw_opt,
-        "enroll-log",
-        "Enrollment complete",
-        "Enrollment failed",
-        true, // intercept_browser_url: macOS sudo strips GUI session
-        None,
+        StreamConfig {
+            event_name: "enroll-log",
+            success_msg: "Enrollment complete",
+            failure_msg: "Enrollment failed",
+            intercept_browser_url: true, // macOS sudo strips GUI session
+            spawn_err: None,
+        },
     )
     .await
 }
@@ -669,25 +682,19 @@ async fn run_netbird_up(
         command,
         use_sudo,
         pw_opt,
-        "netbird-log",
-        "NetBird connected successfully",
-        "NetBird connection failed",
-        false,
-        Some("Failed to spawn netbird. Is the NetBird client installed?"),
+        StreamConfig {
+            event_name: "netbird-log",
+            success_msg: "NetBird connected successfully",
+            failure_msg: "NetBird connection failed",
+            intercept_browser_url: false,
+            spawn_err: Some("Failed to spawn netbird. Is the NetBird client installed?"),
+        },
     )
     .await
 }
 
-#[tauri::command]
-async fn check_components(
-    password: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<Vec<ComponentStatus>, String> {
-    let pw_opt = password.or_else(|| {
-        let stored = state.sudo_password.lock().unwrap();
-        stored.clone()
-    });
-
+/// Build the list of (name, binary path) pairs for all checkable components.
+fn component_paths() -> Vec<(&'static str, String)> {
     let ossec_path = if cfg!(windows) {
         r"C:\Program Files (x86)\ossec-agent"
     } else if cfg!(target_os = "macos") {
@@ -696,9 +703,9 @@ async fn check_components(
         "/var/ossec"
     };
 
-    let components = vec![
+    vec![
         (
-            "Wazuh Agent".to_string(),
+            "Wazuh Agent",
             if cfg!(windows) {
                 format!("{}\\wazuh-agent.exe", ossec_path)
             } else {
@@ -706,7 +713,7 @@ async fn check_components(
             },
         ),
         (
-            "OAuth2 Client".to_string(),
+            "OAuth2 Client",
             if cfg!(windows) {
                 format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path)
             } else {
@@ -714,7 +721,7 @@ async fn check_components(
             },
         ),
         (
-            "Agent Status Monitor".to_string(),
+            "Agent Status Monitor",
             if cfg!(windows) {
                 r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string()
             } else {
@@ -722,7 +729,7 @@ async fn check_components(
             },
         ),
         (
-            "YARA".to_string(),
+            "YARA",
             if cfg!(windows) {
                 "yara64.exe".to_string()
             } else {
@@ -730,7 +737,7 @@ async fn check_components(
             },
         ),
         (
-            "Suricata".to_string(),
+            "Suricata",
             if cfg!(windows) {
                 "suricata.exe".to_string()
             } else if cfg!(target_os = "macos") {
@@ -740,7 +747,7 @@ async fn check_components(
             },
         ),
         (
-            "Trivy".to_string(),
+            "Trivy",
             if cfg!(windows) {
                 "trivy.exe".to_string()
             } else {
@@ -748,7 +755,7 @@ async fn check_components(
             },
         ),
         (
-            "USB DLP Scripts".to_string(),
+            "USB DLP Scripts",
             if cfg!(windows) {
                 format!(
                     "{}\\active-response\\bin\\disable-usb-storage.ps1",
@@ -764,77 +771,94 @@ async fn check_components(
             },
         ),
         (
-            "NetBird".to_string(),
+            "NetBird",
             if cfg!(windows) {
                 "netbird.exe".to_string()
             } else {
                 "/usr/bin/netbird".to_string()
             },
         ),
-    ];
+    ]
+}
+
+/// Check if a file exists at `path` using sudo `test -f` on Unix.
+#[cfg(unix)]
+async fn check_installed_unix(path: &str, pw_opt: &Option<String>) -> bool {
+    if let Some(ref pw) = pw_opt {
+        let mut cmd = create_command("sudo");
+        cmd.arg("-S")
+            .arg("-p")
+            .arg("")
+            .arg("test")
+            .arg("-f")
+            .arg(path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Ok(mut child) = cmd.spawn() {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
+            }
+            if let Ok(status) = child.wait().await {
+                status.success()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        std::path::Path::new(path).exists()
+    }
+}
+
+/// Check if a component is installed on Windows.
+#[cfg(windows)]
+async fn check_installed_windows(path: &str) -> bool {
+    if path == "yara64.exe"
+        || path == "suricata.exe"
+        || path == "trivy.exe"
+        || path == "netbird.exe"
+    {
+        create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .is_ok()
+    } else if path.ends_with("wazuh-agent.exe") {
+        std::path::Path::new(path).exists()
+            || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe")).exists()
+            || create_command("sc")
+                .args(["query", "WazuhSvc"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await
+                .map_or(false, |s| s.success())
+    } else {
+        std::path::Path::new(path).exists()
+    }
+}
+
+#[tauri::command]
+async fn check_components(
+    password: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ComponentStatus>, String> {
+    let pw_opt = password.or_else(|| {
+        let stored = state.sudo_password.lock().unwrap();
+        stored.clone()
+    });
 
     let mut results = Vec::new();
 
-    for (name, path) in components {
+    for (name, path) in component_paths() {
         #[cfg(unix)]
-        let installed = {
-            if let Some(ref pw) = pw_opt {
-                let mut cmd = create_command("sudo");
-                cmd.arg("-S")
-                    .arg("-p")
-                    .arg("")
-                    .arg("test")
-                    .arg("-f")
-                    .arg(&path)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null());
-                if let Ok(mut child) = cmd.spawn() {
-                    if let Some(mut stdin) = child.stdin.take() {
-                        let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-                    }
-                    if let Ok(status) = child.wait().await {
-                        status.success()
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                std::path::Path::new(&path).exists()
-            }
-        };
-
+        let installed = check_installed_unix(&path, &pw_opt).await;
         #[cfg(windows)]
-        let installed = {
-            if path == "yara64.exe"
-                || path == "suricata.exe"
-                || path == "trivy.exe"
-                || path == "netbird.exe"
-            {
-                create_command(&path)
-                    .arg("--help")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await
-                    .is_ok()
-            } else if path.ends_with("wazuh-agent.exe") {
-                std::path::Path::new(&path).exists()
-                    || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
-                        .exists()
-                    || create_command("sc")
-                        .args(["query", "WazuhSvc"])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success())
-            } else {
-                std::path::Path::new(&path).exists()
-            }
-        };
+        let installed = check_installed_windows(&path).await;
 
         let version = if installed {
             let needs_sudo = cfg!(unix)
@@ -842,13 +866,13 @@ async fn check_components(
                     || name == "Suricata"
                     || name == "Trivy"
                     || path.contains("/var/ossec"));
-            get_component_version(&name, &path, needs_sudo, pw_opt.as_ref()).await
+            get_component_version(name, &path, needs_sudo, pw_opt.as_ref()).await
         } else {
             None
         };
 
         results.push(ComponentStatus {
-            name,
+            name: name.to_string(),
             installed,
             version,
             path,

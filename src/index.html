@@ -229,11 +229,8 @@
 
             <div class="card compact" style="margin-bottom: 24px">
               <p class="toggle-desc" style="margin-bottom: 16px">
-                Connect this agent to a NetBird overlay network. The NetBird client must be installed
-                first — enable <strong>Install NetBird</strong> on the Setup tab, or install it
-                manually. If no management URL is selected, the public NetBird Cloud
-                (<strong>api.netbird.io</strong>) is used by default. The setup key is optional —
-                if omitted, <code>netbird up</code> will use the daemon's existing configuration.
+                Connect this agent to a NetBird network. Management URL defaults to <strong>api.netbird.io</strong>.
+                Setup key is optional.
               </p>
 
               <div class="form-grid-2col">
@@ -252,7 +249,10 @@
                 </div>
 
                 <div class="form-group">
-                  <label class="form-label" for="netbird-setup-key">Setup Key <span style="color: var(--brand-text-muted); font-weight: normal">(optional)</span></label>
+                  <label class="form-label" for="netbird-setup-key"
+                    >Setup Key
+                    <span style="color: var(--brand-text-muted); font-weight: normal">(optional)</span></label
+                  >
                   <input
                     class="form-input"
                     type="password"

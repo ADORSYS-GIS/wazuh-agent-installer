@@ -1,4 +1,4 @@
-import { BRAND_CONFIG } from "./config";
+import { BRAND_CONFIG, COMPONENT_DESCRIPTIONS } from "./config";
 
 // ---- Tauri Typings ----
 interface LogLine {
@@ -27,6 +27,9 @@ declare global {
       };
       event: {
         listen<T>(event: string, handler: (event: { payload: T }) => void): Promise<() => void>;
+      };
+      app: {
+        getVersion(): Promise<string>;
       };
       window: {
         getCurrentWindow(): {
@@ -74,9 +77,9 @@ const listen = hasTauri
 
 // ---- State ----
 let sudoPassword = "";
-let isInstalling = false;
-let isEnrolling = false;
-let isConnectingNetbird = false;
+const installState = { running: false };
+const enrollState = { running: false };
+const netbirdState = { running: false };
 
 // ---- DOM refs ----
 // Overlays
@@ -242,6 +245,7 @@ function applyBrandTheme(): void {
   root.style.setProperty("--brand-bg-terminal", BRAND_CONFIG.colors.bgTerminal);
   root.style.setProperty("--brand-text-primary", BRAND_CONFIG.colors.textPrimary);
   root.style.setProperty("--brand-text-secondary", BRAND_CONFIG.colors.textSecondary);
+  root.style.setProperty("--brand-text-muted", BRAND_CONFIG.colors.textMuted);
   root.style.setProperty("--brand-status-success", BRAND_CONFIG.colors.statusSuccess);
   root.style.setProperty("--brand-status-error", BRAND_CONFIG.colors.statusError);
   root.style.setProperty("--brand-status-warn", BRAND_CONFIG.colors.statusWarn);
@@ -249,14 +253,18 @@ function applyBrandTheme(): void {
   root.style.setProperty("--brand-status-info", "#60a5fa");
 }
 
-function initializeAppHeaderAndOptions(): void {
+async function initializeAppHeaderAndOptions(): Promise<void> {
   const appLogo = document.getElementById("app-logo") as HTMLImageElement | null;
   const appTitle = document.getElementById("app-title");
   const appVersion = document.getElementById("app-version");
 
   if (appLogo) appLogo.src = BRAND_CONFIG.logo;
   if (appTitle) appTitle.textContent = BRAND_CONFIG.appTitle;
-  if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
+  // Read version from Tauri at runtime (single source: tauri.conf.json)
+  if (appVersion) {
+    const version = hasTauri ? await window.__TAURI__!.app.getVersion() : "dev";
+    appVersion.textContent = `v${version}`;
+  }
   document.title = BRAND_CONFIG.appTitle;
 
   populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
@@ -355,7 +363,6 @@ function getConfig() {
   return {
     wazuh_manager: getManagerValue(),
     wazuh_agent_name: "wazuh-agent",
-    log_level: "INFO",
     ids_engine: "suricata",
     suricata_mode: selectedModePill ? (selectedModePill.dataset.mode ?? "ids") : "ids",
     install_trivy: elTrivy ? elTrivy.checked : false,
@@ -367,19 +374,19 @@ function getConfig() {
 
 function updateInstallButtonState() {
   if (btnStartInstall) {
-    btnStartInstall.disabled = !getManagerValue() || isInstalling;
+    btnStartInstall.disabled = !getManagerValue() || installState.running;
   }
 }
 
 function updateEnrollButtonState() {
   if (btnStartEnroll) {
-    btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
+    btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || enrollState.running;
   }
 }
 
 function updateNetbirdButtonState() {
   if (btnStartNetbird) {
-    btnStartNetbird.disabled = isConnectingNetbird;
+    btnStartNetbird.disabled = netbirdState.running;
   }
 }
 
@@ -409,54 +416,111 @@ function showStatusBanner(banner: HTMLElement | null, type: "running" | "success
   banner.innerHTML = `${icon} ${message}`;
 }
 
-async function startInstall() {
-  if (isInstalling) return;
-  isInstalling = true;
-  updateInstallButtonState();
+// ---- Shared streamed-action helper ----
+// Unifies the common pattern across startInstall / startEnrollment / startNetbirdConnection:
+// guard re-entry → set flag → show terminal → listen + invoke → handle result → cleanup.
 
-  if (installLogCard) installLogCard.style.display = "block";
-  if (resultScreen) resultScreen.style.display = "none";
-  if (terminalInstall) {
-    terminalInstall.innerHTML =
-      '<div class="terminal-placeholder"><span class="spinner"></span> Waiting to start…</div>';
+interface StreamedActionOptions {
+  state: { running: boolean };
+  updateButton: () => void;
+  terminal: HTMLElement | null;
+  showOnStart: HTMLElement | null;
+  hideOnStart?: HTMLElement | null;
+  retryButton?: HTMLElement | null;
+  statusBanner: HTMLElement | null;
+  placeholderText: string;
+  eventName: string;
+  invokeCommand: string;
+  invokeArgs: Record<string, unknown>;
+  runningMessage: string;
+  initialLog?: string;
+  successMessage: (result: InstallResult) => string;
+  errorPrefix: string;
+  saveLogButtonId: string;
+  saveLogTerminalId: string;
+  saveLogPrefix: string;
+  onSuccess?: (result: InstallResult) => void;
+  onFailure?: (result: InstallResult) => void;
+  onError?: (err: unknown) => void;
+  onFinally?: () => void;
+}
+
+async function runStreamedAction(opts: StreamedActionOptions): Promise<void> {
+  if (opts.state.running) return;
+  opts.state.running = true;
+  opts.updateButton();
+
+  if (opts.showOnStart) opts.showOnStart.style.display = "block";
+  if (opts.hideOnStart) opts.hideOnStart.style.display = "none";
+  if (opts.retryButton) opts.retryButton.style.display = "none";
+  if (opts.terminal) {
+    opts.terminal.innerHTML = `<div class="terminal-placeholder"><span class="spinner"></span> ${opts.placeholderText}</div>`;
   }
 
-  showStatusBanner(installStatusBanner, "running", "Installation in progress…");
-  appendLog(terminalInstall, "Starting Wazuh Agent installation…", "info");
+  showStatusBanner(opts.statusBanner, "running", opts.runningMessage);
+  if (opts.initialLog) appendLog(opts.terminal, opts.initialLog, "info");
 
-  const unlistenLog = await listen<LogLine>("install-log", (e) => {
-    appendLog(terminalInstall, e.payload.line, e.payload.level);
+  const unlistenLog = await listen<LogLine>(opts.eventName, (e) => {
+    appendLog(opts.terminal, e.payload.line, e.payload.level);
   });
 
   try {
-    const result = await invoke<InstallResult>("run_install", {
-      config: getConfig(),
-      password: sudoPassword || null,
-    });
-
+    const result = await invoke<InstallResult>(opts.invokeCommand, opts.invokeArgs);
     if (result.success) {
-      showStatusBanner(installStatusBanner, "success", result.message);
-      showInstallResult(true, "The Wazuh Agent stack was installed successfully.");
+      showStatusBanner(opts.statusBanner, "success", opts.successMessage(result));
+      opts.onSuccess?.(result);
+    } else {
+      showStatusBanner(opts.statusBanner, "error", `${opts.errorPrefix}: exit code ${result.exit_code}`);
+      if (opts.retryButton) opts.retryButton.style.display = "flex";
+      opts.onFailure?.(result);
+    }
+  } catch (err: unknown) {
+    showStatusBanner(opts.statusBanner, "error", `${opts.errorPrefix}: ${err}`);
+    if (opts.retryButton) opts.retryButton.style.display = "flex";
+    opts.onError?.(err);
+  } finally {
+    unlistenLog();
+    opts.state.running = false;
+    opts.updateButton();
+    opts.onFinally?.();
+    enableSaveLogs(opts.saveLogButtonId, opts.saveLogTerminalId, opts.saveLogPrefix);
+  }
+}
 
-      // Auto-switch to Enrollment and start it
+// ---- Installation Flow ----
+
+async function startInstall() {
+  await runStreamedAction({
+    state: installState,
+    updateButton: updateInstallButtonState,
+    terminal: terminalInstall,
+    showOnStart: installLogCard,
+    hideOnStart: resultScreen,
+    statusBanner: installStatusBanner,
+    placeholderText: "Waiting to start…",
+    eventName: "install-log",
+    invokeCommand: "run_install",
+    invokeArgs: { config: getConfig(), password: sudoPassword || null },
+    runningMessage: "Installation in progress…",
+    initialLog: "Starting Wazuh Agent installation…",
+    successMessage: (result) => result.message,
+    errorPrefix: "Installation failed",
+    saveLogButtonId: "btn-save-install-logs",
+    saveLogTerminalId: "terminal",
+    saveLogPrefix: "install",
+    onSuccess: () => {
+      showInstallResult(true, "The Wazuh Agent stack was installed successfully.");
       setTimeout(() => {
         switchTab("tab-enrollment");
         startEnrollment();
       }, 1500);
-    } else {
-      showStatusBanner(installStatusBanner, "error", `Installation failed: exit code ${result.exit_code}`);
-      showInstallResult(false, result.message);
-    }
-  } catch (err: unknown) {
-    appendLog(terminalInstall, `ERROR: ${err}`, "error");
-    showStatusBanner(installStatusBanner, "error", `Installation failed: ${err}`);
-    showInstallResult(false, String(err));
-  } finally {
-    unlistenLog();
-    isInstalling = false;
-    updateInstallButtonState();
-    enableSaveLogs("btn-save-install-logs", "terminal", "install");
-  }
+    },
+    onFailure: (result) => showInstallResult(false, result.message),
+    onError: (err) => {
+      appendLog(terminalInstall, `ERROR: ${err}`, "error");
+      showInstallResult(false, String(err));
+    },
+  });
 }
 
 function showInstallResult(success: boolean, desc: string) {
@@ -480,104 +544,59 @@ function showInstallResult(success: boolean, desc: string) {
 // ---- Enrollment Flow ----
 
 async function startEnrollment() {
-  if (isEnrolling) return;
-
   const issuer = getIssuerValue();
   const endpoint = getEndpointValue();
   if (!issuer || !endpoint) return;
 
-  isEnrolling = true;
-  updateEnrollButtonState();
-
   const elOverwrite = document.getElementById("enroll-overwrite") as HTMLInputElement | null;
   const overwrite = elOverwrite ? elOverwrite.checked : true;
 
-  if (terminalEnrollArea) terminalEnrollArea.style.display = "block";
-  if (btnRetryEnroll) btnRetryEnroll.style.display = "none";
-  if (terminalEnroll) {
-    terminalEnroll.innerHTML =
-      '<div class="terminal-placeholder"><span class="spinner"></span> Running enrollment…</div>';
-  }
-
-  showStatusBanner(enrollStatusBanner, "running", "Enrollment in progress — check your browser…");
-
-  const unlistenLog = await listen<LogLine>("enroll-log", (e) => {
-    appendLog(terminalEnroll, e.payload.line, e.payload.level);
+  await runStreamedAction({
+    state: enrollState,
+    updateButton: updateEnrollButtonState,
+    terminal: terminalEnroll,
+    showOnStart: terminalEnrollArea,
+    retryButton: btnRetryEnroll,
+    statusBanner: enrollStatusBanner,
+    placeholderText: "Running enrollment…",
+    eventName: "enroll-log",
+    invokeCommand: "run_enroll",
+    invokeArgs: { issuer, endpoint, overwrite, password: sudoPassword || null },
+    runningMessage: "Enrollment in progress — check your browser…",
+    successMessage: () => "Agent enrolled successfully!",
+    errorPrefix: "Enrollment failed",
+    saveLogButtonId: "btn-save-enroll-logs",
+    saveLogTerminalId: "enroll-terminal",
+    saveLogPrefix: "enroll",
+    onFinally: refreshComponents,
   });
-
-  try {
-    const result = await invoke<InstallResult>("run_enroll", {
-      issuer,
-      endpoint,
-      overwrite,
-      password: sudoPassword || null,
-    });
-
-    if (result.success) {
-      showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
-    } else {
-      showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: exit code ${result.exit_code}`);
-      if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
-    }
-  } catch (err: unknown) {
-    showStatusBanner(enrollStatusBanner, "error", `Enrollment error: ${err}`);
-    if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
-  } finally {
-    unlistenLog();
-    isEnrolling = false;
-    updateEnrollButtonState();
-    refreshComponents();
-    enableSaveLogs("btn-save-enroll-logs", "enroll-terminal", "enroll");
-  }
 }
 
 // ---- NetBird Connection Flow ----
 
 async function startNetbirdConnection() {
-  if (isConnectingNetbird) return;
-
   const managementUrl = getNetbirdUrlValue();
   const setupKey = getNetbirdSetupKey();
 
-  isConnectingNetbird = true;
-  updateNetbirdButtonState();
-
-  if (terminalNetbirdArea) terminalNetbirdArea.style.display = "block";
-  if (btnRetryNetbird) btnRetryNetbird.style.display = "none";
-  if (terminalNetbird) {
-    terminalNetbird.innerHTML =
-      '<div class="terminal-placeholder"><span class="spinner"></span> Running netbird up…</div>';
-  }
-
-  showStatusBanner(netbirdStatusBanner, "running", "Connecting to NetBird…");
-
-  const unlistenLog = await listen<LogLine>("netbird-log", (e) => {
-    appendLog(terminalNetbird, e.payload.line, e.payload.level);
+  await runStreamedAction({
+    state: netbirdState,
+    updateButton: updateNetbirdButtonState,
+    terminal: terminalNetbird,
+    showOnStart: terminalNetbirdArea,
+    retryButton: btnRetryNetbird,
+    statusBanner: netbirdStatusBanner,
+    placeholderText: "Running netbird up…",
+    eventName: "netbird-log",
+    invokeCommand: "run_netbird_up",
+    invokeArgs: { setupKey, managementUrl, password: sudoPassword || null },
+    runningMessage: "Connecting to NetBird…",
+    successMessage: () => "NetBird connected successfully!",
+    errorPrefix: "NetBird connection failed",
+    saveLogButtonId: "btn-save-netbird-logs",
+    saveLogTerminalId: "netbird-terminal",
+    saveLogPrefix: "netbird",
+    onFinally: refreshComponents,
   });
-
-  try {
-    const result = await invoke<InstallResult>("run_netbird_up", {
-      setupKey,
-      managementUrl,
-      password: sudoPassword || null,
-    });
-
-    if (result.success) {
-      showStatusBanner(netbirdStatusBanner, "success", "NetBird connected successfully!");
-    } else {
-      showStatusBanner(netbirdStatusBanner, "error", `NetBird connection failed: exit code ${result.exit_code}`);
-      if (btnRetryNetbird) btnRetryNetbird.style.display = "flex";
-    }
-  } catch (err: unknown) {
-    showStatusBanner(netbirdStatusBanner, "error", `NetBird error: ${err}`);
-    if (btnRetryNetbird) btnRetryNetbird.style.display = "flex";
-  } finally {
-    unlistenLog();
-    isConnectingNetbird = false;
-    updateNetbirdButtonState();
-    refreshComponents();
-    enableSaveLogs("btn-save-netbird-logs", "netbird-terminal", "netbird");
-  }
 }
 
 // ---- Components Tab ----
@@ -608,7 +627,7 @@ async function refreshComponents() {
           <div class="comp-name">${comp.name}</div>
           <div class="comp-badge ${badgeClass}">${badgeText}</div>
         </div>
-        <div class="comp-desc">${getComponentDescription(comp.name)}</div>
+        <div class="comp-desc">${COMPONENT_DESCRIPTIONS[comp.name] ?? "Security component managed by the Wazuh Installer."}</div>
         ${comp.version ? `<div class="comp-version">📦 ${comp.version}</div>` : ""}
         <div class="comp-path">${comp.path}</div>
       `;
@@ -621,8 +640,6 @@ async function refreshComponents() {
   }
 }
 
-// ---- Start ----
-boot();
 // ---- Helpers ----
 
 function enableSaveLogs(buttonId: string, terminalId: string, prefix: string) {
@@ -647,25 +664,5 @@ function enableSaveLogs(buttonId: string, terminalId: string, prefix: string) {
   };
 }
 
-function getComponentDescription(name: string): string {
-  switch (name) {
-    case "Wazuh Agent":
-      return "Core security agent responsible for system monitoring, log collection, and threat detection.";
-    case "OAuth2 Client":
-      return "Custom daemon that automatically negotiates certificates and authenticates the agent with the central cluster.";
-    case "Agent Status Monitor":
-      return "Background service ensuring the Wazuh agent remains healthy and restarts automatically if it crashes.";
-    case "YARA":
-      return "Malware identification engine used to perform file content pattern matching for advanced threats.";
-    case "Suricata":
-      return "High performance Network IDS, IPS and Network Security Monitoring engine.";
-    case "Trivy":
-      return "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.";
-    case "USB DLP Scripts":
-      return "Active response scripts to monitor, block, and manage unauthorized USB storage devices.";
-    case "NetBird":
-      return "WireGuard-based overlay VPN client providing secure mesh networking between agents.";
-    default:
-      return "Security component managed by the Wazuh Installer.";
-  }
-}
+// ---- Start ----
+boot();
