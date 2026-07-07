@@ -206,6 +206,125 @@ fn classify_line(line: &str) -> &'static str {
     }
 }
 
+// ---- Shared helpers ----
+
+/// Store the provided password (if any) into state, then take it out immediately.
+/// Taking the password out minimizes how long the plaintext remains in process memory.
+fn take_password(password: Option<String>, state: &State<'_, AppState>) -> Option<String> {
+    let mut stored = state.sudo_password.lock().unwrap();
+    if let Some(pw) = password {
+        *stored = Some(pw);
+    }
+    stored.take()
+}
+
+/// Inject a PATH that includes common Homebrew locations so macOS GUI-launched
+/// processes can find user-installed binaries.
+fn inject_path(command: &mut Command) {
+    let current_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+    command.env(
+        "PATH",
+        format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
+    );
+}
+
+/// Spawn a command, stream its stdout/stderr to the frontend via `event_name`,
+/// optionally write the sudo password to stdin, and return the exit result.
+///
+/// `intercept_browser_url` handles the macOS case where a sudo'd binary prints
+/// a URL to stderr that it cannot open itself (sudo strips the GUI session);
+/// Tauri opens it from the GUI process instead.
+///
+/// `spawn_err` overrides the generic spawn error message (used by `run_netbird_up`
+/// to hint that the NetBird client may not be installed).
+async fn run_streamed_command(
+    app: AppHandle,
+    mut command: Command,
+    use_sudo: bool,
+    pw_opt: Option<String>,
+    event_name: &'static str,
+    success_msg: &'static str,
+    failure_msg: &'static str,
+    intercept_browser_url: bool,
+    spawn_err: Option<&'static str>,
+) -> Result<InstallResult, String> {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command.spawn().map_err(|e| match spawn_err {
+        Some(msg) => format!("{}: {}", msg, e),
+        None => e.to_string(),
+    })?;
+
+    if use_sudo {
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Some(pw) = pw_opt {
+                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
+            }
+        }
+    }
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let app_clone1 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let level = classify_line(&line);
+            let _ = app_clone1.emit(
+                event_name,
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let app_clone2 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if line.contains("Password:") || line.trim().is_empty() {
+                continue;
+            }
+            if intercept_browser_url {
+                if let Some(url_start) = line.find("Opened your default browser to: ") {
+                    let url = line[url_start + "Opened your default browser to: ".len()..]
+                        .trim();
+                    if !url.is_empty() {
+                        let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+                    }
+                }
+            }
+            let level = classify_line(&line);
+            let _ = app_clone2.emit(
+                event_name,
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+
+    Ok(InstallResult {
+        success: status.success(),
+        exit_code: status.code().unwrap_or(-1),
+        message: if status.success() {
+            success_msg.into()
+        } else {
+            failure_msg.into()
+        },
+    })
+}
+
 // ---- Commands ----
 
 fn resolve_script(app: &AppHandle) -> Result<String, String> {
@@ -318,17 +437,7 @@ async fn run_install(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    if let Some(pw) = password {
-        let mut stored = state.sudo_password.lock().unwrap();
-        *stored = Some(pw);
-    }
-
-    // Take the password out of state immediately after reading it, to minimize
-    // how long the plaintext remains in process memory.
-    let pw_opt = {
-        let mut stored = state.sudo_password.lock().unwrap();
-        stored.take()
-    };
+    let pw_opt = take_password(password, &state);
 
     let resolved_path = resolve_script(&app)?;
 
@@ -392,14 +501,8 @@ async fn run_install(
         c
     };
 
-    let current_path =
-        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
+    inject_path(&mut command);
     command
-        .env(
-            "PATH",
-            format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
-        )
         .env("WAZUH_MANAGER", &config.wazuh_manager)
         .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
         .env("IDS_ENGINE", &config.ids_engine)
@@ -415,68 +518,20 @@ async fn run_install(
         .env(
             "WAZUH_AGENT_REPO_REF",
             std::env::var("WAZUH_AGENT_REPO_REF").unwrap_or_else(|_| "develop".to_string()),
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        );
 
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-
-    if use_sudo {
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Some(pw) = pw_opt {
-                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-            }
-        }
-    }
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "install-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if line.contains("Password:") || line.trim().is_empty() {
-                continue;
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "install-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "Installation complete".into()
-        } else {
-            "Installation failed".into()
-        },
-    })
+    run_streamed_command(
+        app,
+        command,
+        use_sudo,
+        pw_opt,
+        "install-log",
+        "Installation complete",
+        "Installation failed",
+        false,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -488,17 +543,7 @@ async fn run_enroll(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    if let Some(pw) = password {
-        let mut stored = state.sudo_password.lock().unwrap();
-        *stored = Some(pw);
-    }
-
-    // Take the password out of state immediately after reading it, to minimize
-    // how long the plaintext remains in process memory.
-    let pw_opt = {
-        let mut stored = state.sudo_password.lock().unwrap();
-        stored.take()
-    };
+    let pw_opt = take_password(password, &state);
 
     #[cfg(unix)]
     let (cmd, args, use_sudo) = {
@@ -543,9 +588,6 @@ async fn run_enroll(
         )
     };
 
-    let current_path =
-        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
     let mut command = if use_sudo {
         let mut c = create_command("sudo");
         c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
@@ -556,81 +598,20 @@ async fn run_enroll(
         c
     };
 
-    command
-        .env(
-            "PATH",
-            format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    inject_path(&mut command);
 
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-
-    if use_sudo {
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Some(pw) = pw_opt {
-                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-            }
-        }
-    }
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "enroll-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if line.contains("Password:") || line.trim().is_empty() {
-                continue;
-            }
-            // The OAuth2 binary cannot open a browser when run under sudo on macOS
-            // (sudo strips the GUI session). We intercept the URL it prints and open
-            // it ourselves from Tauri which runs in the full GUI context.
-            if let Some(url_start) = line.find("Opened your default browser to: ") {
-                let url = line[url_start + "Opened your default browser to: ".len()..].trim();
-                if !url.is_empty() {
-                    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
-                }
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "enroll-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "Enrollment complete".into()
-        } else {
-            "Enrollment failed".into()
-        },
-    })
+    run_streamed_command(
+        app,
+        command,
+        use_sudo,
+        pw_opt,
+        "enroll-log",
+        "Enrollment complete",
+        "Enrollment failed",
+        true, // intercept_browser_url: macOS sudo strips GUI session
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -648,15 +629,7 @@ async fn run_netbird_up(
         management_url
     };
 
-    if let Some(pw) = password {
-        let mut stored = state.sudo_password.lock().unwrap();
-        *stored = Some(pw);
-    }
-
-    let pw_opt = {
-        let mut stored = state.sudo_password.lock().unwrap();
-        stored.take()
-    };
+    let pw_opt = take_password(password, &state);
 
     let mut args = vec![
         "up".to_string(),
@@ -670,9 +643,6 @@ async fn run_netbird_up(
         args.push("--setup-key".to_string());
         args.push(setup_key);
     }
-
-    let current_path =
-        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
 
     // NetBird runs as a privileged daemon, so we need sudo on Unix. On Windows
     // the installer process is already elevated via UAC.
@@ -692,77 +662,20 @@ async fn run_netbird_up(
         c
     };
 
-    command
-        .env(
-            "PATH",
-            format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    inject_path(&mut command);
 
-    let mut child = command.spawn().map_err(|e| {
-        format!(
-            "Failed to spawn netbird: {}. Is the NetBird client installed?",
-            e
-        )
-    })?;
-
-    if use_sudo {
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Some(pw) = pw_opt {
-                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-            }
-        }
-    }
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "netbird-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if line.contains("Password:") || line.trim().is_empty() {
-                continue;
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "netbird-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "NetBird connected successfully".into()
-        } else {
-            "NetBird connection failed".into()
-        },
-    })
+    run_streamed_command(
+        app,
+        command,
+        use_sudo,
+        pw_opt,
+        "netbird-log",
+        "NetBird connected successfully",
+        "NetBird connection failed",
+        false,
+        Some("Failed to spawn netbird. Is the NetBird client installed?"),
+    )
+    .await
 }
 
 #[tauri::command]
