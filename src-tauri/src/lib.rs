@@ -68,7 +68,7 @@ async fn get_component_version(
     }
 
     let mut args = vec![];
-    let cmd_target;
+    let mut cmd_target = path.to_string();
 
     if name == "Wazuh Agent" {
         #[cfg(unix)]
@@ -86,10 +86,8 @@ async fn get_component_version(
             args.push(format!("(Get-Item '{}').VersionInfo.ProductVersion", path));
         }
     } else if name == "Suricata" {
-        cmd_target = path.to_string();
         args.push("-V".to_string());
     } else {
-        cmd_target = path.to_string();
         args.push("--version".to_string());
     }
 
@@ -161,7 +159,9 @@ async fn get_component_version(
                     if trimmed.chars().any(|c| c.is_ascii_digit()) {
                         let parts: Vec<&str> = trimmed.split_whitespace().collect();
                         for p in parts {
-                            if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') {
+                            let is_date = p.contains('-') && p.split('-').count() == 3;
+                            let is_path = p.contains('/') || p.contains('\\');
+                            if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') && !is_date && !is_path {
                                 return Some(p.to_string());
                             }
                         }
@@ -357,10 +357,12 @@ async fn run_install(
         // Inject PATH so macOS GUI apps can find Homebrew and other user binaries
         let current_path =
             std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-        c.arg(format!(
-            "PATH=/opt/homebrew/bin:/usr/local/bin:{}",
-            current_path
-        ));
+            
+        #[cfg(target_os = "macos")]
+        c.arg(format!("PATH=/opt/homebrew/bin:/usr/local/bin:{}", current_path));
+
+        #[cfg(not(target_os = "macos"))]
+        c.arg(format!("PATH={}", current_path));
 
         c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
         c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
@@ -386,11 +388,17 @@ async fn run_install(
     let current_path =
         std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
 
+    #[cfg(target_os = "macos")]
+    let path_val = format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path);
+
+    #[cfg(not(target_os = "macos"))]
+    let path_val = current_path;
+
+    if !use_sudo {
+        command.env("PATH", path_val);
+    }
+
     command
-        .env(
-            "PATH",
-            format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
-        )
         .env("WAZUH_MANAGER", &config.wazuh_manager)
         .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
         .env("IDS_ENGINE", &config.ids_engine)
@@ -543,11 +551,17 @@ async fn run_enroll(
         c
     };
 
+    #[cfg(target_os = "macos")]
+    let path_val = format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path);
+
+    #[cfg(not(target_os = "macos"))]
+    let path_val = current_path;
+
+    if !use_sudo {
+        command.env("PATH", path_val);
+    }
+
     command
-        .env(
-            "PATH",
-            format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
-        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

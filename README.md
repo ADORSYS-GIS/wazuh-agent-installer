@@ -74,17 +74,17 @@ Alternatively, use the one-liner installation scripts for UNIX environments:
 
 **macOS:**
 ```bash
-curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feat/component-versions/install-scripts/macos.sh | bash -s latest
+curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/macos.sh | bash -s latest
 ```
 
 **Linux (Ubuntu):**
 ```bash
-curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feat/component-versions/install-scripts/ubuntu.sh | bash -s latest
+curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/ubuntu.sh | bash -s latest
 ```
 
 **Windows:**
 ```powershell
-irm https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feat/component-versions/install-scripts/windows.ps1 | iex
+irm https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/windows.ps1 | iex
 ```
 
 | Platform | Package                                     |
