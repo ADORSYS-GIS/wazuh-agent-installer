@@ -240,6 +240,39 @@ fn inject_path(command: &mut Command) {
     );
 }
 
+/// Try to extract and open a browser URL from a log line.
+///
+/// Two patterns are supported:
+/// - Enrollment: `"Opened your default browser to: <URL>"` (single line)
+/// - NetBird: `"use this URL to log in:"` on one line, URL on the next line
+///
+/// Returns `true` if a URL was opened. `expect_url_next` tracks the NetBird
+/// multi-line state across calls.
+fn try_open_browser_url(line: &str, expect_url_next: &mut bool) -> bool {
+    // Pattern 1: "Opened your default browser to: <URL>" (enrollment binary)
+    if let Some(url_start) = line.find("Opened your default browser to: ") {
+        let url = line[url_start + "Opened your default browser to: ".len()..].trim();
+        if !url.is_empty() {
+            let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+            return true;
+        }
+    }
+
+    // Pattern 2: NetBird SSO — "use this URL to log in:" then URL on next line
+    if line.contains("use this URL to log in:") {
+        *expect_url_next = true;
+        return false;
+    }
+    if *expect_url_next && line.trim().starts_with("http") {
+        let url = line.trim();
+        let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+        *expect_url_next = false;
+        return true;
+    }
+
+    false
+}
+
 /// Per-command configuration for [`run_streamed_command`].
 struct StreamConfig {
     event_name: &'static str,
@@ -282,9 +315,14 @@ async fn run_streamed_command(
 
     let app_clone1 = app.clone();
     let event_name = cfg.event_name;
+    let intercept_stdout = cfg.intercept_browser_url;
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
+        let mut expect_url_next = false;
         while let Ok(Some(line)) = reader.next_line().await {
+            if intercept_stdout {
+                try_open_browser_url(&line, &mut expect_url_next);
+            }
             let level = classify_line(&line);
             let _ = app_clone1.emit(
                 event_name,
@@ -298,20 +336,16 @@ async fn run_streamed_command(
 
     let app_clone2 = app.clone();
     let event_name = cfg.event_name;
-    let intercept_browser_url = cfg.intercept_browser_url;
+    let intercept_stderr = cfg.intercept_browser_url;
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
+        let mut expect_url_next = false;
         while let Ok(Some(line)) = reader.next_line().await {
             if line.contains("Password:") || line.trim().is_empty() {
                 continue;
             }
-            if intercept_browser_url {
-                if let Some(url_start) = line.find("Opened your default browser to: ") {
-                    let url = line[url_start + "Opened your default browser to: ".len()..].trim();
-                    if !url.is_empty() {
-                        let _ = tauri_plugin_opener::open_url(url, None::<&str>);
-                    }
-                }
+            if intercept_stderr {
+                try_open_browser_url(&line, &mut expect_url_next);
             }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
@@ -702,7 +736,7 @@ async fn run_netbird_up(
             event_name: "netbird-log",
             success_msg: "NetBird connected successfully",
             failure_msg: "NetBird connection failed",
-            intercept_browser_url: false,
+            intercept_browser_url: true,
             spawn_err: Some("Failed to spawn netbird. Is the NetBird client installed?"),
         },
     )
