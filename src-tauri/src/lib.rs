@@ -161,7 +161,11 @@ async fn get_component_version(
                         for p in parts {
                             let is_date = p.contains('-') && p.split('-').count() == 3;
                             let is_path = p.contains('/') || p.contains('\\');
-                            if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') && !is_date && !is_path {
+                            if p.chars().any(|c| c.is_ascii_digit())
+                                && p.contains('.')
+                                && !is_date
+                                && !is_path
+                            {
                                 return Some(p.to_string());
                             }
                         }
@@ -357,9 +361,12 @@ async fn run_install(
         // Inject PATH so macOS GUI apps can find Homebrew and other user binaries
         let current_path =
             std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-            
+
         #[cfg(target_os = "macos")]
-        c.arg(format!("PATH=/opt/homebrew/bin:/usr/local/bin:{}", current_path));
+        c.arg(format!(
+            "PATH=/opt/homebrew/bin:/usr/local/bin:{}",
+            current_path
+        ));
 
         #[cfg(not(target_os = "macos"))]
         c.arg(format!("PATH={}", current_path));
