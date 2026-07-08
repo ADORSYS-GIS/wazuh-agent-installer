@@ -127,17 +127,30 @@ async fn get_component_version(
                 + String::from_utf8_lossy(&output.stderr).as_ref();
 
             if name == "YARA" {
-                return out_str.lines().next().map(|s| s.trim().to_string());
+                let first_line = out_str.lines().next().unwrap_or(&out_str);
+                return Some(first_line.trim().to_string());
             } else if name == "Suricata" {
                 if let Some(idx) = out_str.find("version ") {
                     let rest = &out_str[idx + 8..];
-                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                    return Some(
+                        rest.split_whitespace()
+                            .next()
+                            .unwrap_or(&out_str)
+                            .to_string(),
+                    );
                 }
+                return Some(out_str.trim().to_string());
             } else if name == "Trivy" {
                 if let Some(idx) = out_str.find("Version: ") {
                     let rest = &out_str[idx + 9..];
-                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                    return Some(
+                        rest.split_whitespace()
+                            .next()
+                            .unwrap_or(&out_str)
+                            .to_string(),
+                    );
                 }
+                return Some(out_str.trim().to_string());
             } else if name == "Wazuh Agent" {
                 if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
                     let rest = &out_str[idx + 15..];
