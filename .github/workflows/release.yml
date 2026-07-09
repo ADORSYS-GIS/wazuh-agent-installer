@@ -83,7 +83,7 @@ jobs:
           node -e "
             const fs = require('fs');
             const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-            conf.version = process.env.TAG_NAME.replace(/^v/, '');
+            conf.version = process.env.TAG_NAME.replace(/^v/, '').split('-')[0];
             fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
           "
           
@@ -91,7 +91,8 @@ jobs:
           node -e "
             const fs = require('fs');
             let content = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
-            content = content.replace(/^version = \"[^\"]*\"/m, 'version = \"' + process.env.TAG_NAME.replace(/^v/, '') + '\"');
+            const cleanVer = process.env.TAG_NAME.replace(/^v/, '').split('-')[0];
+            content = content.replace(/^version = \"[^\"]*\"/m, 'version = \"' + cleanVer + '\"');
             fs.writeFileSync('src-tauri/Cargo.toml', content);
           "
           
