@@ -261,9 +261,8 @@ fn is_root() -> bool {
 async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
     let resolved_path = resolve_script(&app)?;
 
-    let current_path =
-        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
+    // The process is already running as root (elevated at launch), so we can
+    // invoke bash directly — no sudo or pkexec wrapper needed.
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut c = create_command("powershell");
@@ -277,53 +276,32 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         c
     };
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     let mut command = {
-        // Build the env+script invocation as a single shell command string so pkexec
-        // receives it correctly — pkexec does not propagate the parent environment.
-        let env_prefix = format!(
-            "env PATH={path} WAZUH_MANAGER={mgr} WAZUH_AGENT_NAME={name} \
-             IDS_ENGINE={ids} SURICATA_MODE={mode} INSTALL_TRIVY={trivy}",
-            path = current_path,
-            mgr = config.wazuh_manager,
-            name = config.wazuh_agent_name,
-            ids = config.ids_engine,
-            mode = config.suricata_mode,
-            trivy = if config.install_trivy {
-                "true"
-            } else {
-                "false"
-            },
-        );
-        let mut c = create_command("pkexec");
-        c.args(["bash", "-c", &format!("{env_prefix} bash {resolved_path}")]);
-        c
-    };
-
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        // osascript triggers the native macOS password dialog.
-        let homebrew_path = format!("/opt/homebrew/bin:/usr/local/bin:{current_path}");
-        let env_prefix = format!(
-            "export PATH='{path}'; export WAZUH_MANAGER='{mgr}'; \
-             export WAZUH_AGENT_NAME='{name}'; export IDS_ENGINE='{ids}'; \
-             export SURICATA_MODE='{mode}'; export INSTALL_TRIVY='{trivy}';",
-            path = homebrew_path,
-            mgr = config.wazuh_manager,
-            name = config.wazuh_agent_name,
-            ids = config.ids_engine,
-            mode = config.suricata_mode,
-            trivy = if config.install_trivy {
-                "true"
-            } else {
-                "false"
-            },
-        );
-        let script = format!(
-            "do shell script \"{env_prefix} bash {resolved_path}\" with administrator privileges"
-        );
-        let mut c = create_command("osascript");
-        c.args(["-e", &script]);
+        let mut c = create_command("bash");
+        c.arg(&resolved_path);
+        // Inject env vars — we are already root so no env-stripping occurs
+        c.env("WAZUH_MANAGER", &config.wazuh_manager)
+            .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
+            .env("IDS_ENGINE", &config.ids_engine)
+            .env("SURICATA_MODE", &config.suricata_mode)
+            .env(
+                "INSTALL_TRIVY",
+                if config.install_trivy {
+                    "true"
+                } else {
+                    "false"
+                },
+            );
+        #[cfg(target_os = "macos")]
+        {
+            let current_path = std::env::var("PATH")
+                .unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+            c.env(
+                "PATH",
+                format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
+            );
+        }
         c
     };
 
@@ -401,9 +379,8 @@ async fn run_enroll(
         oauth_args.push("--overwrite".to_string());
     }
 
-    let current_path =
-        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
+    // The process is already root at this point.
+    // Call the binary directly — no pkexec or osascript wrapper needed.
     #[cfg(target_os = "windows")]
     let mut command = {
         let exe = "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe";
@@ -414,30 +391,25 @@ async fn run_enroll(
 
     #[cfg(target_os = "linux")]
     let mut command = {
-        // The binary requires root. pkexec provides the native GUI prompt on Linux.
         let exe = "/var/ossec/bin/wazuh-cert-oauth2-client";
-        let args_str = oauth_args.join(" ");
-        let mut c = create_command("pkexec");
-        c.args([
-            "bash",
-            "-c",
-            &format!("env PATH={current_path} {exe} {args_str}"),
-        ]);
+        let mut c = create_command(exe);
+        c.args(&oauth_args);
         c
     };
 
     #[cfg(target_os = "macos")]
     let mut command = {
-        // On macOS: osascript triggers the native password dialog.
-        // The binary cannot open a browser when run with elevated privileges, so we
-        // intercept the URL from stderr and open it from Tauri's GUI process instead.
+        let current_path =
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        // On macOS (running as root), call the binary directly.
+        // Intercept the browser URL from stderr and open it via Tauri's GUI context.
         let exe = "/Library/Ossec/bin/wazuh-cert-oauth2-client";
-        let args_str = oauth_args.join(" ");
-        let homebrew_path = format!("/opt/homebrew/bin:/usr/local/bin:{current_path}");
-        let shell_cmd = format!("export PATH='{homebrew_path}'; {exe} {args_str}");
-        let script = format!("do shell script \"{shell_cmd}\" with administrator privileges");
-        let mut c = create_command("osascript");
-        c.args(["-e", &script]);
+        let mut c = create_command(exe);
+        c.args(&oauth_args);
+        c.env(
+            "PATH",
+            format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
+        );
         c
     };
 
@@ -647,6 +619,77 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ---- Privilege elevation at launch (gparted-style) ----
+    // If we are not already running as root on Unix, relaunch ourselves via the
+    // OS-native privilege mechanism and exit. The relaunched process runs as root
+    // from the start so every subsequent operation (install scripts, cert binary,
+    // etc.) works without any per-command sudo/pkexec/osascript call.
+    #[cfg(target_os = "linux")]
+    if unsafe { libc::geteuid() } != 0 {
+        let exe = std::env::current_exe().expect("cannot get executable path");
+        let args: Vec<String> = std::env::args().skip(1).collect();
+
+        // pkexec strips environment variables for security, including the
+        // display-related ones GTK needs. Pass them explicitly via
+        //   pkexec env DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... <exe>
+        // This is exactly what gparted's .desktop Exec line does.
+        let display = std::env::var("DISPLAY").unwrap_or_default();
+        let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
+        let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+        let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
+
+        let status = std::process::Command::new("pkexec")
+            .arg("env")
+            .arg(format!("DISPLAY={display}"))
+            .arg(format!("XAUTHORITY={xauthority}"))
+            .arg(format!("WAYLAND_DISPLAY={wayland}"))
+            .arg(format!("XDG_RUNTIME_DIR={xdg_runtime}"))
+            .arg(&exe)
+            .args(&args)
+            .status();
+        let code = match status {
+            Ok(s) => s.code().unwrap_or(1),
+            Err(e) => {
+                eprintln!("pkexec failed to launch: {e}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+
+    #[cfg(target_os = "macos")]
+    if unsafe { libc::geteuid() } != 0 {
+        let exe = std::env::current_exe()
+            .expect("cannot get executable path")
+            .to_string_lossy()
+            .to_string();
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args_str = args
+            .iter()
+            .map(|a| format!("\"{}\"", a.replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let shell_cmd = format!("{exe} {args_str}");
+        let result = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                &format!(
+                    "do shell script \"{}\" with administrator privileges",
+                    shell_cmd
+                ),
+            ])
+            .status();
+        let code = match result {
+            Ok(s) => s.code().unwrap_or(1),
+            Err(e) => {
+                eprintln!("osascript relaunch failed: {e}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+    // ---- End privilege elevation ----
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
