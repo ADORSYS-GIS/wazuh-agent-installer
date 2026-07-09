@@ -256,7 +256,6 @@ fn is_root() -> bool {
         true
     }
 }
-
 #[tauri::command]
 async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
     let resolved_path = resolve_script(&app)?;

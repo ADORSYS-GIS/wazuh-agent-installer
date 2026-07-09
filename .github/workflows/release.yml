@@ -63,6 +63,45 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Update versions from tag
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          echo "Setting version to: $VERSION (from tag: $TAG_NAME)"
+          
+          # Update package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = process.env.TAG_NAME.replace(/^v/, '');
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          
+          # Update src-tauri/tauri.conf.json
+          node -e "
+            const fs = require('fs');
+            const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            conf.version = process.env.TAG_NAME.replace(/^v/, '');
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
+          "
+          
+          # Update src-tauri/Cargo.toml
+          node -e "
+            const fs = require('fs');
+            let content = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
+            content = content.replace(/^version = \"[^\"]*\"/m, 'version = \"' + process.env.TAG_NAME.replace(/^v/, '') + '\"');
+            fs.writeFileSync('src-tauri/Cargo.toml', content);
+          "
+          
+          # Update src/config.ts
+          node -e "
+            const fs = require('fs');
+            let content = fs.readFileSync('src/config.ts', 'utf8');
+            content = content.replace(/appVersion:\s*\"[^\"]*\"/, 'appVersion: \"' + process.env.TAG_NAME + '\"');
+            fs.writeFileSync('src/config.ts', content);
+          "
+
       # ── Build & Release ───────────────────────────────────────────────────
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
@@ -98,5 +137,5 @@ jobs:
             - **macOS**: Open the `.dmg` and drag to Applications
             - **Windows**: Run the `.msi` installer
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}

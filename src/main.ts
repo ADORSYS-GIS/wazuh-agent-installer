@@ -343,12 +343,6 @@ async function startInstall() {
     if (result.success) {
       showStatusBanner(installStatusBanner, "success", result.message);
       showInstallResult(true, "The Wazuh Agent stack was installed successfully.");
-
-      // Auto-switch to Enrollment and start it
-      setTimeout(() => {
-        switchTab("tab-enrollment");
-        startEnrollment();
-      }, 1500);
     } else {
       showStatusBanner(installStatusBanner, "error", `Installation failed: exit code ${result.exit_code}`);
       showInstallResult(false, result.message);
@@ -380,7 +374,12 @@ function showInstallResult(success: boolean, desc: string) {
   }
   if (title) title.textContent = success ? "Installation Complete" : "Installation Failed";
   if (descEl) descEl.textContent = desc;
-  if (btn) btn.style.display = success ? "inline-flex" : "none";
+  if (btn) {
+    btn.style.display = success ? "inline-flex" : "none";
+    if (success) {
+      btn.textContent = "Go to Enrollment →";
+    }
+  }
 }
 
 // ---- Enrollment Flow ----
