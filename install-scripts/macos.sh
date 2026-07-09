@@ -28,10 +28,19 @@ curl -fsSL "$DL_URL" -o "$TMP/Installer.dmg"
 
 echo "📦 Installing..."
 hdiutil attach "$TMP/Installer.dmg" -mountpoint "$TMP/mount" -quiet
-cp -R "$TMP/mount/Wazuh Agent Installer.app" /Applications/
+APP_PATH=$(find "$TMP/mount" -maxdepth 1 -name "*.app" -print -quit)
+if [ -z "$APP_PATH" ]; then
+  echo "❌ Could not find any .app bundle inside the mounted DMG"
+  hdiutil detach "$TMP/mount" -quiet
+  exit 1
+fi
+
+APP_NAME=$(basename "$APP_PATH")
+echo "Copying $APP_NAME to /Applications/..."
+cp -R "$APP_PATH" /Applications/
 hdiutil detach "$TMP/mount" -quiet
 
 echo "🛡️  Removing quarantine attribute to bypass macOS Gatekeeper..."
-xattr -dr com.apple.quarantine "/Applications/Wazuh Agent Installer.app"
+xattr -dr com.apple.quarantine "/Applications/$APP_NAME"
 
 echo "✅ Wazuh Agent Installer installed successfully! You can find it in your Applications folder."
