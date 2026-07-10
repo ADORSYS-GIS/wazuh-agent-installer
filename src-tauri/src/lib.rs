@@ -709,11 +709,14 @@ async fn run_netbird_up(
 
     // NetBird runs as a privileged daemon, so we need sudo on Unix. On Windows
     // the installer process is already elevated via UAC.
+    // On Windows the NSIS installer places netbird.exe under
+    // "C:\Program Files\Netbird\" which is not on the default PATH, so we
+    // use the full path to avoid "Program not found" errors.
     #[cfg(unix)]
     let (cmd, cmd_args, use_sudo) = ("netbird", args, true);
 
     #[cfg(windows)]
-    let (cmd, cmd_args, use_sudo) = ("netbird", args, false);
+    let (cmd, cmd_args, use_sudo) = (r"C:\Program Files\Netbird\netbird.exe", args, false);
 
     let mut command = if use_sudo {
         let mut c = create_command("sudo");
@@ -823,7 +826,7 @@ fn component_paths() -> Vec<(&'static str, String)> {
         (
             "NetBird",
             if cfg!(windows) {
-                "netbird.exe".to_string()
+                r"C:\Program Files\Netbird\netbird.exe".to_string()
             } else {
                 "/usr/bin/netbird".to_string()
             },
@@ -876,7 +879,7 @@ async fn check_installed_windows(path: &str) -> bool {
     if path == "yara64.exe"
         || path == "suricata.exe"
         || path == "trivy.exe"
-        || path == "netbird.exe"
+        || path.contains("netbird.exe")
     {
         create_command(path)
             .arg("--help")
@@ -947,7 +950,9 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
     let filename = format!("wazuh-{}-logs.txt", prefix);
     path.push(filename);
 
-    std::fs::write(&path, logs).map_err(|e| e.to_string())?;
+    tokio::fs::write(&path, logs)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }
 

@@ -618,12 +618,16 @@ async function startEnrollment() {
     invokeCommand: "run_enroll",
     invokeArgs: { issuer, endpoint, overwrite, password: sudoPassword || null },
     runningMessage: "Enrollment in progress — check your browser…",
+    initialLog: "Starting agent enrollment…",
     successMessage: () => "Agent enrolled successfully!",
     errorPrefix: "Enrollment failed",
     saveLogButtonId: "btn-save-enroll-logs",
     saveLogTerminalId: "enroll-terminal",
     saveLogPrefix: "enroll",
     onFinally: refreshComponents,
+    onError: (err) => {
+      appendLog(terminalEnroll, `ERROR: ${err}`, "error");
+    },
   });
 }
 
@@ -645,12 +649,16 @@ async function startNetbirdConnection() {
     invokeCommand: "run_netbird_up",
     invokeArgs: { setupKey, managementUrl, password: sudoPassword || null },
     runningMessage: "Connecting to NetBird…",
+    initialLog: "Starting NetBird connection…",
     successMessage: () => "NetBird connected successfully!",
     errorPrefix: "NetBird connection failed",
     saveLogButtonId: "btn-save-netbird-logs",
     saveLogTerminalId: "netbird-terminal",
     saveLogPrefix: "netbird",
     onFinally: refreshComponents,
+    onError: (err) => {
+      appendLog(terminalNetbird, `ERROR: ${err}`, "error");
+    },
   });
 }
 
