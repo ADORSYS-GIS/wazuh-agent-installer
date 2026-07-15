@@ -70,7 +70,7 @@ async fn get_component_version(
     }
 
     let mut args = vec![];
-    let cmd_target;
+    let mut cmd_target = path.to_string();
 
     match name {
         "Wazuh Agent" => {
@@ -531,10 +531,15 @@ async fn run_install(
         // Inject PATH so macOS GUI apps can find Homebrew and other user binaries
         let current_path =
             std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
+        #[cfg(target_os = "macos")]
         c.arg(format!(
             "PATH=/opt/homebrew/bin:/usr/local/bin:{}",
             current_path
         ));
+
+        #[cfg(not(target_os = "macos"))]
+        c.arg(format!("PATH={}", current_path));
 
         c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
         c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
