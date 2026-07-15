@@ -86,12 +86,15 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
 
     let mut cmd = create_command(&cmd_target);
     cmd.args(&args);
-    cmd.stdin(Stdio::piped())
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    // Automatically terminate the process if it times out or gets dropped
+    cmd.kill_on_drop(true);
+
     if let Ok(child) = cmd.spawn() {
-        if let Ok(output) = child.wait_with_output().await {
+        if let Ok(Ok(output)) = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait_with_output()).await {
             let out_str = String::from_utf8_lossy(&output.stdout).to_string()
                 + String::from_utf8_lossy(&output.stderr).as_ref();
 
