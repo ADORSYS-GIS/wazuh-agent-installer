@@ -654,6 +654,9 @@ async fn run_enroll(
         )
     };
 
+    let current_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
     let mut command = if use_sudo {
         let mut c = create_command("sudo");
         c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
@@ -934,6 +937,17 @@ async fn check_components(
                     || name == "Velociraptor"
                     || path.contains("/var/ossec"));
             get_component_version(name, &path, needs_sudo, pw_opt.as_ref()).await
+        } else {
+            None
+        };
+
+        let version = if installed {
+            let needs_sudo = cfg!(unix)
+                && (name == "Wazuh Agent"
+                    || name == "Suricata"
+                    || name == "Trivy"
+                    || path.contains("/var/ossec"));
+            get_component_version(&name, &path, needs_sudo, pw_opt.as_ref()).await
         } else {
             None
         };
