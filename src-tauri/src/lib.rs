@@ -10,6 +10,9 @@ use tauri::{
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 // ---- State ----
 
 pub struct AppState {
@@ -53,6 +56,155 @@ pub struct InstallConfig {
 }
 
 // ---- Helpers ----
+
+async fn get_component_version(
+    name: &str,
+    path: &str,
+    use_sudo: bool,
+    pw_opt: Option<&String>,
+) -> Option<String> {
+    if name == "USB DLP Scripts" {
+        return Some("Installed".to_string());
+    }
+
+    let mut args = vec![];
+    let mut cmd_target = path.to_string();
+
+    if name == "Wazuh Agent" {
+        #[cfg(unix)]
+        {
+            cmd_target = path
+                .replace("wazuh-agentd", "wazuh-control")
+                .replace("ossec-agentd", "wazuh-control");
+            args.push("info".to_string());
+        }
+        #[cfg(windows)]
+        {
+            cmd_target = "powershell".to_string();
+            args.push("-NoProfile".to_string());
+            args.push("-Command".to_string());
+            args.push(format!("(Get-Item '{}').VersionInfo.ProductVersion", path));
+        }
+    } else if name == "Suricata" {
+        args.push("-V".to_string());
+    } else {
+        args.push("--version".to_string());
+    }
+
+    let mut cmd = if use_sudo {
+        #[cfg(unix)]
+        {
+            let mut c = create_command("sudo");
+            c.arg("-S").arg("-p").arg("").arg(&cmd_target).args(&args);
+            c
+        }
+        #[cfg(windows)]
+        {
+            let mut c = create_command(&cmd_target);
+            c.args(&args);
+            c
+        }
+    } else {
+        let mut c = create_command(&cmd_target);
+        c.args(&args);
+        c
+    };
+
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    if let Ok(mut child) = cmd.spawn() {
+        if use_sudo {
+            #[cfg(unix)]
+            if let Some(mut stdin) = child.stdin.take() {
+                if let Some(pw) = pw_opt {
+                    let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
+                }
+            }
+        }
+
+        if let Ok(output) = child.wait_with_output().await {
+            let out_str = String::from_utf8_lossy(&output.stdout).to_string()
+                + String::from_utf8_lossy(&output.stderr).as_ref();
+
+            if name == "YARA" {
+                let first_line = out_str.lines().next().unwrap_or(&out_str);
+                return Some(first_line.trim().to_string());
+            } else if name == "Suricata" {
+                if let Some(idx) = out_str.find("version ") {
+                    let rest = &out_str[idx + 8..];
+                    return Some(
+                        rest.split_whitespace()
+                            .next()
+                            .unwrap_or(&out_str)
+                            .to_string(),
+                    );
+                }
+                return Some(out_str.trim().to_string());
+            } else if name == "Trivy" {
+                if let Some(idx) = out_str.find("Version: ") {
+                    let rest = &out_str[idx + 9..];
+                    return Some(
+                        rest.split_whitespace()
+                            .next()
+                            .unwrap_or(&out_str)
+                            .to_string(),
+                    );
+                }
+                return Some(out_str.trim().to_string());
+            } else if name == "Wazuh Agent" {
+                if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
+                    let rest = &out_str[idx + 15..];
+                    if let Some(end) = rest.find("\"") {
+                        return Some(rest[..end].to_string());
+                    }
+                } else if let Some(idx) = out_str.find("Wazuh v") {
+                    let rest = &out_str[idx + 7..];
+                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                } else if cfg!(windows) {
+                    let trimmed = out_str.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            } else {
+                for line in out_str.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.chars().any(|c| c.is_ascii_digit()) {
+                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                        for p in parts {
+                            let is_date = p.contains('-') && p.split('-').count() == 3;
+                            let is_path = p.contains('/') || p.contains('\\');
+                            if p.chars().any(|c| c.is_ascii_digit())
+                                && p.contains('.')
+                                && !is_date
+                                && !is_path
+                            {
+                                return Some(p.to_string());
+                            }
+                        }
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Create a background command, hiding the console window on Windows.
+fn create_command(cmd: &str) -> Command {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut std_cmd = std::process::Command::new(cmd);
+        std_cmd.creation_flags(CREATE_NO_WINDOW);
+        Command::from(std_cmd)
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(cmd)
+    }
+}
 
 /// Classify a log line as "error", "success", or "info" for UI highlighting.
 fn classify_line(line: &str) -> &'static str {
@@ -141,7 +293,7 @@ fn is_root() -> bool {
 async fn verify_sudo(password: String, state: State<'_, AppState>) -> Result<bool, String> {
     #[cfg(unix)]
     {
-        let mut child = Command::new("sudo")
+        let mut child = create_command("sudo")
             .arg("-S")
             .arg("-k")
             .arg("-p")
@@ -213,11 +365,25 @@ async fn run_install(
     };
 
     let mut command = if use_sudo {
-        let mut c = Command::new("sudo");
+        let mut c = create_command("sudo");
         c.arg("-S").arg("-p").arg("");
 
         // Pass environment variables via `env` so `sudo` doesn't strip them
         c.arg("env");
+
+        // Inject PATH so macOS GUI apps can find Homebrew and other user binaries
+        let current_path =
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
+        #[cfg(target_os = "macos")]
+        c.arg(format!(
+            "PATH=/opt/homebrew/bin:/usr/local/bin:{}",
+            current_path
+        ));
+
+        #[cfg(not(target_os = "macos"))]
+        c.arg(format!("PATH={}", current_path));
+
         c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
         c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
         c.arg(format!("IDS_ENGINE={}", config.ids_engine));
@@ -234,10 +400,23 @@ async fn run_install(
         c.arg(cmd_str).args(&args);
         c
     } else {
-        let mut c = Command::new(cmd_str);
+        let mut c = create_command(cmd_str);
         c.args(&args);
         c
     };
+
+    let current_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
+    #[cfg(target_os = "macos")]
+    let path_val = format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path);
+
+    #[cfg(not(target_os = "macos"))]
+    let path_val = current_path;
+
+    if !use_sudo {
+        command.env("PATH", path_val);
+    }
 
     command
         .env("WAZUH_MANAGER", &config.wazuh_manager)
@@ -353,6 +532,10 @@ async fn run_enroll(
         } else {
             "/var/ossec/bin/wazuh-cert-oauth2-client"
         };
+        // The binary is installed with root-only permissions, so we need sudo on all Unix
+        // platforms. On macOS, sudo kills the GUI context so the binary cannot open a
+        // browser. We intercept the "Opened your default browser to: <URL>" line from
+        // stderr and open it ourselves from Tauri's GUI process instead.
         (exe, args, true)
     };
 
@@ -375,15 +558,28 @@ async fn run_enroll(
         )
     };
 
+    let current_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
     let mut command = if use_sudo {
-        let mut c = Command::new("sudo");
+        let mut c = create_command("sudo");
         c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
         c
     } else {
-        let mut c = Command::new(cmd);
+        let mut c = create_command(cmd);
         c.args(&args);
         c
     };
+
+    #[cfg(target_os = "macos")]
+    let path_val = format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path);
+
+    #[cfg(not(target_os = "macos"))]
+    let path_val = current_path;
+
+    if !use_sudo {
+        command.env("PATH", path_val);
+    }
 
     command
         .stdin(Stdio::piped())
@@ -424,6 +620,15 @@ async fn run_enroll(
         while let Ok(Some(line)) = reader.next_line().await {
             if line.contains("Password:") || line.trim().is_empty() {
                 continue;
+            }
+            // The OAuth2 binary cannot open a browser when run under sudo on macOS
+            // (sudo strips the GUI session). We intercept the URL it prints and open
+            // it ourselves from Tauri which runs in the full GUI context.
+            if let Some(url_start) = line.find("Opened your default browser to: ") {
+                let url = line[url_start + "Opened your default browser to: ".len()..].trim();
+                if !url.is_empty() {
+                    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+                }
             }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
@@ -488,10 +693,8 @@ async fn check_components(
             "Agent Status Monitor".to_string(),
             if cfg!(windows) {
                 r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string()
-            } else if cfg!(target_os = "macos") {
-                "/usr/local/bin/wazuh-agent-status".to_string()
             } else {
-                format!("{}/bin/wazuh-agent-status", ossec_path)
+                "/usr/local/bin/wazuh-agent-status".to_string()
             },
         ),
         (
@@ -544,7 +747,7 @@ async fn check_components(
         #[cfg(unix)]
         let installed = {
             if let Some(ref pw) = pw_opt {
-                let mut cmd = Command::new("sudo");
+                let mut cmd = create_command("sudo");
                 cmd.arg("-S")
                     .arg("-p")
                     .arg("")
@@ -574,7 +777,7 @@ async fn check_components(
         #[cfg(windows)]
         let installed = {
             if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
-                Command::new(&path)
+                create_command(&path)
                     .arg("--help")
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
@@ -585,7 +788,7 @@ async fn check_components(
                 std::path::Path::new(&path).exists()
                     || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
                         .exists()
-                    || Command::new("sc")
+                    || create_command("sc")
                         .args(["query", "WazuhSvc"])
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
@@ -597,10 +800,21 @@ async fn check_components(
             }
         };
 
+        let version = if installed {
+            let needs_sudo = cfg!(unix)
+                && (name == "Wazuh Agent"
+                    || name == "Suricata"
+                    || name == "Trivy"
+                    || path.contains("/var/ossec"));
+            get_component_version(&name, &path, needs_sudo, pw_opt.as_ref()).await
+        } else {
+            None
+        };
+
         results.push(ComponentStatus {
             name,
             installed,
-            version: None, // Can implement version extraction via commands later
+            version,
             path,
         });
     }

@@ -623,6 +623,12 @@ input:checked + .slider:before {
   color: var(--brand-status-error);
 }
 
+.comp-desc {
+  font-size: 13px;
+  color: var(--brand-text-secondary);
+  line-height: 1.4;
+}
+
 .comp-version {
   font-size: 13px;
   color: var(--brand-text-secondary);

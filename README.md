@@ -70,6 +70,23 @@ Pre-built binaries for Linux, macOS, and Windows are published automatically via
 
 Download the latest release from the [**GitHub Releases page**](https://github.com/ADORSYS-GIS/wazuh-agent-installer/releases/latest).
 
+Alternatively, use the one-liner installation scripts for UNIX environments:
+
+**macOS:**
+```bash
+curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/macos.sh | bash -s latest
+```
+
+**Linux (Ubuntu):**
+```bash
+curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/ubuntu.sh | bash -s latest
+```
+
+**Windows:**
+```powershell
+irm https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/windows.ps1 | iex
+```
+
 | Platform | Package                                     |
 | -------- | ------------------------------------------- |
 | Linux    | `.deb`, `.AppImage` (AMD64 and ARM64)       |
