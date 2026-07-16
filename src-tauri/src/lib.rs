@@ -1,13 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::process::Stdio;
-use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State,
+    AppHandle, Emitter, Manager,
 };
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 #[cfg(windows)]
@@ -15,9 +14,8 @@ use std::os::windows::process::CommandExt;
 
 // ---- State ----
 
-pub struct AppState {
-    pub sudo_password: Mutex<Option<String>>,
-}
+// No runtime state needed — privilege elevation is handled by the OS GUI (pkexec/osascript)
+pub struct AppState {}
 
 // ---- Types ----
 
@@ -57,12 +55,7 @@ pub struct InstallConfig {
 
 // ---- Helpers ----
 
-async fn get_component_version(
-    name: &str,
-    path: &str,
-    use_sudo: bool,
-    pw_opt: Option<&String>,
-) -> Option<String> {
+async fn get_component_version(name: &str, path: &str) -> Option<String> {
     if name == "USB DLP Scripts" {
         return Some("Installed".to_string());
     }
@@ -91,38 +84,17 @@ async fn get_component_version(
         args.push("--version".to_string());
     }
 
-    let mut cmd = if use_sudo {
-        #[cfg(unix)]
-        {
-            let mut c = create_command("sudo");
-            c.arg("-S").arg("-p").arg("").arg(&cmd_target).args(&args);
-            c
-        }
-        #[cfg(windows)]
-        {
-            let mut c = create_command(&cmd_target);
-            c.args(&args);
-            c
-        }
-    } else {
-        let mut c = create_command(&cmd_target);
-        c.args(&args);
-        c
-    };
+    let mut cmd = create_command(&cmd_target);
+    cmd.args(&args);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    // Automatically terminate the process if it times out or gets dropped
+    cmd.kill_on_drop(true);
 
-    if let Ok(mut child) = cmd.spawn() {
-        if use_sudo {
-            #[cfg(unix)]
-            if let Some(mut stdin) = child.stdin.take() {
-                if let Some(pw) = pw_opt {
-                    let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-                }
-            }
-        }
-
-        if let Ok(output) = child.wait_with_output().await {
+    if let Ok(child) = cmd.spawn() {
+        if let Ok(Ok(output)) = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait_with_output()).await {
             let out_str = String::from_utf8_lossy(&output.stdout).to_string()
                 + String::from_utf8_lossy(&output.stderr).as_ref();
 
@@ -287,163 +259,60 @@ fn is_root() -> bool {
         true
     }
 }
-
-#[allow(unused_variables)]
 #[tauri::command]
-async fn verify_sudo(password: String, state: State<'_, AppState>) -> Result<bool, String> {
-    #[cfg(unix)]
-    {
-        let mut child = create_command("sudo")
-            .arg("-S")
-            .arg("-k")
-            .arg("-p")
-            .arg("")
-            .arg("id")
-            .arg("-u")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn sudo: {}", e))?;
-
-        if let Some(mut stdin) = child.stdin.take() {
-            let pwd = format!("{}\n", password);
-            let _ = stdin.write_all(pwd.as_bytes()).await;
-        }
-
-        let output = child.wait_with_output().await.map_err(|e| e.to_string())?;
-
-        if output.status.success() {
-            let mut stored_pw = state.sudo_password.lock().unwrap();
-            *stored_pw = Some(password);
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-    #[cfg(windows)]
-    {
-        Ok(true)
-    }
-}
-
-#[tauri::command]
-async fn run_install(
-    config: InstallConfig,
-    password: Option<String>,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<InstallResult, String> {
-    if let Some(pw) = password {
-        let mut stored = state.sudo_password.lock().unwrap();
-        *stored = Some(pw);
-    }
-
-    // Take the password out of state immediately after reading it, to minimize
-    // how long the plaintext remains in process memory.
-    let pw_opt = {
-        let mut stored = state.sudo_password.lock().unwrap();
-        stored.take()
-    };
-
+async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
     let resolved_path = resolve_script(&app)?;
 
-    let (cmd_str, args, use_sudo) = if cfg!(target_os = "windows") {
-        (
-            "powershell",
-            vec![
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                &resolved_path as &str,
-            ],
-            false,
-        )
-    } else {
-        ("bash", vec![&resolved_path as &str], true)
+    // The process is already running as root (elevated at launch), so we can
+    // invoke bash directly — no sudo or pkexec wrapper needed.
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = create_command("powershell");
+        c.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &resolved_path,
+        ]);
+        c
     };
 
-    let mut command = if use_sudo {
-        let mut c = create_command("sudo");
-        c.arg("-S").arg("-p").arg("");
-
-        // Pass environment variables via `env` so `sudo` doesn't strip them
-        c.arg("env");
-
-        // Inject PATH so macOS GUI apps can find Homebrew and other user binaries
-        let current_path =
-            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
+    #[cfg(not(target_os = "windows"))]
+    let mut command = {
+        let mut c = create_command("bash");
+        c.arg(&resolved_path);
+        // Inject env vars — we are already root so no env-stripping occurs
+        c.env("WAZUH_MANAGER", &config.wazuh_manager)
+            .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
+            .env("IDS_ENGINE", &config.ids_engine)
+            .env("SURICATA_MODE", &config.suricata_mode)
+            .env(
+                "INSTALL_TRIVY",
+                if config.install_trivy {
+                    "true"
+                } else {
+                    "false"
+                },
+            );
         #[cfg(target_os = "macos")]
-        c.arg(format!(
-            "PATH=/opt/homebrew/bin:/usr/local/bin:{}",
-            current_path
-        ));
-
-        #[cfg(not(target_os = "macos"))]
-        c.arg(format!("PATH={}", current_path));
-
-        c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
-        c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
-        c.arg(format!("IDS_ENGINE={}", config.ids_engine));
-        c.arg(format!("SURICATA_MODE={}", config.suricata_mode));
-        c.arg(format!(
-            "INSTALL_TRIVY={}",
-            if config.install_trivy {
-                "true"
-            } else {
-                "false"
-            }
-        ));
-
-        c.arg(cmd_str).args(&args);
-        c
-    } else {
-        let mut c = create_command(cmd_str);
-        c.args(&args);
+        {
+            let current_path = std::env::var("PATH")
+                .unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+            c.env(
+                "PATH",
+                format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
+            );
+        }
         c
     };
-
-    let current_path =
-        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
-    #[cfg(target_os = "macos")]
-    let path_val = format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path);
-
-    #[cfg(not(target_os = "macos"))]
-    let path_val = current_path;
-
-    if !use_sudo {
-        command.env("PATH", path_val);
-    }
 
     command
-        .env("WAZUH_MANAGER", &config.wazuh_manager)
-        .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
-        .env("IDS_ENGINE", &config.ids_engine)
-        .env("SURICATA_MODE", &config.suricata_mode)
-        .env(
-            "INSTALL_TRIVY",
-            if config.install_trivy {
-                "true"
-            } else {
-                "false"
-            },
-        )
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     let mut child = command.spawn().map_err(|e| e.to_string())?;
-
-    if use_sudo {
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Some(pw) = pw_opt {
-                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-            }
-        }
-    }
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
@@ -499,102 +368,59 @@ async fn run_enroll(
     issuer: String,
     endpoint: String,
     overwrite: bool,
-    password: Option<String>,
-    state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    if let Some(pw) = password {
-        let mut stored = state.sudo_password.lock().unwrap();
-        *stored = Some(pw);
+    let mut oauth_args = vec![
+        "o-auth2".to_string(),
+        "--issuer".to_string(),
+        issuer,
+        "--endpoint".to_string(),
+        endpoint,
+    ];
+    if overwrite {
+        oauth_args.push("--overwrite".to_string());
     }
 
-    // Take the password out of state immediately after reading it, to minimize
-    // how long the plaintext remains in process memory.
-    let pw_opt = {
-        let mut stored = state.sudo_password.lock().unwrap();
-        stored.take()
-    };
-
-    #[cfg(unix)]
-    let (cmd, args, use_sudo) = {
-        let mut args = vec![
-            "o-auth2".to_string(),
-            "--issuer".to_string(),
-            issuer,
-            "--endpoint".to_string(),
-            endpoint,
-        ];
-        if overwrite {
-            args.push("--overwrite".to_string());
-        }
-        let exe = if cfg!(target_os = "macos") {
-            "/Library/Ossec/bin/wazuh-cert-oauth2-client"
-        } else {
-            "/var/ossec/bin/wazuh-cert-oauth2-client"
-        };
-        // The binary is installed with root-only permissions, so we need sudo on all Unix
-        // platforms. On macOS, sudo kills the GUI context so the binary cannot open a
-        // browser. We intercept the "Opened your default browser to: <URL>" line from
-        // stderr and open it ourselves from Tauri's GUI process instead.
-        (exe, args, true)
-    };
-
-    #[cfg(windows)]
-    let (cmd, args, use_sudo) = {
-        let mut args = vec![
-            "o-auth2".to_string(),
-            "--issuer".to_string(),
-            issuer,
-            "--endpoint".to_string(),
-            endpoint,
-        ];
-        if overwrite {
-            args.push("--overwrite".to_string());
-        }
-        (
-            "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe",
-            args,
-            false,
-        )
-    };
-
-    let current_path =
-        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
-    let mut command = if use_sudo {
-        let mut c = create_command("sudo");
-        c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
+    // The process is already root at this point.
+    // Call the binary directly — no pkexec or osascript wrapper needed.
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let exe = "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe";
+        let mut c = create_command(exe);
+        c.args(&oauth_args);
         c
-    } else {
-        let mut c = create_command(cmd);
-        c.args(&args);
+    };
+
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let exe = "/var/ossec/bin/wazuh-cert-oauth2-client";
+        let mut c = create_command(exe);
+        c.args(&oauth_args);
         c
     };
 
     #[cfg(target_os = "macos")]
-    let path_val = format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path);
-
-    #[cfg(not(target_os = "macos"))]
-    let path_val = current_path;
-
-    if !use_sudo {
-        command.env("PATH", path_val);
-    }
+    let mut command = {
+        let current_path =
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        // On macOS (running as root), call the binary directly.
+        // Intercept the browser URL from stderr and open it via Tauri's GUI context.
+        let exe = "/Library/Ossec/bin/wazuh-cert-oauth2-client";
+        let mut c = create_command(exe);
+        c.args(&oauth_args);
+        c.env(
+            "PATH",
+            format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
+        );
+        c
+    };
 
     command
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     let mut child = command.spawn().map_err(|e| e.to_string())?;
-
-    if use_sudo {
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Some(pw) = pw_opt {
-                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-            }
-        }
-    }
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
@@ -655,15 +481,7 @@ async fn run_enroll(
 }
 
 #[tauri::command]
-async fn check_components(
-    password: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<Vec<ComponentStatus>, String> {
-    let pw_opt = password.or_else(|| {
-        let stored = state.sudo_password.lock().unwrap();
-        stored.clone()
-    });
-
+async fn check_components() -> Result<Vec<ComponentStatus>, String> {
     let ossec_path = if cfg!(windows) {
         r"C:\Program Files (x86)\ossec-agent"
     } else if cfg!(target_os = "macos") {
@@ -744,35 +562,9 @@ async fn check_components(
     let mut results = Vec::new();
 
     for (name, path) in components {
+        // Check existence without sudo — reading file metadata is always permitted
         #[cfg(unix)]
-        let installed = {
-            if let Some(ref pw) = pw_opt {
-                let mut cmd = create_command("sudo");
-                cmd.arg("-S")
-                    .arg("-p")
-                    .arg("")
-                    .arg("test")
-                    .arg("-f")
-                    .arg(&path)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null());
-                if let Ok(mut child) = cmd.spawn() {
-                    if let Some(mut stdin) = child.stdin.take() {
-                        let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-                    }
-                    if let Ok(status) = child.wait().await {
-                        status.success()
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                std::path::Path::new(&path).exists()
-            }
-        };
+        let installed = std::path::Path::new(&path).exists();
 
         #[cfg(windows)]
         let installed = {
@@ -801,12 +593,7 @@ async fn check_components(
         };
 
         let version = if installed {
-            let needs_sudo = cfg!(unix)
-                && (name == "Wazuh Agent"
-                    || name == "Suricata"
-                    || name == "Trivy"
-                    || path.contains("/var/ossec"));
-            get_component_version(&name, &path, needs_sudo, pw_opt.as_ref()).await
+            get_component_version(&name, &path).await
         } else {
             None
         };
@@ -834,18 +621,84 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = AppState {
-        sudo_password: Mutex::new(None),
-    };
+    // ---- Privilege elevation at launch (gparted-style) ----
+    // If we are not already running as root on Unix, relaunch ourselves via the
+    // OS-native privilege mechanism and exit. The relaunched process runs as root
+    // from the start so every subsequent operation (install scripts, cert binary,
+    // etc.) works without any per-command sudo/pkexec/osascript call.
+    #[cfg(target_os = "linux")]
+    if unsafe { libc::geteuid() } != 0 {
+        let exe = std::env::current_exe().expect("cannot get executable path");
+        let args: Vec<String> = std::env::args().skip(1).collect();
+
+        // pkexec strips environment variables for security, including the
+        // display-related ones GTK needs. Pass them explicitly via
+        //   pkexec env DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... <exe>
+        // This is exactly what gparted's .desktop Exec line does.
+        let display = std::env::var("DISPLAY").unwrap_or_default();
+        let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
+        let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+        let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
+
+        let status = std::process::Command::new("pkexec")
+            .arg("env")
+            .arg(format!("DISPLAY={display}"))
+            .arg(format!("XAUTHORITY={xauthority}"))
+            .arg(format!("WAYLAND_DISPLAY={wayland}"))
+            .arg(format!("XDG_RUNTIME_DIR={xdg_runtime}"))
+            .arg(&exe)
+            .args(&args)
+            .status();
+        let code = match status {
+            Ok(s) => s.code().unwrap_or(1),
+            Err(e) => {
+                eprintln!("pkexec failed to launch: {e}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+
+    #[cfg(target_os = "macos")]
+    if unsafe { libc::geteuid() } != 0 {
+        let exe = std::env::current_exe()
+            .expect("cannot get executable path")
+            .to_string_lossy()
+            .to_string();
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args_str = args
+            .iter()
+            .map(|a| format!("\"{}\"", a.replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let shell_cmd = format!("{exe} {args_str}");
+        let result = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                &format!(
+                    "do shell script \"{}\" with administrator privileges",
+                    shell_cmd
+                ),
+            ])
+            .status();
+        let code = match result {
+            Ok(s) => s.code().unwrap_or(1),
+            Err(e) => {
+                eprintln!("osascript relaunch failed: {e}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+    // ---- End privilege elevation ----
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(app_state)
+        .manage(AppState {})
         .invoke_handler(tauri::generate_handler![
             is_root,
             get_platform,
-            verify_sudo,
             run_install,
             run_enroll,
             check_components,
