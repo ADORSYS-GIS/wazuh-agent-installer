@@ -641,16 +641,41 @@ pub fn run() {
         let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
         let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
         let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
 
-        let status = std::process::Command::new("pkexec")
-            .arg("env")
+        // Query user's current GTK theme to preserve desktop environment styles
+        let gtk_theme = std::process::Command::new("gsettings")
+            .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
+            .output()
+            .ok()
+            .and_then(|output| {
+                if output.status.success() {
+                    let theme = String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .trim_matches('\'')
+                        .to_string();
+                    if !theme.is_empty() {
+                        return Some(theme);
+                    }
+                }
+                None
+            });
+
+        let mut cmd = std::process::Command::new("pkexec");
+        cmd.arg("env")
             .arg(format!("DISPLAY={display}"))
             .arg(format!("XAUTHORITY={xauthority}"))
             .arg(format!("WAYLAND_DISPLAY={wayland}"))
             .arg(format!("XDG_RUNTIME_DIR={xdg_runtime}"))
-            .arg(&exe)
-            .args(&args)
-            .status();
+            .arg(format!("HOME={home}"))
+            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"));
+
+        if let Some(theme) = gtk_theme {
+            cmd.arg(format!("GTK_THEME={theme}"));
+        }
+
+        let status = cmd.arg(&exe).args(&args).status();
         let code = match status {
             Ok(s) => s.code().unwrap_or(1),
             Err(e) => {

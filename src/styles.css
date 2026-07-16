@@ -24,6 +24,14 @@
   padding: 0;
 }
 
+input,
+button,
+select,
+textarea,
+option {
+  font-family: inherit;
+}
+
 body {
   font-family:
     "Plus Jakarta Sans",
