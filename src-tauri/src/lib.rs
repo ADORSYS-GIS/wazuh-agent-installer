@@ -94,7 +94,9 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
     cmd.kill_on_drop(true);
 
     if let Ok(child) = cmd.spawn() {
-        if let Ok(Ok(output)) = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait_with_output()).await {
+        if let Ok(Ok(output)) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), child.wait_with_output()).await
+        {
             let out_str = String::from_utf8_lossy(&output.stdout).to_string()
                 + String::from_utf8_lossy(&output.stderr).as_ref();
 
