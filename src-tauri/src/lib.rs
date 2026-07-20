@@ -623,15 +623,16 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // ---- Privilege elevation at launch (gparted-style) ----
-    // If we are not already running as root on Unix, relaunch ourselves via the
-    // OS-native privilege mechanism and exit. The relaunched process runs as root
-    // from the start so every subsequent operation (install scripts, cert binary,
-    // etc.) works without any per-command sudo/pkexec/osascript call.
-    #[cfg(all(target_os = "linux", not(debug_assertions)))]
+    // Capture our PID before elevation so the elevated child can watch us
+    let launcher_pid = std::process::id();
+
+    #[cfg(target_os = "linux")]
     if unsafe { libc::geteuid() } != 0 {
         let exe = std::env::current_exe().expect("cannot get executable path");
-        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|a| a != "--parent-pid" && a.parse::<u32>().is_err())
+            .collect();
 
         // pkexec strips environment variables for security, including the
         // display-related ones GTK needs. Pass them explicitly via
@@ -675,7 +676,13 @@ pub fn run() {
             cmd.arg(format!("GTK_THEME={theme}"));
         }
 
-        let status = cmd.arg(&exe).args(&args).status();
+        // Pass our PID so the elevated child can exit when we (the launcher) die
+        let status = cmd
+            .arg(&exe)
+            .arg("--parent-pid")
+            .arg(launcher_pid.to_string())
+            .args(&args)
+            .status();
         let code = match status {
             Ok(s) => s.code().unwrap_or(1),
             Err(e) => {
@@ -686,19 +693,22 @@ pub fn run() {
         std::process::exit(code);
     }
 
-    #[cfg(all(target_os = "macos", not(debug_assertions)))]
+    #[cfg(target_os = "macos")]
     if unsafe { libc::geteuid() } != 0 {
         let exe = std::env::current_exe()
             .expect("cannot get executable path")
             .to_string_lossy()
             .to_string();
-        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|a| a != "--parent-pid" && a.parse::<u32>().is_err())
+            .collect();
         let args_str = args
             .iter()
             .map(|a| format!("\"{}\"", a.replace('"', "\\\"")))
             .collect::<Vec<_>>()
             .join(" ");
-        let shell_cmd = format!("{exe} {args_str}");
+        let shell_cmd = format!("{exe} --parent-pid {launcher_pid} {args_str}");
         let result = std::process::Command::new("osascript")
             .args([
                 "-e",
@@ -719,7 +729,35 @@ pub fn run() {
     }
     // ---- End privilege elevation ----
 
+    // Watchdog: if we were launched with --parent-pid, watch that process.
+    // When tauri-dev kills the unprivileged launcher on hot-reload, we exit too
+    // so only one elevated instance is ever alive at a time.
+    #[cfg(unix)]
+    {
+        let raw_args: Vec<String> = std::env::args().collect();
+        if let Some(pos) = raw_args.iter().position(|a| a == "--parent-pid") {
+            if let Some(pid_str) = raw_args.get(pos + 1) {
+                if let Ok(parent_pid) = pid_str.parse::<libc::pid_t>() {
+                    std::thread::spawn(move || loop {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        // kill(pid, 0) just checks if the process exists
+                        if unsafe { libc::kill(parent_pid, 0) } != 0 {
+                            std::process::exit(0);
+                        }
+                    });
+                }
+            }
+        }
+    }
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {})
