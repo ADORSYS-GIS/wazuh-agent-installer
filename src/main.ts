@@ -129,13 +129,8 @@ async function boot() {
   btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
   btnRefreshComponents?.addEventListener("click", refreshComponents);
 
-  const isRoot = await invoke<boolean>("is_root");
-  const platform = await invoke<string>("get_platform");
-
-  // On all platforms just boot straight away — the OS will show its own
-  // privilege prompt (pkexec / osascript) when the install actually runs.
-  void isRoot;
-  void platform;
+  // Privilege elevation is handled by the OS (pkexec/osascript) at launch.
+  // No runtime root/platform check needed here.
   finishBoot();
 }
 

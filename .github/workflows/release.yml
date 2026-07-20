@@ -68,41 +68,40 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          VERSION="${TAG_NAME#v}"
-          echo "Setting version to: $VERSION (from tag: $TAG_NAME)"
-          
+          # Strip leading 'v' and any pre-release suffix (e.g. v1.1.0-rc.1 → 1.1.0)
+          CLEAN_VERSION="${TAG_NAME#v}"
+          CLEAN_VERSION="${CLEAN_VERSION%%-*}"
+          export CLEAN_VERSION
+          export TAG_NAME
+          echo "Setting version to: $CLEAN_VERSION (from tag: $TAG_NAME)"
+
           # Update package.json
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.version = process.env.TAG_NAME.replace(/^v/, '');
+            pkg.version = process.env.CLEAN_VERSION;
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
-          
+
           # Update src-tauri/tauri.conf.json
           node -e "
             const fs = require('fs');
             const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-            conf.version = process.env.TAG_NAME.replace(/^v/, '').split('-')[0];
+            conf.version = process.env.CLEAN_VERSION;
             fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
           "
-          
+
           # Update src-tauri/Cargo.toml
           node -e "
             const fs = require('fs');
             let content = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
-            const cleanVer = process.env.TAG_NAME.replace(/^v/, '').split('-')[0];
-            content = content.replace(/^version = \"[^\"]*\"/m, 'version = \"' + cleanVer + '\"');
+            content = content.replace(/^version = \"[^\"]*\"/m, 'version = \"' + process.env.CLEAN_VERSION + '\"');
             fs.writeFileSync('src-tauri/Cargo.toml', content);
           "
-          
-          # Update src/config.ts
-          node -e "
-            const fs = require('fs');
-            let content = fs.readFileSync('src/config.ts', 'utf8');
-            content = content.replace(/appVersion:\s*\"[^\"]*\"/, 'appVersion: \"' + process.env.TAG_NAME + '\"');
-            fs.writeFileSync('src/config.ts', content);
-          "
+          # Note: src/config.ts appVersion is intentionally not patched here.
+          # It is a UI display value populated by the build-time config, not a
+          # build-system version identifier. Single source of truth: tauri.conf.json.
+
 
       # ── Build & Release ───────────────────────────────────────────────────
       - name: Build and publish release

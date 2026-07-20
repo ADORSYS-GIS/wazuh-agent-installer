@@ -14,7 +14,8 @@ use std::os::windows::process::CommandExt;
 
 // ---- State ----
 
-// No runtime state needed — privilege elevation is handled by the OS GUI (pkexec/osascript)
+// AppState is intentionally kept for future extensibility (e.g. caching
+// install progress, storing config at runtime). It is empty for now.
 pub struct AppState {}
 
 // ---- Types ----
@@ -338,7 +339,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            if line.contains("Password:") || line.trim().is_empty() {
+            if line.trim().is_empty() {
                 continue;
             }
             let level = classify_line(&line);
@@ -446,7 +447,7 @@ async fn run_enroll(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            if line.contains("Password:") || line.trim().is_empty() {
+            if line.trim().is_empty() {
                 continue;
             }
             // The OAuth2 binary cannot open a browser when run under sudo on macOS
@@ -703,12 +704,17 @@ pub fn run() {
             .skip(1)
             .filter(|a| a != "--parent-pid" && a.parse::<u32>().is_err())
             .collect();
-        let args_str = args
-            .iter()
-            .map(|a| format!("\"{}\"", a.replace('"', "\\\"")))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let shell_cmd = format!("{exe} --parent-pid {launcher_pid} {args_str}");
+
+        // Build a single-quoted sh -c argument so that special characters in
+        // the exe path or arguments cannot break out of the shell context.
+        // Single-quote escaping: replace every ' with '\'' inside the value.
+        let sq = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+        let mut parts = vec![sq(&exe), sq(&format!("--parent-pid {launcher_pid}"))];
+        for a in &args {
+            parts.push(sq(a));
+        }
+        let shell_cmd = format!("sh -c {}", sq(&parts.join(" ")));
+
         let result = std::process::Command::new("osascript")
             .args([
                 "-e",
