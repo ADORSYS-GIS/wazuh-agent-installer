@@ -14,10 +14,6 @@ use std::os::windows::process::CommandExt;
 
 // ---- State ----
 
-// AppState is intentionally kept for future extensibility (e.g. caching
-// install progress, storing config at runtime). It is empty for now.
-pub struct AppState {}
-
 // ---- Types ----
 
 #[derive(Serialize, Clone)]
@@ -485,80 +481,90 @@ async fn run_enroll(
 
 #[tauri::command]
 async fn check_components() -> Result<Vec<ComponentStatus>, String> {
-    let ossec_path = if cfg!(windows) {
-        r"C:\Program Files (x86)\ossec-agent"
-    } else if cfg!(target_os = "macos") {
-        "/Library/Ossec"
-    } else {
-        "/var/ossec"
-    };
+    // Use #[cfg(...)] compile-time blocks for platform-specific paths,
+    // consistent with run_enroll() and run_install().
+    #[cfg(target_os = "windows")]
+    let ossec_path = r"C:\Program Files (x86)\ossec-agent";
+    #[cfg(target_os = "macos")]
+    let ossec_path = "/Library/Ossec";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let ossec_path = "/var/ossec";
 
-    let components = vec![
+    #[cfg(target_os = "windows")]
+    let components: Vec<(String, String)> = vec![
         (
             "Wazuh Agent".to_string(),
-            if cfg!(windows) {
-                format!("{}\\wazuh-agent.exe", ossec_path)
-            } else {
-                format!("{}/bin/wazuh-agentd", ossec_path)
-            },
+            format!("{}\\wazuh-agent.exe", ossec_path),
         ),
         (
             "OAuth2 Client".to_string(),
-            if cfg!(windows) {
-                format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path)
-            } else {
-                format!("{}/bin/wazuh-cert-oauth2-client", ossec_path)
-            },
+            format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path),
         ),
         (
             "Agent Status Monitor".to_string(),
-            if cfg!(windows) {
-                r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string()
-            } else {
-                "/usr/local/bin/wazuh-agent-status".to_string()
-            },
+            r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string(),
         ),
-        (
-            "YARA".to_string(),
-            if cfg!(windows) {
-                "yara64.exe".to_string()
-            } else {
-                "/usr/local/bin/yara".to_string()
-            },
-        ),
-        (
-            "Suricata".to_string(),
-            if cfg!(windows) {
-                "suricata.exe".to_string()
-            } else if cfg!(target_os = "macos") {
-                "/usr/local/bin/suricata".to_string()
-            } else {
-                "/usr/bin/suricata".to_string()
-            },
-        ),
-        (
-            "Trivy".to_string(),
-            if cfg!(windows) {
-                "trivy.exe".to_string()
-            } else {
-                "/usr/local/bin/trivy".to_string()
-            },
-        ),
+        ("YARA".to_string(), "yara64.exe".to_string()),
+        ("Suricata".to_string(), "suricata.exe".to_string()),
+        ("Trivy".to_string(), "trivy.exe".to_string()),
         (
             "USB DLP Scripts".to_string(),
-            if cfg!(windows) {
-                format!(
-                    "{}\\active-response\\bin\\disable-usb-storage.ps1",
-                    ossec_path
-                )
-            } else if cfg!(target_os = "macos") {
-                format!(
-                    "{}/active-response/bin/disable-usb-storage-macos.sh",
-                    ossec_path
-                )
-            } else {
-                format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path)
-            },
+            format!(
+                "{}\\active-response\\bin\\disable-usb-storage.ps1",
+                ossec_path
+            ),
+        ),
+    ];
+
+    #[cfg(target_os = "macos")]
+    let components: Vec<(String, String)> = vec![
+        (
+            "Wazuh Agent".to_string(),
+            format!("{}/bin/wazuh-agentd", ossec_path),
+        ),
+        (
+            "OAuth2 Client".to_string(),
+            format!("{}/bin/wazuh-cert-oauth2-client", ossec_path),
+        ),
+        (
+            "Agent Status Monitor".to_string(),
+            "/usr/local/bin/wazuh-agent-status".to_string(),
+        ),
+        ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
+        (
+            "Suricata".to_string(),
+            "/usr/local/bin/suricata".to_string(),
+        ),
+        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
+        (
+            "USB DLP Scripts".to_string(),
+            format!(
+                "{}/active-response/bin/disable-usb-storage-macos.sh",
+                ossec_path
+            ),
+        ),
+    ];
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let components: Vec<(String, String)> = vec![
+        (
+            "Wazuh Agent".to_string(),
+            format!("{}/bin/wazuh-agentd", ossec_path),
+        ),
+        (
+            "OAuth2 Client".to_string(),
+            format!("{}/bin/wazuh-cert-oauth2-client", ossec_path),
+        ),
+        (
+            "Agent Status Monitor".to_string(),
+            "/usr/local/bin/wazuh-agent-status".to_string(),
+        ),
+        ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
+        ("Suricata".to_string(), "/usr/bin/suricata".to_string()),
+        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
+        (
+            "USB DLP Scripts".to_string(),
+            format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path),
         ),
     ];
 
@@ -766,7 +772,6 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(AppState {})
         .invoke_handler(tauri::generate_handler![
             is_root,
             get_platform,
