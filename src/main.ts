@@ -129,8 +129,6 @@ async function boot() {
   btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
   btnRefreshComponents?.addEventListener("click", refreshComponents);
 
-  // Privilege elevation is handled by the OS (pkexec/osascript) at launch.
-  // No runtime root/platform check needed here.
   finishBoot();
 }
 
