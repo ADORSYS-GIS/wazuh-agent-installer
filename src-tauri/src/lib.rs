@@ -628,7 +628,7 @@ pub fn run() {
     // OS-native privilege mechanism and exit. The relaunched process runs as root
     // from the start so every subsequent operation (install scripts, cert binary,
     // etc.) works without any per-command sudo/pkexec/osascript call.
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(debug_assertions)))]
     if unsafe { libc::geteuid() } != 0 {
         let exe = std::env::current_exe().expect("cannot get executable path");
         let args: Vec<String> = std::env::args().skip(1).collect();
@@ -686,7 +686,7 @@ pub fn run() {
         std::process::exit(code);
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(debug_assertions)))]
     if unsafe { libc::geteuid() } != 0 {
         let exe = std::env::current_exe()
             .expect("cannot get executable path")
