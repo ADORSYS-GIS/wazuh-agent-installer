@@ -12,8 +12,6 @@ use tokio::process::Command;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-// ---- State ----
-
 // ---- Types ----
 
 #[derive(Serialize, Clone)]
@@ -630,16 +628,27 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Capture our PID before elevation so the elevated child can watch us
+    // Capture our PID before elevation so the elevated child can watch us.
+    // Only needed on Unix — the watchdog that consumes it is #[cfg(unix)].
+    #[cfg(unix)]
     let launcher_pid = std::process::id();
 
     #[cfg(target_os = "linux")]
     if unsafe { libc::geteuid() } != 0 {
         let exe = std::env::current_exe().expect("cannot get executable path");
-        let args: Vec<String> = std::env::args()
-            .skip(1)
-            .filter(|a| a != "--parent-pid" && a.parse::<u32>().is_err())
-            .collect();
+        let args: Vec<String> = {
+            let mut raw = std::env::args().skip(1).peekable();
+            let mut out = Vec::new();
+            while let Some(a) = raw.next() {
+                if a == "--parent-pid" {
+                    // Skip the flag and its PID value
+                    raw.next();
+                } else {
+                    out.push(a);
+                }
+            }
+            out
+        };
 
         // pkexec strips environment variables for security, including the
         // display-related ones GTK needs. Pass them explicitly via
@@ -706,10 +715,19 @@ pub fn run() {
             .expect("cannot get executable path")
             .to_string_lossy()
             .to_string();
-        let args: Vec<String> = std::env::args()
-            .skip(1)
-            .filter(|a| a != "--parent-pid" && a.parse::<u32>().is_err())
-            .collect();
+        let args: Vec<String> = {
+            let mut raw = std::env::args().skip(1).peekable();
+            let mut out = Vec::new();
+            while let Some(a) = raw.next() {
+                if a == "--parent-pid" {
+                    // Skip the flag and its PID value
+                    raw.next();
+                } else {
+                    out.push(a);
+                }
+            }
+            out
+        };
 
         // Build a single-quoted sh -c argument so that special characters in
         // the exe path or arguments cannot break out of the shell context.
