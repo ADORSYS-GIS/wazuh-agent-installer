@@ -12,6 +12,7 @@
   --brand-bg-terminal: #090c10;
   --brand-text-primary: #e8ecf1;
   --brand-text-secondary: #8b95a5;
+  --brand-text-muted: #5a6476;
   --brand-status-success: #34d399;
   --brand-status-error: #f87171;
   --brand-status-warn: #fbbf24;
@@ -230,12 +231,6 @@ body {
   margin-bottom: 4px;
 }
 
-.card-desc {
-  font-size: 13px;
-  color: var(--brand-text-secondary);
-  margin-bottom: 16px;
-}
-
 .suricata-card {
   display: flex;
   flex-direction: column;
@@ -320,15 +315,6 @@ body {
 .form-select option {
   background-color: var(--brand-bg-input);
   color: var(--brand-text-primary);
-}
-
-.form-static {
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--brand-text-primary);
-  border: 1px solid transparent;
 }
 
 /* Buttons */

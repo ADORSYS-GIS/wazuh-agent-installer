@@ -36,6 +36,7 @@
           <nav class="sidebar-nav">
             <button class="nav-item active" data-target="tab-setup"><span class="nav-icon">⚙️</span> Setup</button>
             <button class="nav-item" data-target="tab-enrollment"><span class="nav-icon">🔐</span> Enrollment</button>
+            <button class="nav-item" data-target="tab-netbird"><span class="nav-icon">🐦</span> NetBird</button>
             <button class="nav-item" data-target="tab-components"><span class="nav-icon">🧩</span> Overview</button>
           </nav>
 
@@ -90,6 +91,55 @@
                   <input type="checkbox" id="install-trivy" />
                   <span class="slider"></span>
                 </label>
+              </div>
+            </div>
+
+            <div class="card compact" style="margin-top: 16px">
+              <div class="toggle-row compact">
+                <div class="toggle-info">
+                  <div class="toggle-title">Install NetBird</div>
+                  <div class="toggle-desc">WireGuard-based overlay VPN client for secure mesh networking.</div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="install-netbird" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="card compact" style="margin-top: 16px">
+              <div class="toggle-row compact">
+                <div class="toggle-info">
+                  <div class="toggle-title">Install Velociraptor</div>
+                  <div class="toggle-desc">
+                    Endpoint visibility and incident response client. Optionally provide a config file to enable the
+                    service immediately.
+                  </div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="install-velociraptor" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="velociraptor-config-row" id="velociraptor-config-row" style="display: none; margin-top: 12px">
+                <label class="form-label" for="velociraptor-config">Config File (optional)</label>
+                <div style="display: flex; gap: 8px; align-items: center">
+                  <input
+                    class="form-input"
+                    type="text"
+                    id="velociraptor-config"
+                    placeholder="Path to client.config.yaml (optional)"
+                    style="flex: 1"
+                  />
+                  <button
+                    class="btn btn-secondary"
+                    id="btn-browse-velociraptor-config"
+                    type="button"
+                    style="flex-shrink: 0"
+                  >
+                    📁 Browse
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -205,6 +255,80 @@
                 style="display: none; margin-top: 10px; width: 100%; justify-content: center"
               >
                 ↺ Retry Enrollment
+              </button>
+            </div>
+          </section>
+
+          <!-- NetBird Tab -->
+          <section id="tab-netbird" class="tab-panel">
+            <h2 class="section-title">NetBird Connection</h2>
+
+            <div class="card compact" style="margin-bottom: 24px">
+              <p class="toggle-desc" style="margin-bottom: 16px">
+                Connect this agent to a NetBird network. Management URL defaults to <strong>api.netbird.io</strong>.
+                Setup key is optional.
+              </p>
+
+              <div class="form-grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="netbird-management-url">Management URL</label>
+                  <select class="form-input form-select" id="netbird-management-url">
+                    <option value="">— Select management URL —</option>
+                  </select>
+                  <input
+                    class="form-input"
+                    type="text"
+                    id="netbird-management-url-custom"
+                    placeholder="https://netbird.example.com"
+                    style="display: none; margin-top: 6px"
+                  />
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="netbird-setup-key"
+                    >Setup Key
+                    <span style="color: var(--brand-text-muted); font-weight: normal">(optional)</span></label
+                  >
+                  <input
+                    class="form-input"
+                    type="password"
+                    id="netbird-setup-key"
+                    placeholder="Paste your NetBird setup key (optional)"
+                    autocomplete="off"
+                  />
+                </div>
+              </div>
+
+              <div class="action-row" style="margin-top: 20px">
+                <button id="btn-start-netbird" class="btn btn-primary" disabled>🐦 Connect NetBird</button>
+              </div>
+            </div>
+
+            <div id="netbird-terminal-area" style="display: none">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
+                <h3 class="subsection-title" style="margin-bottom: 0; margin-top: 0">NetBird Output</h3>
+                <button
+                  class="btn btn-secondary"
+                  id="btn-save-netbird-logs"
+                  type="button"
+                  style="display: none; padding: 4px 12px; font-size: 12px; height: auto"
+                >
+                  ⬇ Save Logs
+                </button>
+              </div>
+              <div class="terminal" id="netbird-terminal">
+                <div class="terminal-placeholder" id="netbird-terminal-placeholder">
+                  <span class="spinner"></span> Connecting NetBird…
+                </div>
+              </div>
+              <div class="status-banner" id="netbird-status-banner"></div>
+              <button
+                class="btn btn-ghost"
+                id="btn-retry-netbird"
+                type="button"
+                style="display: none; margin-top: 10px; width: 100%; justify-content: center"
+              >
+                ↺ Retry Connection
               </button>
             </div>
           </section>
