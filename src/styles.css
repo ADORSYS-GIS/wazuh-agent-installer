@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
-
 :root {
   /* Default fallbacks if main.ts doesn't inject */
   --brand-primary: #1a73e8;

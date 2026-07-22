@@ -1,4 +1,5 @@
 import { BRAND_CONFIG } from "./config";
+import "@fontsource-variable/plus-jakarta-sans";
 
 // ---- Tauri Typings ----
 interface LogLine {

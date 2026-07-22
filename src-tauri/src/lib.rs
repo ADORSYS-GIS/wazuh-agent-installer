@@ -739,12 +739,16 @@ pub fn run() {
         }
         let shell_cmd = format!("sh -c {}", sq(&parts.join(" ")));
 
+        // The shell_cmd will be embedded inside a double-quoted AppleScript string.
+        // We must escape any backslashes or double-quotes so they don't break the outer AppleScript layer.
+        let apple_script_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
+
         let result = std::process::Command::new("osascript")
             .args([
                 "-e",
                 &format!(
                     "do shell script \"{}\" with administrator privileges",
-                    shell_cmd
+                    apple_script_cmd
                 ),
             ])
             .status();
