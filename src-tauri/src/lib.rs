@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -251,6 +251,74 @@ fn inject_path(command: &mut Command) {
     command.env("PATH", format!("{}:{}", get_macos_gui_path_prefix(), current_path));
 }
 
+/// Open a URL in the user's default browser.
+///
+/// The app runs as root after privilege elevation, but the browser must open
+/// in the user's desktop session. On Linux we use `runuser -u <user>` to
+/// drop back to the original user; on macOS / Windows the native commands
+/// already handle the session correctly.
+fn open_url_in_browser(url: &str) -> bool {
+    // Windows: use rundll32 (cmd `start` breaks with long URLs — opens
+    // file explorer instead of the browser).
+    #[cfg(target_os = "windows")]
+    {
+        return std::process::Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| true)
+            .unwrap_or(false);
+    }
+
+    // macOS: use `open`.
+    #[cfg(target_os = "macos")]
+    {
+        return std::process::Command::new("open")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| true)
+            .unwrap_or(false);
+    }
+
+    // Linux: prefer runuser to drop back to the original user so xdg-open
+    // can reach the desktop session (D-Bus, DISPLAY, etc.).
+    #[cfg(target_os = "linux")]
+    {
+        let mut cmd =
+            if let Some(user) = env::var("ORIGINAL_USER")
+                .ok()
+                .filter(|u| !u.is_empty() && u != "root")
+            {
+            let mut c = std::process::Command::new("runuser");
+            c.arg("-u").arg(&user).arg("--").arg("xdg-open").arg(url);
+            c
+        } else {
+            let mut c = std::process::Command::new("xdg-open");
+            c.arg(url);
+            c
+        };
+
+        // Forward display and dbus session so xdg-open works cleanly.
+        if let Ok(display) = env::var("DISPLAY") {
+            cmd.env("DISPLAY", display);
+        }
+        if let Ok(wayland) = env::var("WAYLAND_DISPLAY") {
+            cmd.env("WAYLAND_DISPLAY", wayland);
+        }
+        if let Ok(dbus) = env::var("DBUS_SESSION_BUS_ADDRESS") {
+            cmd.env("DBUS_SESSION_BUS_ADDRESS", dbus);
+        }
+
+        cmd.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        cmd.spawn().map(|_| true).unwrap_or(false)
+    }
+}
+
 /// Try to extract and open a browser URL from a log line.
 ///
 /// Two patterns are supported:
@@ -264,7 +332,7 @@ fn try_open_browser_url(line: &str, expect_url_next: &mut bool) -> bool {
     if let Some(url_start) = line.find("Opened your default browser to: ") {
         let url = line[url_start + "Opened your default browser to: ".len()..].trim();
         if !url.is_empty() {
-            let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+            open_url_in_browser(url);
             return true;
         }
     }
@@ -276,7 +344,7 @@ fn try_open_browser_url(line: &str, expect_url_next: &mut bool) -> bool {
     }
     if *expect_url_next && line.trim().starts_with("http") {
         let url = line.trim();
-        let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+        open_url_in_browser(url);
         *expect_url_next = false;
         return true;
     }
@@ -313,11 +381,14 @@ async fn run_streamed_command(
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
+    let saw_error = Arc::new(AtomicBool::new(false));
+
     let app_clone1 = app.clone();
     let event_name = cfg.event_name;
     let intercept_stdout = cfg.intercept_browser_url;
     let url_state = Arc::new(Mutex::new(false));
     let url_state_stdout = Arc::clone(&url_state);
+    let saw_error_clone1 = Arc::clone(&saw_error);
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -326,6 +397,9 @@ async fn run_streamed_command(
                 try_open_browser_url(&line, &mut expect_url_next);
             }
             let level = classify_line(&line);
+            if level == "error" {
+                saw_error_clone1.store(true, Ordering::Relaxed);
+            }
             let _ = app_clone1.emit(
                 event_name,
                 LogLine {
@@ -340,6 +414,7 @@ async fn run_streamed_command(
     let event_name = cfg.event_name;
     let intercept_stderr = cfg.intercept_browser_url;
     let url_state_stderr = Arc::clone(&url_state);
+    let saw_error_clone2 = Arc::clone(&saw_error);
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -351,6 +426,9 @@ async fn run_streamed_command(
                 try_open_browser_url(&line, &mut expect_url_next);
             }
             let level = classify_line(&line);
+            if level == "error" {
+                saw_error_clone2.store(true, Ordering::Relaxed);
+            }
             let _ = app_clone2.emit(
                 event_name,
                 LogLine {
@@ -363,10 +441,14 @@ async fn run_streamed_command(
 
     let status = child.wait().await.map_err(|e| e.to_string())?;
 
+    // Some binaries (e.g. wazuh-cert-oauth2-client) exit 0 even on error.
+    // Override success if any ERROR-level output was detected.
+    let actually_ok = status.success() && !saw_error.load(Ordering::Relaxed);
+
     Ok(InstallResult {
-        success: status.success(),
+        success: actually_ok,
         exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
+        message: if actually_ok {
             cfg.success_msg.into()
         } else {
             cfg.failure_msg.into()
@@ -864,6 +946,8 @@ pub fn run() {
         let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
         let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+        let dbus_session = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
+        let original_user = std::env::var("USER").unwrap_or_default();
 
         // Query user's current GTK theme to preserve desktop environment styles
         let gtk_theme = std::process::Command::new("gsettings")
@@ -890,7 +974,9 @@ pub fn run() {
             .arg(format!("WAYLAND_DISPLAY={wayland}"))
             .arg(format!("XDG_RUNTIME_DIR={xdg_runtime}"))
             .arg(format!("HOME={home}"))
-            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"));
+            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"))
+            .arg(format!("DBUS_SESSION_BUS_ADDRESS={dbus_session}"))
+            .arg(format!("ORIGINAL_USER={original_user}"));
 
         if let Some(theme) = gtk_theme {
             cmd.arg(format!("GTK_THEME={theme}"));
@@ -995,8 +1081,6 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             is_root,
