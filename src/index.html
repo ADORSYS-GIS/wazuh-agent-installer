@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+
     <link rel="stylesheet" href="styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Wazuh Agent Installer</title>
@@ -10,18 +11,6 @@
   </head>
 
   <body>
-    <!-- ========== Sudo Password Overlay ========== -->
-    <div id="sudo-overlay" style="display: none">
-      <div class="sudo-card">
-        <div class="sudo-icon">🛡️</div>
-        <h2>Authentication Required</h2>
-        <p>Wazuh Agent Installer needs administrative privileges to install Wazuh components.</p>
-        <div id="sudo-error" class="sudo-error" style="display: none"></div>
-        <input type="password" id="sudo-password" placeholder="Enter your system password" autofocus />
-        <button id="btn-sudo-submit" class="btn btn-primary" disabled>Continue</button>
-      </div>
-    </div>
-
     <div id="app" style="display: none">
       <div class="app-layout">
         <!-- ========== Sidebar ========== -->
@@ -41,7 +30,7 @@
           </nav>
 
           <div class="sidebar-footer">
-            <span class="version" id="app-version">v1.0.0</span>
+            <span class="version" id="app-version">—</span>
           </div>
         </aside>
 
