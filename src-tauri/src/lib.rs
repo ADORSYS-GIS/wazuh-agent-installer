@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::process::Stdio;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -39,11 +43,13 @@ struct ComponentStatus {
 pub struct InstallConfig {
     pub wazuh_manager: String,
     pub wazuh_agent_name: String,
-    pub log_level: String,
     // TODO: ids_engine is reserved for future Snort support; currently always "suricata"
     pub ids_engine: String,
     pub suricata_mode: String,
     pub install_trivy: bool,
+    pub install_netbird: bool,
+    pub install_velociraptor: bool,
+    pub velociraptor_config: String,
     pub oauth_issuer: String,
     pub cert_endpoint: String,
 }
@@ -75,6 +81,8 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
         }
     } else if name == "Suricata" {
         args.push("-V".to_string());
+    } else if name == "NetBird" || name == "Velociraptor" {
+        args.push("version".to_string());
     } else {
         args.push("--version".to_string());
     }
@@ -85,7 +93,7 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    // Automatically terminate the process if it times out or gets dropped
+    // Automatically terminate the process if it times out or gets dropped.
     cmd.kill_on_drop(true);
 
     if let Ok(child) = cmd.spawn() {
@@ -132,6 +140,47 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                 } else if cfg!(windows) {
                     let trimmed = out_str.trim();
                     if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            } else if name == "NetBird" {
+                // `netbird version` outputs just the version on a single line
+                let trimmed = out_str.trim();
+                if let Some(first) = trimmed.lines().next() {
+                    let v = first.trim().to_string();
+                    if !v.is_empty() {
+                        return Some(v);
+                    }
+                }
+            } else if name == "Velociraptor" {
+                // `velociraptor version` outputs YAML-style: `version: 0.75.6`
+                for line in out_str.lines() {
+                    let trimmed = line.trim().to_string();
+                    if let Some(ver) = trimmed.strip_prefix("version:") {
+                        let ver = ver.trim().to_string();
+                        if !ver.is_empty() {
+                            return Some(ver);
+                        }
+                    }
+                }
+            } else if name == "OAuth2 Client" {
+                // Output may start with a log line like `[2026-07-23T...] starting up`
+                // followed by the actual version: `Wazuh Cert Auth CLI X.Y.Z`
+                for line in out_str.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with('[') {
+                        continue;
+                    }
+                    if let Some(idx) = trimmed.find("CLI ") {
+                        let rest = &trimmed[idx + 4..];
+                        if let Some(v) = rest.split_whitespace().next() {
+                            if !v.is_empty() {
+                                return Some(v.to_string());
+                            }
+                        }
+                    }
+                    // Fallback: first non-log line containing a version-like number
+                    if trimmed.chars().any(|c| c.is_ascii_digit()) && trimmed.contains('.') {
                         return Some(trimmed.to_string());
                     }
                 }
@@ -189,6 +238,227 @@ fn classify_line(line: &str) -> &'static str {
     } else {
         "info"
     }
+}
+
+/// Get the PATH prefix for macOS GUI-launched processes.
+/// Returns "/opt/homebrew/bin:/usr/local/bin:" to be prepended to the current PATH.
+fn get_macos_gui_path_prefix() -> String {
+    "/opt/homebrew/bin:/usr/local/bin:".to_string()
+}
+
+/// Inject a PATH that includes common Homebrew locations so macOS GUI-launched
+/// processes can find user-installed binaries.
+fn inject_path(command: &mut Command) {
+    let current_path =
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+    command.env(
+        "PATH",
+        format!("{}:{}", get_macos_gui_path_prefix(), current_path),
+    );
+}
+
+/// Open a URL in the user's default browser.
+///
+/// The app runs as root after privilege elevation, but the browser must open
+/// in the user's desktop session. On Linux we use `runuser -u <user>` to
+/// drop back to the original user; on macOS / Windows the native commands
+/// already handle the session correctly.
+fn open_url_in_browser(url: &str) -> bool {
+    // Windows: use rundll32 (cmd `start` breaks with long URLs — opens
+    // file explorer instead of the browser).
+    #[cfg(target_os = "windows")]
+    {
+        return std::process::Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| true)
+            .unwrap_or(false);
+    }
+
+    // macOS: use `open`.
+    #[cfg(target_os = "macos")]
+    {
+        return std::process::Command::new("open")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| true)
+            .unwrap_or(false);
+    }
+
+    // Linux: prefer runuser to drop back to the original user so xdg-open
+    // can reach the desktop session (D-Bus, DISPLAY, etc.).
+    #[cfg(target_os = "linux")]
+    {
+        let mut cmd = if let Some(user) = env::var("ORIGINAL_USER")
+            .ok()
+            .filter(|u| !u.is_empty() && u != "root")
+        {
+            let mut c = std::process::Command::new("runuser");
+            c.arg("-u").arg(&user).arg("--").arg("xdg-open").arg(url);
+            c
+        } else {
+            let mut c = std::process::Command::new("xdg-open");
+            c.arg(url);
+            c
+        };
+
+        // Forward display and dbus session so xdg-open works cleanly.
+        if let Ok(display) = env::var("DISPLAY") {
+            cmd.env("DISPLAY", display);
+        }
+        if let Ok(wayland) = env::var("WAYLAND_DISPLAY") {
+            cmd.env("WAYLAND_DISPLAY", wayland);
+        }
+        if let Ok(dbus) = env::var("DBUS_SESSION_BUS_ADDRESS") {
+            cmd.env("DBUS_SESSION_BUS_ADDRESS", dbus);
+        }
+
+        cmd.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        cmd.spawn().map(|_| true).unwrap_or(false)
+    }
+}
+
+/// Try to extract and open a browser URL from a log line.
+///
+/// Two patterns are supported:
+/// - Enrollment: `"Opened your default browser to: <URL>"` (single line)
+/// - NetBird: `"use this URL to log in:"` on one line, URL on the next line
+///
+/// Returns `true` if a URL was opened. `expect_url_next` tracks the NetBird
+/// multi-line state across calls.
+fn try_open_browser_url(line: &str, expect_url_next: &mut bool) -> bool {
+    // Pattern 1: "Opened your default browser to: <URL>" (enrollment binary)
+    if let Some(url_start) = line.find("Opened your default browser to: ") {
+        let url = line[url_start + "Opened your default browser to: ".len()..].trim();
+        if !url.is_empty() {
+            open_url_in_browser(url);
+            return true;
+        }
+    }
+
+    // Pattern 2: NetBird SSO — "use this URL to log in:" then URL on next line
+    if line.contains("use this URL to log in:") {
+        *expect_url_next = true;
+        return false;
+    }
+    if *expect_url_next && line.trim().starts_with("http") {
+        let url = line.trim();
+        open_url_in_browser(url);
+        *expect_url_next = false;
+        return true;
+    }
+
+    false
+}
+
+/// Per-command configuration for [`run_streamed_command`].
+struct StreamConfig {
+    event_name: &'static str,
+    success_msg: &'static str,
+    failure_msg: &'static str,
+    intercept_browser_url: bool,
+    spawn_err: Option<&'static str>,
+}
+
+/// Spawn a command, stream its stdout/stderr to the frontend via
+/// `cfg.event_name`, and return the exit result.
+async fn run_streamed_command(
+    app: AppHandle,
+    mut command: Command,
+    cfg: StreamConfig,
+) -> Result<InstallResult, String> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command.spawn().map_err(|e| match cfg.spawn_err {
+        Some(msg) => format!("{}: {}", msg, e),
+        None => e.to_string(),
+    })?;
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let saw_error = Arc::new(AtomicBool::new(false));
+
+    let app_clone1 = app.clone();
+    let event_name = cfg.event_name;
+    let intercept_stdout = cfg.intercept_browser_url;
+    let url_state = Arc::new(Mutex::new(false));
+    let url_state_stdout = Arc::clone(&url_state);
+    let saw_error_clone1 = Arc::clone(&saw_error);
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if intercept_stdout {
+                let mut expect_url_next = url_state_stdout.lock().unwrap();
+                try_open_browser_url(&line, &mut expect_url_next);
+            }
+            let level = classify_line(&line);
+            if level == "error" {
+                saw_error_clone1.store(true, Ordering::Relaxed);
+            }
+            let _ = app_clone1.emit(
+                event_name,
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let app_clone2 = app.clone();
+    let event_name = cfg.event_name;
+    let intercept_stderr = cfg.intercept_browser_url;
+    let url_state_stderr = Arc::clone(&url_state);
+    let saw_error_clone2 = Arc::clone(&saw_error);
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if intercept_stderr {
+                let mut expect_url_next = url_state_stderr.lock().unwrap();
+                try_open_browser_url(&line, &mut expect_url_next);
+            }
+            let level = classify_line(&line);
+            if level == "error" {
+                saw_error_clone2.store(true, Ordering::Relaxed);
+            }
+            let _ = app_clone2.emit(
+                event_name,
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+
+    // Some binaries (e.g. wazuh-cert-oauth2-client) exit 0 even on error.
+    // Override success if any ERROR-level output was detected.
+    let actually_ok = status.success() && !saw_error.load(Ordering::Relaxed);
+
+    Ok(InstallResult {
+        success: actually_ok,
+        exit_code: status.code().unwrap_or(-1),
+        message: if actually_ok {
+            cfg.success_msg.into()
+        } else {
+            cfg.failure_msg.into()
+        },
+    })
 }
 
 // ---- Commands ----
@@ -256,12 +526,14 @@ fn is_root() -> bool {
         true
     }
 }
+
 #[tauri::command]
 async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
     let resolved_path = resolve_script(&app)?;
 
     // The process is already running as root (elevated at launch), so we can
     // invoke bash directly — no sudo or pkexec wrapper needed.
+
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut c = create_command("powershell");
@@ -272,11 +544,21 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
             "-File",
             &resolved_path,
         ]);
+        if config.install_netbird {
+            c.arg("-InstallNetBird");
+        }
+        if config.install_velociraptor {
+            c.arg("-InstallVelociraptor");
+        }
+        if !config.velociraptor_config.is_empty() {
+            c.arg("-VelociraptorConfig");
+            c.arg(&config.velociraptor_config);
+        }
         c
     };
 
     #[cfg(not(target_os = "windows"))]
-    let mut command = {
+    let command = {
         let mut c = create_command("bash");
         c.arg(&resolved_path);
         // Inject env vars — we are already root so no env-stripping occurs
@@ -291,73 +573,41 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
                 } else {
                     "false"
                 },
+            )
+            .env(
+                "WAZUH_AGENT_REPO_REF",
+                std::env::var("WAZUH_AGENT_REPO_REF").unwrap_or_else(|_| "develop".to_string()),
             );
-        #[cfg(target_os = "macos")]
-        {
-            let current_path = std::env::var("PATH")
-                .unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-            c.env(
-                "PATH",
-                format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
-            );
+
+        if config.install_netbird {
+            c.arg("-b");
         }
+        if config.install_velociraptor {
+            c.arg("-v");
+        }
+        if !config.velociraptor_config.is_empty() {
+            c.arg("-c");
+            c.arg(&config.velociraptor_config);
+        }
+
+        #[cfg(target_os = "macos")]
+        inject_path(&mut c);
+
         c
     };
 
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "install-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "install-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "Installation complete".into()
-        } else {
-            "Installation failed".into()
+    run_streamed_command(
+        app,
+        command,
+        StreamConfig {
+            event_name: "install-log",
+            success_msg: "Installation complete",
+            failure_msg: "Installation failed",
+            intercept_browser_url: false,
+            spawn_err: None,
         },
-    })
+    )
+    .await
 }
 
 #[tauri::command]
@@ -380,6 +630,7 @@ async fn run_enroll(
 
     // The process is already root at this point.
     // Call the binary directly — no pkexec or osascript wrapper needed.
+
     #[cfg(target_os = "windows")]
     let mut command = {
         let exe = "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe";
@@ -389,7 +640,7 @@ async fn run_enroll(
     };
 
     #[cfg(target_os = "linux")]
-    let mut command = {
+    let command = {
         let exe = "/var/ossec/bin/wazuh-cert-oauth2-client";
         let mut c = create_command(exe);
         c.args(&oauth_args);
@@ -398,215 +649,235 @@ async fn run_enroll(
 
     #[cfg(target_os = "macos")]
     let mut command = {
-        let current_path =
-            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
         // On macOS (running as root), call the binary directly.
         // Intercept the browser URL from stderr and open it via Tauri's GUI context.
         let exe = "/Library/Ossec/bin/wazuh-cert-oauth2-client";
         let mut c = create_command(exe);
         c.args(&oauth_args);
-        c.env(
-            "PATH",
-            format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
-        );
+        inject_path(&mut c);
         c
     };
 
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "enroll-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if line.trim().is_empty() {
-                continue;
-            }
-            // The OAuth2 binary cannot open a browser when run under sudo on macOS
-            // (sudo strips the GUI session). We intercept the URL it prints and open
-            // it ourselves from Tauri which runs in the full GUI context.
-            if let Some(url_start) = line.find("Opened your default browser to: ") {
-                let url = line[url_start + "Opened your default browser to: ".len()..].trim();
-                if !url.is_empty() {
-                    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
-                }
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "enroll-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "Enrollment complete".into()
-        } else {
-            "Enrollment failed".into()
+    run_streamed_command(
+        app,
+        command,
+        StreamConfig {
+            event_name: "enroll-log",
+            success_msg: "Enrollment complete",
+            failure_msg: "Enrollment failed",
+            intercept_browser_url: true, // sudo strips GUI session; we open URLs ourselves
+            spawn_err: None,
         },
-    })
+    )
+    .await
+}
+
+#[tauri::command]
+async fn run_netbird_up(
+    setup_key: String,
+    management_url: String,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    // Management URL defaults to the public NetBird Cloud when not provided.
+    let management_url = if management_url.trim().is_empty() {
+        "https://api.netbird.io:443".to_string()
+    } else {
+        management_url
+    };
+
+    let mut args = vec![
+        "up".to_string(),
+        "--management-url".to_string(),
+        management_url,
+    ];
+
+    // Only pass --setup-key when one is provided; otherwise let the daemon
+    // use its existing configuration or attempt interactive login.
+    if !setup_key.trim().is_empty() {
+        args.push("--setup-key".to_string());
+        args.push(setup_key);
+    }
+
+    // The process is already running as root, so we can call netbird directly.
+    // On Windows the NSIS installer places netbird.exe under
+    // "C:\Program Files\Netbird\" which is not on the default PATH, so we
+    // use the full path to avoid "Program not found" errors.
+    #[cfg(unix)]
+    let mut command = {
+        let mut c = create_command("netbird");
+        c.args(&args);
+        c
+    };
+
+    #[cfg(windows)]
+    let mut command = {
+        let mut c = create_command(r"C:\Program Files\Netbird\netbird.exe");
+        c.args(&args);
+        c
+    };
+
+    inject_path(&mut command);
+
+    run_streamed_command(
+        app,
+        command,
+        StreamConfig {
+            event_name: "netbird-log",
+            success_msg: "NetBird connected successfully",
+            failure_msg: "NetBird connection failed",
+            intercept_browser_url: true,
+            spawn_err: Some("Failed to spawn netbird. Is the NetBird client installed?"),
+        },
+    )
+    .await
+}
+
+/// Build the list of (name, binary path) pairs for all checkable components.
+fn component_paths() -> Vec<(&'static str, String)> {
+    let ossec_path = if cfg!(windows) {
+        r"C:\Program Files (x86)\ossec-agent"
+    } else if cfg!(target_os = "macos") {
+        "/Library/Ossec"
+    } else {
+        "/var/ossec"
+    };
+
+    vec![
+        (
+            "Wazuh Agent",
+            if cfg!(windows) {
+                format!("{}\\wazuh-agent.exe", ossec_path)
+            } else {
+                format!("{}/bin/wazuh-agentd", ossec_path)
+            },
+        ),
+        (
+            "OAuth2 Client",
+            if cfg!(windows) {
+                format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path)
+            } else {
+                format!("{}/bin/wazuh-cert-oauth2-client", ossec_path)
+            },
+        ),
+        (
+            "Agent Status Monitor",
+            if cfg!(windows) {
+                r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string()
+            } else {
+                "/usr/local/bin/wazuh-agent-status".to_string()
+            },
+        ),
+        (
+            "YARA",
+            if cfg!(windows) {
+                "yara64.exe".to_string()
+            } else {
+                "/usr/local/bin/yara".to_string()
+            },
+        ),
+        (
+            "Suricata",
+            if cfg!(windows) {
+                "suricata.exe".to_string()
+            } else if cfg!(target_os = "macos") {
+                "/usr/local/bin/suricata".to_string()
+            } else {
+                "/usr/bin/suricata".to_string()
+            },
+        ),
+        (
+            "Trivy",
+            if cfg!(windows) {
+                "trivy.exe".to_string()
+            } else {
+                "/usr/local/bin/trivy".to_string()
+            },
+        ),
+        (
+            "USB DLP Scripts",
+            if cfg!(windows) {
+                format!(
+                    "{}\\active-response\\bin\\disable-usb-storage.ps1",
+                    ossec_path
+                )
+            } else if cfg!(target_os = "macos") {
+                format!(
+                    "{}/active-response/bin/disable-usb-storage-macos.sh",
+                    ossec_path
+                )
+            } else {
+                format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path)
+            },
+        ),
+        (
+            "NetBird",
+            if cfg!(windows) {
+                r"C:\Program Files\Netbird\netbird.exe".to_string()
+            } else {
+                "/usr/bin/netbird".to_string()
+            },
+        ),
+        (
+            "Velociraptor",
+            if cfg!(windows) {
+                r"C:\Program Files\Velociraptor\velociraptor.exe".to_string()
+            } else {
+                "/opt/velociraptor/velociraptor".to_string()
+            },
+        ),
+    ]
+}
+
+/// Check if a component is installed on Windows.
+#[cfg(windows)]
+async fn check_installed_windows(path: &str) -> bool {
+    if path == "yara64.exe"
+        || path == "suricata.exe"
+        || path == "trivy.exe"
+        || path.ends_with("netbird.exe")
+    {
+        create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .is_ok()
+    } else if path.ends_with("wazuh-agent.exe") {
+        std::path::Path::new(path).exists()
+            || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe")).exists()
+            || create_command("sc")
+                .args(["query", "WazuhSvc"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await
+                .map_or(false, |s| s.success())
+    } else {
+        std::path::Path::new(path).exists()
+    }
 }
 
 #[tauri::command]
 async fn check_components() -> Result<Vec<ComponentStatus>, String> {
-    // Use #[cfg(...)] compile-time blocks for platform-specific paths,
-    // consistent with run_enroll() and run_install().
-    #[cfg(target_os = "windows")]
-    let ossec_path = r"C:\Program Files (x86)\ossec-agent";
-    #[cfg(target_os = "macos")]
-    let ossec_path = "/Library/Ossec";
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let ossec_path = "/var/ossec";
-
-    #[cfg(target_os = "windows")]
-    let components: Vec<(String, String)> = vec![
-        (
-            "Wazuh Agent".to_string(),
-            format!("{}\\wazuh-agent.exe", ossec_path),
-        ),
-        (
-            "OAuth2 Client".to_string(),
-            format!("{}\\wazuh-cert-oauth2-client.exe", ossec_path),
-        ),
-        (
-            "Agent Status Monitor".to_string(),
-            r"C:\Program Files\wazuh-agent-status\wazuh-agent-status.exe".to_string(),
-        ),
-        ("YARA".to_string(), "yara64.exe".to_string()),
-        ("Suricata".to_string(), "suricata.exe".to_string()),
-        ("Trivy".to_string(), "trivy.exe".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!(
-                "{}\\active-response\\bin\\disable-usb-storage.ps1",
-                ossec_path
-            ),
-        ),
-    ];
-
-    #[cfg(target_os = "macos")]
-    let components: Vec<(String, String)> = vec![
-        (
-            "Wazuh Agent".to_string(),
-            format!("{}/bin/wazuh-agentd", ossec_path),
-        ),
-        (
-            "OAuth2 Client".to_string(),
-            format!("{}/bin/wazuh-cert-oauth2-client", ossec_path),
-        ),
-        (
-            "Agent Status Monitor".to_string(),
-            "/usr/local/bin/wazuh-agent-status".to_string(),
-        ),
-        ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
-        (
-            "Suricata".to_string(),
-            "/usr/local/bin/suricata".to_string(),
-        ),
-        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!(
-                "{}/active-response/bin/disable-usb-storage-macos.sh",
-                ossec_path
-            ),
-        ),
-    ];
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let components: Vec<(String, String)> = vec![
-        (
-            "Wazuh Agent".to_string(),
-            format!("{}/bin/wazuh-agentd", ossec_path),
-        ),
-        (
-            "OAuth2 Client".to_string(),
-            format!("{}/bin/wazuh-cert-oauth2-client", ossec_path),
-        ),
-        (
-            "Agent Status Monitor".to_string(),
-            "/usr/local/bin/wazuh-agent-status".to_string(),
-        ),
-        ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
-        ("Suricata".to_string(), "/usr/bin/suricata".to_string()),
-        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path),
-        ),
-    ];
-
     let mut results = Vec::new();
 
-    for (name, path) in components {
-        // Check existence without sudo — reading file metadata is always permitted
+    for (name, path) in component_paths() {
+        // Check existence without sudo — the process is already running as root.
         #[cfg(unix)]
         let installed = std::path::Path::new(&path).exists();
 
         #[cfg(windows)]
-        let installed = {
-            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
-                create_command(&path)
-                    .arg("--help")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await
-                    .is_ok()
-            } else if path.ends_with("wazuh-agent.exe") {
-                std::path::Path::new(&path).exists()
-                    || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
-                        .exists()
-                    || create_command("sc")
-                        .args(["query", "WazuhSvc"])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success())
-            } else {
-                std::path::Path::new(&path).exists()
-            }
-        };
+        let installed = check_installed_windows(&path).await;
 
         let version = if installed {
-            get_component_version(&name, &path).await
+            get_component_version(name, &path).await
         } else {
             None
         };
 
         results.push(ComponentStatus {
-            name,
+            name: name.to_string(),
             installed,
             version,
             path,
@@ -622,8 +893,25 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
     let filename = format!("wazuh-{}-logs.txt", prefix);
     path.push(filename);
 
-    std::fs::write(&path, logs).map_err(|e| e.to_string())?;
+    tokio::fs::write(&path, logs)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn pick_velociraptor_config(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    app.dialog()
+        .file()
+        .add_filter("YAML config", &["yaml", "yml"])
+        .pick_file(move |path| {
+            let result = path.map(|p| p.to_string());
+            let _ = tx.send(result);
+        });
+    Ok(rx.await.unwrap_or(None))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -632,6 +920,10 @@ pub fn run() {
     // Only needed on Unix — the watchdog that consumes it is #[cfg(unix)].
     #[cfg(unix)]
     let launcher_pid = std::process::id();
+
+    // ---- Privilege elevation ----
+    // Relaunch as root if not already elevated. The elevated child inherits
+    // our CLI args and watches our PID so it exits when we (the launcher) die.
 
     #[cfg(target_os = "linux")]
     if unsafe { libc::geteuid() } != 0 {
@@ -653,13 +945,14 @@ pub fn run() {
         // pkexec strips environment variables for security, including the
         // display-related ones GTK needs. Pass them explicitly via
         //   pkexec env DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... <exe>
-        // This is exactly what gparted's .desktop Exec line does.
         let display = std::env::var("DISPLAY").unwrap_or_default();
         let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
         let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
         let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
         let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+        let dbus_session = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
+        let original_user = std::env::var("USER").unwrap_or_default();
 
         // Query user's current GTK theme to preserve desktop environment styles
         let gtk_theme = std::process::Command::new("gsettings")
@@ -686,7 +979,9 @@ pub fn run() {
             .arg(format!("WAYLAND_DISPLAY={wayland}"))
             .arg(format!("XDG_RUNTIME_DIR={xdg_runtime}"))
             .arg(format!("HOME={home}"))
-            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"));
+            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"))
+            .arg(format!("DBUS_SESSION_BUS_ADDRESS={dbus_session}"))
+            .arg(format!("ORIGINAL_USER={original_user}"));
 
         if let Some(theme) = gtk_theme {
             cmd.arg(format!("GTK_THEME={theme}"));
@@ -720,7 +1015,6 @@ pub fn run() {
             let mut out = Vec::new();
             while let Some(a) = raw.next() {
                 if a == "--parent-pid" {
-                    // Skip the flag and its PID value
                     raw.next();
                 } else {
                     out.push(a);
@@ -731,7 +1025,6 @@ pub fn run() {
 
         // Build a single-quoted sh -c argument so that special characters in
         // the exe path or arguments cannot break out of the shell context.
-        // Single-quote escaping: replace every ' with '\'' inside the value.
         let sq = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
         let mut parts = vec![sq(&exe), sq(&format!("--parent-pid {launcher_pid}"))];
         for a in &args {
@@ -740,7 +1033,8 @@ pub fn run() {
         let shell_cmd = format!("sh -c {}", sq(&parts.join(" ")));
 
         // The shell_cmd will be embedded inside a double-quoted AppleScript string.
-        // We must escape any backslashes or double-quotes so they don't break the outer AppleScript layer.
+        // We must escape any backslashes or double-quotes so they don't break the
+        // outer AppleScript layer.
         let apple_script_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
 
         let result = std::process::Command::new("osascript")
@@ -792,15 +1086,16 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             is_root,
             get_platform,
             run_install,
             run_enroll,
+            run_netbird_up,
             check_components,
-            save_logs
+            save_logs,
+            pick_velociraptor_config
         ])
         .setup(|app| {
             let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;

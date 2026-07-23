@@ -71,3 +71,32 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         working-directory: ./src-tauri
         run: cargo machete --with-metadata
+
+      - name: Extract versions
+        id: versions
+        run: |
+          pkg=$(jq -r '.version' package.json)
+          cargo=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          tauri=$(jq -r '.version' src-tauri/tauri.conf.json)
+
+          echo "package=$pkg"   >> "$GITHUB_OUTPUT"
+          echo "cargo=$cargo"   >> "$GITHUB_OUTPUT"
+          echo "tauri=$tauri"   >> "$GITHUB_OUTPUT"
+
+          echo "package.json:        $pkg"
+          echo "Cargo.toml:          $cargo"
+          echo "tauri.conf.json:     $tauri"
+
+      - name: Fail if versions differ
+        run: |
+          pkg="${{ steps.versions.outputs.package }}"
+          cargo="${{ steps.versions.outputs.cargo }}"
+          tauri="${{ steps.versions.outputs.tauri }}"
+
+          if [ "$pkg" != "$cargo" ] || [ "$cargo" != "$tauri" ]; then
+            echo "::error::Version mismatch! package.json=$pkg, Cargo.toml=$cargo, tauri.conf.json=$tauri"
+            echo "All three files must have the same version string."
+            exit 1
+          fi
+
+          echo "All versions match: $tauri"
