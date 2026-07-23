@@ -63,7 +63,7 @@ export const BRAND_CONFIG = {
 export const COMPONENT_DESCRIPTIONS: Record<string, string> = {
   "Wazuh Agent": "Core security agent responsible for system monitoring, log collection, and threat detection.",
   "OAuth2 Client":
-    "Custom daemon that automatically negotiates certificates and authenticates the agent with the central cluster.",
+    "Custom client that automatically negotiates certificates and authenticates the agent with the central cluster.",
   "Agent Status Monitor":
     "Background service ensuring the Wazuh agent remains healthy and restarts automatically if it crashes.",
   YARA: "Malware identification engine used to perform file content pattern matching for advanced threats.",

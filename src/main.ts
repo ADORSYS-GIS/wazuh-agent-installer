@@ -1,4 +1,5 @@
 import { BRAND_CONFIG, COMPONENT_DESCRIPTIONS } from "./config";
+import "@fontsource-variable/plus-jakarta-sans";
 
 // ---- Tauri Typings ----
 interface LogLine {
@@ -79,18 +80,13 @@ const listen = hasTauri
     };
 
 // ---- State ----
-let sudoPassword = "";
 const installState = { running: false };
 const enrollState = { running: false };
 const netbirdState = { running: false };
 
 // ---- DOM refs ----
-// Overlays
-const sudoOverlay = document.getElementById("sudo-overlay");
+// App container
 const appContainer = document.getElementById("app");
-const sudoPasswordInput = document.getElementById("sudo-password") as HTMLInputElement;
-const btnSudoSubmit = document.getElementById("btn-sudo-submit") as HTMLButtonElement;
-const sudoError = document.getElementById("sudo-error");
 
 // Nav
 const navItems = document.querySelectorAll<HTMLElement>(".nav-item");
@@ -165,63 +161,10 @@ async function boot() {
   btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
   btnRefreshComponents?.addEventListener("click", refreshComponents);
 
-  const isRoot = await invoke<boolean>("is_root");
-  const platform = await invoke<string>("get_platform");
-
-  if (!isRoot && (platform === "linux" || platform === "macos")) {
-    // Show Sudo prompt
-    if (sudoOverlay) sudoOverlay.style.display = "flex";
-
-    sudoPasswordInput?.addEventListener("input", () => {
-      btnSudoSubmit.disabled = !sudoPasswordInput.value;
-      if (sudoError) sudoError.style.display = "none";
-    });
-
-    sudoPasswordInput?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && sudoPasswordInput.value) handleSudoSubmit();
-    });
-
-    btnSudoSubmit?.addEventListener("click", handleSudoSubmit);
-  } else {
-    // Root or Windows -> skip prompt
-    finishBoot();
-  }
-}
-
-async function handleSudoSubmit() {
-  const pwd = sudoPasswordInput.value;
-  if (!pwd) return;
-
-  btnSudoSubmit.disabled = true;
-  btnSudoSubmit.innerHTML = `<span class="spinner" style="width: 14px; height: 14px; margin-right: 8px;"></span> Verifying...`;
-
-  try {
-    const ok = await invoke<boolean>("verify_sudo", { password: pwd });
-    if (ok) {
-      sudoPassword = pwd;
-      finishBoot();
-    } else {
-      showSudoError("Incorrect password, please try again.");
-      sudoPasswordInput.value = "";
-      sudoPasswordInput.focus();
-    }
-  } catch (e: unknown) {
-    showSudoError(String(e));
-  } finally {
-    btnSudoSubmit.disabled = false;
-    btnSudoSubmit.textContent = "Continue";
-  }
-}
-
-function showSudoError(msg: string) {
-  if (sudoError) {
-    sudoError.textContent = msg;
-    sudoError.style.display = "block";
-  }
+  finishBoot();
 }
 
 function finishBoot() {
-  if (sudoOverlay) sudoOverlay.style.display = "none";
   if (appContainer) appContainer.style.display = "block";
   updateInstallButtonState();
   updateEnrollButtonState();
@@ -554,7 +497,7 @@ async function startInstall() {
     placeholderText: "Waiting to start…",
     eventName: "install-log",
     invokeCommand: "run_install",
-    invokeArgs: { config: getConfig(), password: sudoPassword || null },
+    invokeArgs: { config: getConfig() },
     runningMessage: "Installation in progress…",
     initialLog: "Starting Wazuh Agent installation…",
     successMessage: (result) => result.message,
@@ -615,7 +558,7 @@ async function startEnrollment() {
     placeholderText: "Running enrollment…",
     eventName: "enroll-log",
     invokeCommand: "run_enroll",
-    invokeArgs: { issuer, endpoint, overwrite, password: sudoPassword || null },
+    invokeArgs: { issuer, endpoint, overwrite },
     runningMessage: "Enrollment in progress — check your browser…",
     initialLog: "Starting agent enrollment…",
     successMessage: () => "Agent enrolled successfully!",
@@ -646,7 +589,7 @@ async function startNetbirdConnection() {
     placeholderText: "Running netbird up…",
     eventName: "netbird-log",
     invokeCommand: "run_netbird_up",
-    invokeArgs: { setupKey, managementUrl, password: sudoPassword || null },
+    invokeArgs: { setupKey, managementUrl },
     runningMessage: "Connecting to NetBird…",
     initialLog: "Starting NetBird connection…",
     successMessage: () => "NetBird connected successfully!",
@@ -671,9 +614,7 @@ async function refreshComponents() {
   if (btn) btn.innerHTML = `<span class="spinner" style="margin-right: 6px"></span> Refreshing...`;
 
   try {
-    const components = await invoke<ComponentStatus[]>("check_components", {
-      password: sudoPassword || null,
-    });
+    const components = await invoke<ComponentStatus[]>("check_components");
     grid.innerHTML = "";
 
     components.forEach((comp) => {

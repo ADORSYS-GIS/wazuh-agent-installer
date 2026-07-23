@@ -26,5 +26,5 @@ dist-ssr
 # Rust build artifacts
 /target
 
-# Temporary JavaScript files from build tools
-*.js
+# Compiled JavaScript in src
+src/*.js

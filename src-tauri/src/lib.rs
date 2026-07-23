@@ -5,19 +5,13 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State,
+    AppHandle, Emitter, Manager,
 };
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
-
-// ---- State ----
-
-pub struct AppState {
-    pub sudo_password: Mutex<Option<String>>,
-}
 
 // ---- Types ----
 
@@ -59,125 +53,151 @@ pub struct InstallConfig {
 
 // ---- Helpers ----
 
-async fn get_component_version(
-    name: &str,
-    path: &str,
-    use_sudo: bool,
-    pw_opt: Option<&String>,
-) -> Option<String> {
+async fn get_component_version(name: &str, path: &str) -> Option<String> {
     if name == "USB DLP Scripts" {
         return Some("Installed".to_string());
     }
 
     let mut args = vec![];
-    let cmd_target;
+    let mut cmd_target = path.to_string();
 
-    match name {
-        "Wazuh Agent" => {
-            #[cfg(unix)]
-            {
-                cmd_target = path
-                    .replace("wazuh-agentd", "wazuh-control")
-                    .replace("ossec-agentd", "wazuh-control");
-                args.push("info".to_string());
-            }
-            #[cfg(windows)]
-            {
-                cmd_target = "powershell".to_string();
-                args.push("-NoProfile".to_string());
-                args.push("-Command".to_string());
-                args.push(format!("(Get-Item '{}').VersionInfo.ProductVersion", path));
-            }
-        }
-        "Suricata" => {
-            cmd_target = path.to_string();
-            args.push("-V".to_string());
-        }
-        _ => {
-            cmd_target = path.to_string();
-            args.push("--version".to_string());
-        }
-    }
-
-    let mut cmd = if use_sudo {
+    if name == "Wazuh Agent" {
         #[cfg(unix)]
         {
-            let mut c = create_command("sudo");
-            c.arg("-S").arg("-p").arg("").arg(&cmd_target).args(&args);
-            c
+            cmd_target = path
+                .replace("wazuh-agentd", "wazuh-control")
+                .replace("ossec-agentd", "wazuh-control");
+            args.push("info".to_string());
         }
         #[cfg(windows)]
         {
-            let mut c = create_command(&cmd_target);
-            c.args(&args);
-            c
+            cmd_target = "powershell".to_string();
+            args.push("-NoProfile".to_string());
+            args.push("-Command".to_string());
+            args.push(format!("(Get-Item '{}').VersionInfo.ProductVersion", path));
         }
+    } else if name == "Suricata" {
+        args.push("-V".to_string());
+    } else if name == "NetBird" || name == "Velociraptor" {
+        args.push("version".to_string());
     } else {
-        let mut c = create_command(&cmd_target);
-        c.args(&args);
-        c
-    };
+        args.push("--version".to_string());
+    }
 
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut cmd = create_command(&cmd_target);
+    cmd.args(&args);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    if let Ok(mut child) = cmd.spawn() {
-        if use_sudo {
-            #[cfg(unix)]
-            if let Some(mut stdin) = child.stdin.take() {
-                if let Some(pw) = pw_opt {
-                    let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-                }
-            }
-        }
+    // Automatically terminate the process if it times out or gets dropped.
+    cmd.kill_on_drop(true);
 
-        if let Ok(output) = child.wait_with_output().await {
+    if let Ok(child) = cmd.spawn() {
+        if let Ok(Ok(output)) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), child.wait_with_output()).await
+        {
             let out_str = String::from_utf8_lossy(&output.stdout).to_string()
                 + String::from_utf8_lossy(&output.stderr).as_ref();
 
-            match name {
-                "YARA" => {
-                    return out_str.lines().next().map(|s| s.trim().to_string());
+            if name == "YARA" {
+                let first_line = out_str.lines().next().unwrap_or(&out_str);
+                return Some(first_line.trim().to_string());
+            } else if name == "Suricata" {
+                if let Some(idx) = out_str.find("version ") {
+                    let rest = &out_str[idx + 8..];
+                    return Some(
+                        rest.split_whitespace()
+                            .next()
+                            .unwrap_or(&out_str)
+                            .to_string(),
+                    );
                 }
-                "Suricata" => {
-                    if let Some(idx) = out_str.find("version ") {
-                        let rest = &out_str[idx + 8..];
-                        return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                return Some(out_str.trim().to_string());
+            } else if name == "Trivy" {
+                if let Some(idx) = out_str.find("Version: ") {
+                    let rest = &out_str[idx + 9..];
+                    return Some(
+                        rest.split_whitespace()
+                            .next()
+                            .unwrap_or(&out_str)
+                            .to_string(),
+                    );
+                }
+                return Some(out_str.trim().to_string());
+            } else if name == "Wazuh Agent" {
+                if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
+                    let rest = &out_str[idx + 15..];
+                    if let Some(end) = rest.find("\"") {
+                        return Some(rest[..end].to_string());
+                    }
+                } else if let Some(idx) = out_str.find("Wazuh v") {
+                    let rest = &out_str[idx + 7..];
+                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+                } else if cfg!(windows) {
+                    let trimmed = out_str.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
                     }
                 }
-                "Trivy" => {
-                    if let Some(idx) = out_str.find("Version: ") {
-                        let rest = &out_str[idx + 9..];
-                        return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+            } else if name == "NetBird" {
+                // `netbird version` outputs just the version on a single line
+                let trimmed = out_str.trim();
+                if let Some(first) = trimmed.lines().next() {
+                    let v = first.trim().to_string();
+                    if !v.is_empty() {
+                        return Some(v);
                     }
                 }
-                "Wazuh Agent" => {
-                    if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
-                        let rest = &out_str[idx + 15..];
-                        if let Some(end) = rest.find("\"") {
-                            return Some(rest[..end].to_string());
+            } else if name == "Velociraptor" {
+                // `velociraptor version` outputs YAML-style: `version: 0.75.6`
+                for line in out_str.lines() {
+                    let trimmed = line.trim().to_string();
+                    if let Some(ver) = trimmed.strip_prefix("version:") {
+                        let ver = ver.trim().to_string();
+                        if !ver.is_empty() {
+                            return Some(ver);
                         }
-                    } else if let Some(idx) = out_str.find("Wazuh v") {
-                        let rest = &out_str[idx + 7..];
-                        return Some(rest.split_whitespace().next().unwrap_or("").to_string());
-                    } else if cfg!(windows) {
-                        let trimmed = out_str.trim();
-                        if !trimmed.is_empty() {
-                            return Some(trimmed.to_string());
-                        }
                     }
                 }
-                _ => {
-                    for line in out_str.lines() {
-                        let trimmed = line.trim();
-                        if trimmed.chars().any(|c| c.is_ascii_digit()) {
-                            let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                            for p in parts {
-                                if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') {
-                                    return Some(p.to_string());
-                                }
+            } else if name == "OAuth2 Client" {
+                // Output may start with a log line like `[2026-07-23T...] starting up`
+                // followed by the actual version: `Wazuh Cert Auth CLI X.Y.Z`
+                for line in out_str.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with('[') {
+                        continue;
+                    }
+                    if let Some(idx) = trimmed.find("CLI ") {
+                        let rest = &trimmed[idx + 4..];
+                        if let Some(v) = rest.split_whitespace().next() {
+                            if !v.is_empty() {
+                                return Some(v.to_string());
                             }
-                            return Some(trimmed.to_string());
                         }
+                    }
+                    // Fallback: first non-log line containing a version-like number
+                    if trimmed.chars().any(|c| c.is_ascii_digit()) && trimmed.contains('.') {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            } else {
+                for line in out_str.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.chars().any(|c| c.is_ascii_digit()) {
+                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                        for p in parts {
+                            let is_date = p.contains('-') && p.split('-').count() == 3;
+                            let is_path = p.contains('/') || p.contains('\\');
+                            if p.chars().any(|c| c.is_ascii_digit())
+                                && p.contains('.')
+                                && !is_date
+                                && !is_path
+                            {
+                                return Some(p.to_string());
+                            }
+                        }
+                        return Some(trimmed.to_string());
                     }
                 }
             }
@@ -217,16 +237,10 @@ fn classify_line(line: &str) -> &'static str {
     }
 }
 
-// ---- Shared helpers ----
-
-/// Store the provided password (if any) into state, then take it out immediately.
-/// Taking the password out minimizes how long the plaintext remains in process memory.
-fn take_password(password: Option<String>, state: &State<'_, AppState>) -> Option<String> {
-    let mut stored = state.sudo_password.lock().unwrap();
-    if let Some(pw) = password {
-        *stored = Some(pw);
-    }
-    stored.take()
+/// Get the PATH prefix for macOS GUI-launched processes.
+/// Returns "/opt/homebrew/bin:/usr/local/bin:" to be prepended to the current PATH.
+fn get_macos_gui_path_prefix() -> String {
+    "/opt/homebrew/bin:/usr/local/bin:".to_string()
 }
 
 /// Inject a PATH that includes common Homebrew locations so macOS GUI-launched
@@ -235,12 +249,6 @@ fn inject_path(command: &mut Command) {
     let current_path =
         std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
     command.env("PATH", format!("{}:{}", get_macos_gui_path_prefix(), current_path));
-}
-
-/// Get the PATH prefix for macOS GUI-launched processes.
-/// Returns "/opt/homebrew/bin:/usr/local/bin:" to be prepended to the current PATH.
-fn get_macos_gui_path_prefix() -> String {
-    "/opt/homebrew/bin:/usr/local/bin:".to_string()
 }
 
 /// Try to extract and open a browser URL from a log line.
@@ -286,17 +294,14 @@ struct StreamConfig {
 }
 
 /// Spawn a command, stream its stdout/stderr to the frontend via
-/// `cfg.event_name`, optionally write the sudo password to stdin, and return
-/// the exit result.
+/// `cfg.event_name`, and return the exit result.
 async fn run_streamed_command(
     app: AppHandle,
     mut command: Command,
-    use_sudo: bool,
-    pw_opt: Option<String>,
     cfg: StreamConfig,
 ) -> Result<InstallResult, String> {
     command
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -304,14 +309,6 @@ async fn run_streamed_command(
         Some(msg) => format!("{}: {}", msg, e),
         None => e.to_string(),
     })?;
-
-    if use_sudo {
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Some(pw) = pw_opt {
-                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-            }
-        }
-    }
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
@@ -346,7 +343,7 @@ async fn run_streamed_command(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            if line.contains("Password:") || line.trim().is_empty() {
+            if line.trim().is_empty() {
                 continue;
             }
             if intercept_stderr {
@@ -443,131 +440,41 @@ fn is_root() -> bool {
     }
 }
 
-#[allow(unused_variables)]
 #[tauri::command]
-async fn verify_sudo(password: String, state: State<'_, AppState>) -> Result<bool, String> {
-    #[cfg(unix)]
-    {
-        let mut child = create_command("sudo")
-            .arg("-S")
-            .arg("-k")
-            .arg("-p")
-            .arg("")
-            .arg("id")
-            .arg("-u")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn sudo: {}", e))?;
-
-        if let Some(mut stdin) = child.stdin.take() {
-            let pwd = format!("{}\n", password);
-            let _ = stdin.write_all(pwd.as_bytes()).await;
-        }
-
-        let output = child.wait_with_output().await.map_err(|e| e.to_string())?;
-
-        if output.status.success() {
-            let mut stored_pw = state.sudo_password.lock().unwrap();
-            *stored_pw = Some(password);
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-    #[cfg(windows)]
-    {
-        Ok(true)
-    }
-}
-
-#[tauri::command]
-async fn run_install(
-    config: InstallConfig,
-    password: Option<String>,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<InstallResult, String> {
-    let pw_opt = take_password(password, &state);
-
+async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
     let resolved_path = resolve_script(&app)?;
 
-    let (cmd_str, args, use_sudo) = if cfg!(target_os = "windows") {
-        let mut script_args = vec![
+    // The process is already running as root (elevated at launch), so we can
+    // invoke bash directly — no sudo or pkexec wrapper needed.
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = create_command("powershell");
+        c.args([
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            &resolved_path as &str,
-        ];
+            &resolved_path,
+        ]);
         if config.install_netbird {
-            script_args.push("-InstallNetBird");
+            c.arg("-InstallNetBird");
         }
         if config.install_velociraptor {
-            script_args.push("-InstallVelociraptor");
+            c.arg("-InstallVelociraptor");
         }
         if !config.velociraptor_config.is_empty() {
-            script_args.push("-VelociraptorConfig");
-            script_args.push(&config.velociraptor_config);
+            c.arg("-VelociraptorConfig");
+            c.arg(&config.velociraptor_config);
         }
-        ("powershell", script_args, false)
-    } else {
-        let mut script_args = vec![&resolved_path as &str];
-        if config.install_netbird {
-            script_args.push("-b");
-        }
-        if config.install_velociraptor {
-            script_args.push("-v");
-        }
-        if !config.velociraptor_config.is_empty() {
-            script_args.push("-c");
-            script_args.push(&config.velociraptor_config);
-        }
-        ("bash", script_args, true)
+        c
     };
 
-    let command = if use_sudo {
-        let mut c = create_command("sudo");
-        c.arg("-S").arg("-p").arg("");
-
-        // Pass environment variables via `env` so `sudo` doesn't strip them
-        c.arg("env");
-
-        // Inject PATH so macOS GUI apps can find Homebrew and other user binaries
-        let current_path =
-            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
-        #[cfg(target_os = "macos")]
-        c.arg(format!("PATH={}{}", get_macos_gui_path_prefix(), current_path));
-
-        #[cfg(not(target_os = "macos"))]
-        c.arg(format!("PATH={}", current_path));
-
-        c.arg(format!("WAZUH_MANAGER={}", config.wazuh_manager));
-        c.arg(format!("WAZUH_AGENT_NAME={}", config.wazuh_agent_name));
-        c.arg(format!("IDS_ENGINE={}", config.ids_engine));
-        c.arg(format!("SURICATA_MODE={}", config.suricata_mode));
-        c.arg(format!(
-            "INSTALL_TRIVY={}",
-            if config.install_trivy {
-                "true"
-            } else {
-                "false"
-            }
-        ));
-        c.arg(format!(
-            "WAZUH_AGENT_REPO_REF={}",
-            std::env::var("WAZUH_AGENT_REPO_REF").unwrap_or_else(|_| "develop".to_string())
-        ));
-
-        c.arg(cmd_str).args(&args);
-        c
-    } else {
-        // Windows: no sudo, so set env vars directly on the Command.
-        let mut c = create_command(cmd_str);
-        c.args(&args);
-        inject_path(&mut c);
+    #[cfg(not(target_os = "windows"))]
+    let command = {
+        let mut c = create_command("bash");
+        c.arg(&resolved_path);
+        // Inject env vars — we are already root so no env-stripping occurs
         c.env("WAZUH_MANAGER", &config.wazuh_manager)
             .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
             .env("IDS_ENGINE", &config.ids_engine)
@@ -584,14 +491,27 @@ async fn run_install(
                 "WAZUH_AGENT_REPO_REF",
                 std::env::var("WAZUH_AGENT_REPO_REF").unwrap_or_else(|_| "develop".to_string()),
             );
+
+        if config.install_netbird {
+            c.arg("-b");
+        }
+        if config.install_velociraptor {
+            c.arg("-v");
+        }
+        if !config.velociraptor_config.is_empty() {
+            c.arg("-c");
+            c.arg(&config.velociraptor_config);
+        }
+
+        #[cfg(target_os = "macos")]
+        inject_path(&mut c);
+
         c
     };
 
     run_streamed_command(
         app,
         command,
-        use_sudo,
-        pw_opt,
         StreamConfig {
             event_name: "install-log",
             success_msg: "Installation complete",
@@ -608,77 +528,57 @@ async fn run_enroll(
     issuer: String,
     endpoint: String,
     overwrite: bool,
-    password: Option<String>,
-    state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    let pw_opt = take_password(password, &state);
+    let mut oauth_args = vec![
+        "o-auth2".to_string(),
+        "--issuer".to_string(),
+        issuer,
+        "--endpoint".to_string(),
+        endpoint,
+    ];
+    if overwrite {
+        oauth_args.push("--overwrite".to_string());
+    }
 
-    #[cfg(unix)]
-    let (cmd, args, use_sudo) = {
-        let mut args = vec![
-            "o-auth2".to_string(),
-            "--issuer".to_string(),
-            issuer,
-            "--endpoint".to_string(),
-            endpoint,
-        ];
-        if overwrite {
-            args.push("--overwrite".to_string());
-        }
-        let exe = if cfg!(target_os = "macos") {
-            "/Library/Ossec/bin/wazuh-cert-oauth2-client"
-        } else {
-            "/var/ossec/bin/wazuh-cert-oauth2-client"
-        };
-        // The binary is installed with root-only permissions, so we need sudo on all Unix
-        // platforms. On macOS, sudo kills the GUI context so the binary cannot open a
-        // browser. We intercept the "Opened your default browser to: <URL>" line from
-        // stderr and open it ourselves from Tauri's GUI process instead.
-        (exe, args, true)
-    };
+    // The process is already root at this point.
+    // Call the binary directly — no pkexec or osascript wrapper needed.
 
-    #[cfg(windows)]
-    let (cmd, args, use_sudo) = {
-        let mut args = vec![
-            "o-auth2".to_string(),
-            "--issuer".to_string(),
-            issuer,
-            "--endpoint".to_string(),
-            endpoint,
-        ];
-        if overwrite {
-            args.push("--overwrite".to_string());
-        }
-        (
-            "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe",
-            args,
-            false,
-        )
-    };
-
-    let mut command = if use_sudo {
-        let mut c = create_command("sudo");
-        c.arg("-S").arg("-p").arg("").arg(cmd).args(&args);
-        c
-    } else {
-        let mut c = create_command(cmd);
-        c.args(&args);
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let exe = "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe";
+        let mut c = create_command(exe);
+        c.args(&oauth_args);
         c
     };
 
-    inject_path(&mut command);
+    #[cfg(target_os = "linux")]
+    let command = {
+        let exe = "/var/ossec/bin/wazuh-cert-oauth2-client";
+        let mut c = create_command(exe);
+        c.args(&oauth_args);
+        c
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        // On macOS (running as root), call the binary directly.
+        // Intercept the browser URL from stderr and open it via Tauri's GUI context.
+        let exe = "/Library/Ossec/bin/wazuh-cert-oauth2-client";
+        let mut c = create_command(exe);
+        c.args(&oauth_args);
+        inject_path(&mut c);
+        c
+    };
 
     run_streamed_command(
         app,
         command,
-        use_sudo,
-        pw_opt,
         StreamConfig {
             event_name: "enroll-log",
             success_msg: "Enrollment complete",
             failure_msg: "Enrollment failed",
-            intercept_browser_url: true, // macOS sudo strips GUI session
+            intercept_browser_url: true, // sudo strips GUI session; we open URLs ourselves
             spawn_err: None,
         },
     )
@@ -689,8 +589,6 @@ async fn run_enroll(
 async fn run_netbird_up(
     setup_key: String,
     management_url: String,
-    password: Option<String>,
-    state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
     // Management URL defaults to the public NetBird Cloud when not provided.
@@ -699,8 +597,6 @@ async fn run_netbird_up(
     } else {
         management_url
     };
-
-    let pw_opt = take_password(password, &state);
 
     let mut args = vec![
         "up".to_string(),
@@ -715,24 +611,21 @@ async fn run_netbird_up(
         args.push(setup_key);
     }
 
-    // NetBird runs as a privileged daemon, so we need sudo on Unix. On Windows
-    // the installer process is already elevated via UAC.
+    // The process is already running as root, so we can call netbird directly.
     // On Windows the NSIS installer places netbird.exe under
     // "C:\Program Files\Netbird\" which is not on the default PATH, so we
     // use the full path to avoid "Program not found" errors.
     #[cfg(unix)]
-    let (cmd, cmd_args, use_sudo) = ("netbird", args, true);
+    let mut command = {
+        let mut c = create_command("netbird");
+        c.args(&args);
+        c
+    };
 
     #[cfg(windows)]
-    let (cmd, cmd_args, use_sudo) = (r"C:\Program Files\Netbird\netbird.exe", args, false);
-
-    let mut command = if use_sudo {
-        let mut c = create_command("sudo");
-        c.arg("-S").arg("-p").arg("").arg(cmd).args(&cmd_args);
-        c
-    } else {
-        let mut c = create_command(cmd);
-        c.args(&cmd_args);
+    let mut command = {
+        let mut c = create_command(r"C:\Program Files\Netbird\netbird.exe");
+        c.args(&args);
         c
     };
 
@@ -741,8 +634,6 @@ async fn run_netbird_up(
     run_streamed_command(
         app,
         command,
-        use_sudo,
-        pw_opt,
         StreamConfig {
             event_name: "netbird-log",
             success_msg: "NetBird connected successfully",
@@ -850,40 +741,9 @@ fn component_paths() -> Vec<(&'static str, String)> {
     ]
 }
 
-/// Check if a file exists at `path` using sudo `test -f` on Unix.
-#[cfg(unix)]
-async fn check_installed_unix(path: &str, pw_opt: &Option<String>) -> bool {
-    if let Some(ref pw) = pw_opt {
-        let mut cmd = create_command("sudo");
-        cmd.arg("-S")
-            .arg("-p")
-            .arg("")
-            .arg("test")
-            .arg("-f")
-            .arg(path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        if let Ok(mut child) = cmd.spawn() {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(format!("{}\n", pw).as_bytes()).await;
-            }
-            if let Ok(status) = child.wait().await {
-                status.success()
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    } else {
-        std::path::Path::new(path).exists()
-    }
-}
-
 /// Check if a component is installed on Windows.
 #[cfg(windows)]
-async fn check_installed_windows(path: &str, config: &InstallConfig) -> bool {
+async fn check_installed_windows(path: &str) -> bool {
     if path == "yara64.exe"
         || path == "suricata.exe"
         || path == "trivy.exe"
@@ -912,31 +772,19 @@ async fn check_installed_windows(path: &str, config: &InstallConfig) -> bool {
 }
 
 #[tauri::command]
-async fn check_components(
-    password: Option<String>,
-    state: State<'_, AppState>
-) -> Result<Vec<ComponentStatus>, String> {
-    let pw_opt = password.or_else(|| {
-        let stored = state.sudo_password.lock().unwrap();
-        stored.clone()
-    });
-
+async fn check_components() -> Result<Vec<ComponentStatus>, String> {
     let mut results = Vec::new();
 
     for (name, path) in component_paths() {
+        // Check existence without sudo — the process is already running as root.
         #[cfg(unix)]
-        let installed = check_installed_unix(&path, &pw_opt).await;
+        let installed = std::path::Path::new(&path).exists();
+
         #[cfg(windows)]
-        let installed = check_installed_windows(&path, &config).await;
+        let installed = check_installed_windows(&path).await;
 
         let version = if installed {
-            let needs_sudo = cfg!(unix)
-                && (name == "Wazuh Agent"
-                    || name == "Suricata"
-                    || name == "Trivy"
-                    || name == "Velociraptor"
-                    || path.contains("/var/ossec"));
-            get_component_version(name, &path, needs_sudo, pw_opt.as_ref()).await
+            get_component_version(name, &path).await
         } else {
             None
         };
@@ -981,19 +829,178 @@ async fn pick_velociraptor_config(app: AppHandle) -> Result<Option<String>, Stri
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = AppState {
-        sudo_password: Mutex::new(None),
-    };
+    // Capture our PID before elevation so the elevated child can watch us.
+    // Only needed on Unix — the watchdog that consumes it is #[cfg(unix)].
+    #[cfg(unix)]
+    let launcher_pid = std::process::id();
+
+    // ---- Privilege elevation ----
+    // Relaunch as root if not already elevated. The elevated child inherits
+    // our CLI args and watches our PID so it exits when we (the launcher) die.
+
+    #[cfg(target_os = "linux")]
+    if unsafe { libc::geteuid() } != 0 {
+        let exe = std::env::current_exe().expect("cannot get executable path");
+        let args: Vec<String> = {
+            let mut raw = std::env::args().skip(1).peekable();
+            let mut out = Vec::new();
+            while let Some(a) = raw.next() {
+                if a == "--parent-pid" {
+                    // Skip the flag and its PID value
+                    raw.next();
+                } else {
+                    out.push(a);
+                }
+            }
+            out
+        };
+
+        // pkexec strips environment variables for security, including the
+        // display-related ones GTK needs. Pass them explicitly via
+        //   pkexec env DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... <exe>
+        let display = std::env::var("DISPLAY").unwrap_or_default();
+        let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
+        let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+        let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+
+        // Query user's current GTK theme to preserve desktop environment styles
+        let gtk_theme = std::process::Command::new("gsettings")
+            .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
+            .output()
+            .ok()
+            .and_then(|output| {
+                if output.status.success() {
+                    let theme = String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .trim_matches('\'')
+                        .to_string();
+                    if !theme.is_empty() {
+                        return Some(theme);
+                    }
+                }
+                None
+            });
+
+        let mut cmd = std::process::Command::new("pkexec");
+        cmd.arg("env")
+            .arg(format!("DISPLAY={display}"))
+            .arg(format!("XAUTHORITY={xauthority}"))
+            .arg(format!("WAYLAND_DISPLAY={wayland}"))
+            .arg(format!("XDG_RUNTIME_DIR={xdg_runtime}"))
+            .arg(format!("HOME={home}"))
+            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"));
+
+        if let Some(theme) = gtk_theme {
+            cmd.arg(format!("GTK_THEME={theme}"));
+        }
+
+        // Pass our PID so the elevated child can exit when we (the launcher) die
+        let status = cmd
+            .arg(&exe)
+            .arg("--parent-pid")
+            .arg(launcher_pid.to_string())
+            .args(&args)
+            .status();
+        let code = match status {
+            Ok(s) => s.code().unwrap_or(1),
+            Err(e) => {
+                eprintln!("pkexec failed to launch: {e}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+
+    #[cfg(target_os = "macos")]
+    if unsafe { libc::geteuid() } != 0 {
+        let exe = std::env::current_exe()
+            .expect("cannot get executable path")
+            .to_string_lossy()
+            .to_string();
+        let args: Vec<String> = {
+            let mut raw = std::env::args().skip(1).peekable();
+            let mut out = Vec::new();
+            while let Some(a) = raw.next() {
+                if a == "--parent-pid" {
+                    raw.next();
+                } else {
+                    out.push(a);
+                }
+            }
+            out
+        };
+
+        // Build a single-quoted sh -c argument so that special characters in
+        // the exe path or arguments cannot break out of the shell context.
+        let sq = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+        let mut parts = vec![sq(&exe), sq(&format!("--parent-pid {launcher_pid}"))];
+        for a in &args {
+            parts.push(sq(a));
+        }
+        let shell_cmd = format!("sh -c {}", sq(&parts.join(" ")));
+
+        // The shell_cmd will be embedded inside a double-quoted AppleScript string.
+        // We must escape any backslashes or double-quotes so they don't break the
+        // outer AppleScript layer.
+        let apple_script_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
+
+        let result = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                &format!(
+                    "do shell script \"{}\" with administrator privileges",
+                    apple_script_cmd
+                ),
+            ])
+            .status();
+        let code = match result {
+            Ok(s) => s.code().unwrap_or(1),
+            Err(e) => {
+                eprintln!("osascript relaunch failed: {e}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+    // ---- End privilege elevation ----
+
+    // Watchdog: if we were launched with --parent-pid, watch that process.
+    // When tauri-dev kills the unprivileged launcher on hot-reload, we exit too
+    // so only one elevated instance is ever alive at a time.
+    #[cfg(unix)]
+    {
+        let raw_args: Vec<String> = std::env::args().collect();
+        if let Some(pos) = raw_args.iter().position(|a| a == "--parent-pid") {
+            if let Some(pid_str) = raw_args.get(pos + 1) {
+                if let Ok(parent_pid) = pid_str.parse::<libc::pid_t>() {
+                    std::thread::spawn(move || loop {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        // kill(pid, 0) just checks if the process exists
+                        if unsafe { libc::kill(parent_pid, 0) } != 0 {
+                            std::process::exit(0);
+                        }
+                    });
+                }
+            }
+        }
+    }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             is_root,
             get_platform,
-            verify_sudo,
             run_install,
             run_enroll,
             run_netbird_up,
