@@ -32,6 +32,7 @@ export const BRAND_CONFIG = {
     statusSuccess: "#34d399",
     statusError: "#f87171",
     statusWarn: "#fbbf24",
+    statusInfo: "#60a5fa",
   },
 
   // Wazuh Agent default configuration

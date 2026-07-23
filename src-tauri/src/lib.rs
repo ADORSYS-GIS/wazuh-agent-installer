@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::process::Stdio;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -234,10 +234,13 @@ fn take_password(password: Option<String>, state: &State<'_, AppState>) -> Optio
 fn inject_path(command: &mut Command) {
     let current_path =
         std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-    command.env(
-        "PATH",
-        format!("/opt/homebrew/bin:/usr/local/bin:{}", current_path),
-    );
+    command.env("PATH", format!("{}:{}", get_macos_gui_path_prefix(), current_path));
+}
+
+/// Get the PATH prefix for macOS GUI-launched processes.
+/// Returns "/opt/homebrew/bin:/usr/local/bin:" to be prepended to the current PATH.
+fn get_macos_gui_path_prefix() -> String {
+    "/opt/homebrew/bin:/usr/local/bin:".to_string()
 }
 
 /// Try to extract and open a browser URL from a log line.
@@ -316,11 +319,13 @@ async fn run_streamed_command(
     let app_clone1 = app.clone();
     let event_name = cfg.event_name;
     let intercept_stdout = cfg.intercept_browser_url;
+    let url_state = Arc::new(Mutex::new(false));
+    let url_state_stdout = Arc::clone(&url_state);
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
-        let mut expect_url_next = false;
         while let Ok(Some(line)) = reader.next_line().await {
             if intercept_stdout {
+                let mut expect_url_next = url_state_stdout.lock().unwrap();
                 try_open_browser_url(&line, &mut expect_url_next);
             }
             let level = classify_line(&line);
@@ -337,14 +342,15 @@ async fn run_streamed_command(
     let app_clone2 = app.clone();
     let event_name = cfg.event_name;
     let intercept_stderr = cfg.intercept_browser_url;
+    let url_state_stderr = Arc::clone(&url_state);
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
-        let mut expect_url_next = false;
         while let Ok(Some(line)) = reader.next_line().await {
             if line.contains("Password:") || line.trim().is_empty() {
                 continue;
             }
             if intercept_stderr {
+                let mut expect_url_next = url_state_stderr.lock().unwrap();
                 try_open_browser_url(&line, &mut expect_url_next);
             }
             let level = classify_line(&line);
@@ -503,7 +509,7 @@ async fn run_install(
         }
         if !config.velociraptor_config.is_empty() {
             script_args.push("-VelociraptorConfig");
-            script_args.push(&config.velociraptor_config as &str);
+            script_args.push(&config.velociraptor_config);
         }
         ("powershell", script_args, false)
     } else {
@@ -516,7 +522,7 @@ async fn run_install(
         }
         if !config.velociraptor_config.is_empty() {
             script_args.push("-c");
-            script_args.push(&config.velociraptor_config as &str);
+            script_args.push(&config.velociraptor_config);
         }
         ("bash", script_args, true)
     };
@@ -533,10 +539,7 @@ async fn run_install(
             std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
 
         #[cfg(target_os = "macos")]
-        c.arg(format!(
-            "PATH=/opt/homebrew/bin:/usr/local/bin:{}",
-            current_path
-        ));
+        c.arg(format!("PATH={}{}", get_macos_gui_path_prefix(), current_path));
 
         #[cfg(not(target_os = "macos"))]
         c.arg(format!("PATH={}", current_path));
@@ -880,11 +883,11 @@ async fn check_installed_unix(path: &str, pw_opt: &Option<String>) -> bool {
 
 /// Check if a component is installed on Windows.
 #[cfg(windows)]
-async fn check_installed_windows(path: &str) -> bool {
+async fn check_installed_windows(path: &str, config: &InstallConfig) -> bool {
     if path == "yara64.exe"
         || path == "suricata.exe"
         || path == "trivy.exe"
-        || path.contains("netbird.exe")
+        || path.ends_with("netbird.exe")
     {
         create_command(path)
             .arg("--help")
@@ -911,7 +914,7 @@ async fn check_installed_windows(path: &str) -> bool {
 #[tauri::command]
 async fn check_components(
     password: Option<String>,
-    state: State<'_, AppState>,
+    state: State<'_, AppState>
 ) -> Result<Vec<ComponentStatus>, String> {
     let pw_opt = password.or_else(|| {
         let stored = state.sudo_password.lock().unwrap();
@@ -924,7 +927,7 @@ async fn check_components(
         #[cfg(unix)]
         let installed = check_installed_unix(&path, &pw_opt).await;
         #[cfg(windows)]
-        let installed = check_installed_windows(&path).await;
+        let installed = check_installed_windows(&path, &config).await;
 
         let version = if installed {
             let needs_sudo = cfg!(unix)

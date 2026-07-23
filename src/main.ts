@@ -259,8 +259,7 @@ function applyBrandTheme(): void {
   root.style.setProperty("--brand-status-success", BRAND_CONFIG.colors.statusSuccess);
   root.style.setProperty("--brand-status-error", BRAND_CONFIG.colors.statusError);
   root.style.setProperty("--brand-status-warn", BRAND_CONFIG.colors.statusWarn);
-  // --brand-status-info is used by .log-line.info in styles.css
-  root.style.setProperty("--brand-status-info", "#60a5fa");
+  root.style.setProperty("--brand-status-info", BRAND_CONFIG.colors.statusInfo);
 }
 
 async function initializeAppHeaderAndOptions(): Promise<void> {
@@ -352,11 +351,7 @@ function setupVelociraptorConfig(): void {
       const path = await invoke<string | null>("pick_velociraptor_config");
       if (path && elVelociraptorConfig) {
         elVelociraptorConfig.value = path;
-        // Providing a config implies installing Velociraptor
-        if (elVelociraptorInstall && !elVelociraptorInstall.checked) {
-          elVelociraptorInstall.checked = true;
-          if (elVelociraptorConfigRow) elVelociraptorConfigRow.style.display = "block";
-        }
+        enableVelociraptorInstall();
       }
     } catch (err) {
       console.error("File picker error:", err);
@@ -365,11 +360,18 @@ function setupVelociraptorConfig(): void {
 
   // Typing a config path manually also implies install
   elVelociraptorConfig?.addEventListener("input", () => {
-    if (elVelociraptorConfig.value.trim() && elVelociraptorInstall && !elVelociraptorInstall.checked) {
+    if (elVelociraptorConfig.value.trim()) {
+      enableVelociraptorInstall();
+    }
+  });
+
+  // Helper to enable Velociraptor install and show config row
+  function enableVelociraptorInstall(): void {
+    if (elVelociraptorInstall && !elVelociraptorInstall.checked) {
       elVelociraptorInstall.checked = true;
       if (elVelociraptorConfigRow) elVelociraptorConfigRow.style.display = "block";
     }
-  });
+  }
 }
 
 // ---- Data Retrieval ----
@@ -392,14 +394,11 @@ function getEndpointValue(): string {
     : (elEndpointSelect?.value.trim() ?? "");
 }
 
-const NETBIRD_DEFAULT_URL = "https://api.netbird.io:443";
-
 function getNetbirdUrlValue(): string {
   if (elNetbirdUrlSelect?.value === "other") {
     return elNetbirdUrlCustom?.value.trim() ?? "";
   }
-  const val = elNetbirdUrlSelect?.value.trim() ?? "";
-  return val || NETBIRD_DEFAULT_URL;
+  return elNetbirdUrlSelect?.value.trim() ?? "";
 }
 
 function getNetbirdSetupKey(): string {
