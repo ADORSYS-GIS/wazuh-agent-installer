@@ -1,4 +1,5 @@
 import { BRAND_CONFIG } from "./config";
+import "@fontsource-variable/plus-jakarta-sans";
 
 // ---- Tauri Typings ----
 interface LogLine {
@@ -46,7 +47,6 @@ const invoke = hasTauri
       console.log(`[Mock Invoke] ${cmd}`, args);
       if (cmd === "get_platform") return "linux" as unknown as T;
       if (cmd === "is_root") return false as unknown as T;
-      if (cmd === "verify_sudo") return (args?.password === "root") as unknown as T;
       if (cmd === "run_install") {
         return { success: true, exit_code: 0, message: "Mock install successful" } as unknown as T;
       }
@@ -70,17 +70,12 @@ const listen = hasTauri
     };
 
 // ---- State ----
-let sudoPassword = "";
 let isInstalling = false;
 let isEnrolling = false;
 
 // ---- DOM refs ----
-// Overlays
-const sudoOverlay = document.getElementById("sudo-overlay");
+// App container
 const appContainer = document.getElementById("app");
-const sudoPasswordInput = document.getElementById("sudo-password") as HTMLInputElement;
-const btnSudoSubmit = document.getElementById("btn-sudo-submit") as HTMLButtonElement;
-const sudoError = document.getElementById("sudo-error");
 
 // Nav
 const navItems = document.querySelectorAll<HTMLElement>(".nav-item");
@@ -135,63 +130,10 @@ async function boot() {
   btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
   btnRefreshComponents?.addEventListener("click", refreshComponents);
 
-  const isRoot = await invoke<boolean>("is_root");
-  const platform = await invoke<string>("get_platform");
-
-  if (!isRoot && (platform === "linux" || platform === "macos")) {
-    // Show Sudo prompt
-    if (sudoOverlay) sudoOverlay.style.display = "flex";
-
-    sudoPasswordInput?.addEventListener("input", () => {
-      btnSudoSubmit.disabled = !sudoPasswordInput.value;
-      if (sudoError) sudoError.style.display = "none";
-    });
-
-    sudoPasswordInput?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && sudoPasswordInput.value) handleSudoSubmit();
-    });
-
-    btnSudoSubmit?.addEventListener("click", handleSudoSubmit);
-  } else {
-    // Root or Windows -> skip prompt
-    finishBoot();
-  }
-}
-
-async function handleSudoSubmit() {
-  const pwd = sudoPasswordInput.value;
-  if (!pwd) return;
-
-  btnSudoSubmit.disabled = true;
-  btnSudoSubmit.innerHTML = `<span class="spinner" style="width: 14px; height: 14px; margin-right: 8px;"></span> Verifying...`;
-
-  try {
-    const ok = await invoke<boolean>("verify_sudo", { password: pwd });
-    if (ok) {
-      sudoPassword = pwd;
-      finishBoot();
-    } else {
-      showSudoError("Incorrect password, please try again.");
-      sudoPasswordInput.value = "";
-      sudoPasswordInput.focus();
-    }
-  } catch (e: unknown) {
-    showSudoError(String(e));
-  } finally {
-    btnSudoSubmit.disabled = false;
-    btnSudoSubmit.textContent = "Continue";
-  }
-}
-
-function showSudoError(msg: string) {
-  if (sudoError) {
-    sudoError.textContent = msg;
-    sudoError.style.display = "block";
-  }
+  finishBoot();
 }
 
 function finishBoot() {
-  if (sudoOverlay) sudoOverlay.style.display = "none";
   if (appContainer) appContainer.style.display = "block";
   updateInstallButtonState();
   updateEnrollButtonState();
@@ -390,18 +332,11 @@ async function startInstall() {
   try {
     const result = await invoke<InstallResult>("run_install", {
       config: getConfig(),
-      password: sudoPassword || null,
     });
 
     if (result.success) {
       showStatusBanner(installStatusBanner, "success", result.message);
       showInstallResult(true, "The Wazuh Agent stack was installed successfully.");
-
-      // Auto-switch to Enrollment and start it
-      setTimeout(() => {
-        switchTab("tab-enrollment");
-        startEnrollment();
-      }, 1500);
     } else {
       showStatusBanner(installStatusBanner, "error", `Installation failed: exit code ${result.exit_code}`);
       showInstallResult(false, result.message);
@@ -433,7 +368,12 @@ function showInstallResult(success: boolean, desc: string) {
   }
   if (title) title.textContent = success ? "Installation Complete" : "Installation Failed";
   if (descEl) descEl.textContent = desc;
-  if (btn) btn.style.display = success ? "inline-flex" : "none";
+  if (btn) {
+    btn.style.display = success ? "inline-flex" : "none";
+    if (success) {
+      btn.textContent = "Go to Enrollment →";
+    }
+  }
 }
 
 // ---- Enrollment Flow ----
@@ -469,7 +409,6 @@ async function startEnrollment() {
       issuer,
       endpoint,
       overwrite,
-      password: sudoPassword || null,
     });
 
     if (result.success) {
@@ -500,9 +439,7 @@ async function refreshComponents() {
   if (btn) btn.innerHTML = `<span class="spinner" style="margin-right: 6px"></span> Refreshing...`;
 
   try {
-    const components = await invoke<ComponentStatus[]>("check_components", {
-      password: sudoPassword || null,
-    });
+    const components = await invoke<ComponentStatus[]>("check_components");
     grid.innerHTML = "";
 
     components.forEach((comp) => {
