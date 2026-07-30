@@ -24,7 +24,7 @@
 
           <nav class="sidebar-nav">
             <button class="nav-item active" data-target="tab-setup"><span class="nav-icon">⚙️</span> Setup</button>
-            <button class="nav-item" data-target="tab-enrollment"><span class="nav-icon">🔐</span> Enrollment</button>
+
             <button class="nav-item" data-target="tab-components"><span class="nav-icon">🧩</span> Overview</button>
           </nav>
 
@@ -111,90 +111,7 @@
                 <div class="result-icon" id="result-icon"></div>
                 <div class="result-title" id="result-title"></div>
                 <div class="result-desc" id="result-desc"></div>
-                <button class="btn btn-primary" id="btn-go-enroll" type="button" style="margin-top: 16px">
-                  Go to Enrollment →
-                </button>
               </div>
-            </div>
-          </section>
-
-          <!-- Enrollment Tab -->
-          <section id="tab-enrollment" class="tab-panel">
-            <h2 class="section-title">Agent Enrollment</h2>
-
-            <div class="card compact" style="margin-bottom: 24px">
-              <div class="form-grid-2col">
-                <div class="form-group">
-                  <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
-                  <select class="form-input form-select" id="oauth-issuer">
-                    <option value="">— Select issuer —</option>
-                  </select>
-                  <input
-                    class="form-input"
-                    type="text"
-                    id="oauth-issuer-custom"
-                    placeholder="https://login.example.com/realms/myrealm"
-                    style="display: none; margin-top: 6px"
-                  />
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
-                  <select class="form-input form-select" id="cert-endpoint">
-                    <option value="">— Select endpoint —</option>
-                  </select>
-                  <input
-                    class="form-input"
-                    type="text"
-                    id="cert-endpoint-custom"
-                    placeholder="https://cert.example.com/api/register-agent"
-                    style="display: none; margin-top: 6px"
-                  />
-                </div>
-              </div>
-
-              <div class="toggle-row compact" style="margin-top: 16px">
-                <div class="toggle-info">
-                  <div class="toggle-title">Overwrite Existing Credentials</div>
-                  <div class="toggle-desc">Replace any existing enrollment certificates for this agent.</div>
-                </div>
-                <label class="toggle-switch">
-                  <input type="checkbox" id="enroll-overwrite" checked />
-                  <span class="slider"></span>
-                </label>
-              </div>
-
-              <div class="action-row" style="margin-top: 20px">
-                <button id="btn-start-enroll" class="btn btn-primary" disabled>🔐 Run Enrollment</button>
-              </div>
-            </div>
-
-            <div id="enroll-terminal-area" style="display: none">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
-                <h3 class="subsection-title" style="margin-bottom: 0; margin-top: 0">Enrollment Output</h3>
-                <button
-                  class="btn btn-secondary"
-                  id="btn-save-enroll-logs"
-                  type="button"
-                  style="display: none; padding: 4px 12px; font-size: 12px; height: auto"
-                >
-                  ⬇ Save Logs
-                </button>
-              </div>
-              <div class="terminal" id="enroll-terminal">
-                <div class="terminal-placeholder" id="enroll-terminal-placeholder">
-                  <span class="spinner"></span> Running enrollment…
-                </div>
-              </div>
-              <div class="status-banner" id="enroll-status-banner"></div>
-              <button
-                class="btn btn-ghost"
-                id="btn-retry-enroll"
-                type="button"
-                style="display: none; margin-top: 10px; width: 100%; justify-content: center"
-              >
-                ↺ Retry Enrollment
-              </button>
             </div>
           </section>
 

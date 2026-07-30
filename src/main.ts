@@ -71,7 +71,6 @@ const listen = hasTauri
 
 // ---- State ----
 let isInstalling = false;
-let isEnrolling = false;
 
 // ---- DOM refs ----
 // App container
@@ -84,10 +83,6 @@ const tabPanels = document.querySelectorAll<HTMLElement>(".tab-panel");
 // Config inputs
 const elManagerSelect = document.getElementById("wazuh-manager") as HTMLSelectElement | null;
 const elManagerCustom = document.getElementById("wazuh-manager-custom") as HTMLInputElement | null;
-const elIssuerSelect = document.getElementById("oauth-issuer") as HTMLSelectElement | null;
-const elIssuerCustom = document.getElementById("oauth-issuer-custom") as HTMLInputElement | null;
-const elEndpointSelect = document.getElementById("cert-endpoint") as HTMLSelectElement | null;
-const elEndpointCustom = document.getElementById("cert-endpoint-custom") as HTMLInputElement | null;
 const elTrivy = document.getElementById("install-trivy") as HTMLInputElement | null;
 
 // IDS mode pills
@@ -95,9 +90,6 @@ const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode
 
 // Install / Enroll Action Buttons
 const btnStartInstall = document.getElementById("btn-start-install") as HTMLButtonElement;
-const btnStartEnroll = document.getElementById("btn-start-enroll") as HTMLButtonElement;
-const btnRetryEnroll = document.getElementById("btn-retry-enroll") as HTMLButtonElement;
-const btnGoEnroll = document.getElementById("btn-go-enroll") as HTMLButtonElement;
 const btnRefreshComponents = document.getElementById("btn-refresh-components") as HTMLButtonElement;
 
 // Terminals
@@ -105,10 +97,6 @@ const terminalInstall = document.getElementById("terminal");
 const installLogCard = document.getElementById("install-log-card");
 const installStatusBanner = document.getElementById("status-banner");
 const resultScreen = document.getElementById("result-screen");
-
-const terminalEnrollArea = document.getElementById("enroll-terminal-area");
-const terminalEnroll = document.getElementById("enroll-terminal");
-const enrollStatusBanner = document.getElementById("enroll-status-banner");
 
 // ---- Initialization ----
 
@@ -125,9 +113,6 @@ async function boot() {
 
   // Action listeners
   btnStartInstall?.addEventListener("click", startInstall);
-  btnStartEnroll?.addEventListener("click", startEnrollment);
-  btnRetryEnroll?.addEventListener("click", startEnrollment);
-  btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
   btnRefreshComponents?.addEventListener("click", refreshComponents);
 
   finishBoot();
@@ -136,7 +121,6 @@ async function boot() {
 function finishBoot() {
   if (appContainer) appContainer.style.display = "block";
   updateInstallButtonState();
-  updateEnrollButtonState();
   refreshComponents(); // Initial load
 }
 
@@ -225,8 +209,6 @@ function setupCustomInputListeners(): void {
   };
 
   bindSelectToCustom(elManagerSelect, elManagerCustom, updateInstallButtonState);
-  bindSelectToCustom(elIssuerSelect, elIssuerCustom, updateEnrollButtonState);
-  bindSelectToCustom(elEndpointSelect, elEndpointCustom, updateEnrollButtonState);
 }
 
 function setupRadioCards(): void {
@@ -246,18 +228,6 @@ function getManagerValue(): string {
     : (elManagerSelect?.value.trim() ?? "");
 }
 
-function getIssuerValue(): string {
-  return elIssuerSelect?.value === "other"
-    ? (elIssuerCustom?.value.trim() ?? "")
-    : (elIssuerSelect?.value.trim() ?? "");
-}
-
-function getEndpointValue(): string {
-  return elEndpointSelect?.value === "other"
-    ? (elEndpointCustom?.value.trim() ?? "")
-    : (elEndpointSelect?.value.trim() ?? "");
-}
-
 function getConfig() {
   const selectedModePill = document.querySelector("#suricata-mode-group .pill.selected") as HTMLElement | null;
   return {
@@ -267,20 +237,14 @@ function getConfig() {
     ids_engine: "suricata",
     suricata_mode: selectedModePill ? (selectedModePill.dataset.mode ?? "ids") : "ids",
     install_trivy: elTrivy ? elTrivy.checked : false,
-    oauth_issuer: getIssuerValue(),
-    cert_endpoint: getEndpointValue(),
+    oauth_issuer: "",
+    cert_endpoint: "",
   };
 }
 
 function updateInstallButtonState() {
   if (btnStartInstall) {
     btnStartInstall.disabled = !getManagerValue() || isInstalling;
-  }
-}
-
-function updateEnrollButtonState() {
-  if (btnStartEnroll) {
-    btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
   }
 }
 
@@ -360,73 +324,12 @@ function showInstallResult(success: boolean, desc: string) {
   const icon = document.getElementById("result-icon");
   const title = document.getElementById("result-title");
   const descEl = document.getElementById("result-desc");
-  const btn = document.getElementById("btn-go-enroll");
-
   if (icon) {
     icon.className = `result-icon ${success ? "success" : "error"}`;
     icon.textContent = success ? "✓" : "✕";
   }
   if (title) title.textContent = success ? "Installation Complete" : "Installation Failed";
   if (descEl) descEl.textContent = desc;
-  if (btn) {
-    btn.style.display = success ? "inline-flex" : "none";
-    if (success) {
-      btn.textContent = "Go to Enrollment →";
-    }
-  }
-}
-
-// ---- Enrollment Flow ----
-
-async function startEnrollment() {
-  if (isEnrolling) return;
-
-  const issuer = getIssuerValue();
-  const endpoint = getEndpointValue();
-  if (!issuer || !endpoint) return;
-
-  isEnrolling = true;
-  updateEnrollButtonState();
-
-  const elOverwrite = document.getElementById("enroll-overwrite") as HTMLInputElement | null;
-  const overwrite = elOverwrite ? elOverwrite.checked : true;
-
-  if (terminalEnrollArea) terminalEnrollArea.style.display = "block";
-  if (btnRetryEnroll) btnRetryEnroll.style.display = "none";
-  if (terminalEnroll) {
-    terminalEnroll.innerHTML =
-      '<div class="terminal-placeholder"><span class="spinner"></span> Running enrollment…</div>';
-  }
-
-  showStatusBanner(enrollStatusBanner, "running", "Enrollment in progress — check your browser…");
-
-  const unlistenLog = await listen<LogLine>("enroll-log", (e) => {
-    appendLog(terminalEnroll, e.payload.line, e.payload.level);
-  });
-
-  try {
-    const result = await invoke<InstallResult>("run_enroll", {
-      issuer,
-      endpoint,
-      overwrite,
-    });
-
-    if (result.success) {
-      showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
-    } else {
-      showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: exit code ${result.exit_code}`);
-      if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
-    }
-  } catch (err: unknown) {
-    showStatusBanner(enrollStatusBanner, "error", `Enrollment error: ${err}`);
-    if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
-  } finally {
-    unlistenLog();
-    isEnrolling = false;
-    updateEnrollButtonState();
-    refreshComponents();
-    enableSaveLogs("btn-save-enroll-logs", "enroll-terminal", "enroll");
-  }
 }
 
 // ---- Components Tab ----
