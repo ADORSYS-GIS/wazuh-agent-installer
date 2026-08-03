@@ -76,6 +76,8 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
         }
     } else if name == "Suricata" {
         args.push("-V".to_string());
+    } else if name == "NetBird" {
+        args.push("version".to_string());
     } else {
         args.push("--version".to_string());
     }
@@ -134,6 +136,15 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                     let trimmed = out_str.trim();
                     if !trimmed.is_empty() {
                         return Some(trimmed.to_string());
+                    }
+                }
+            } else if name == "NetBird" {
+                // `netbird version` outputs just the version on a single line
+                let trimmed = out_str.trim();
+                if let Some(first) = trimmed.lines().next() {
+                    let v = first.trim().to_string();
+                    if !v.is_empty() {
+                        return Some(v);
                     }
                 }
             } else {
