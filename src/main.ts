@@ -388,9 +388,6 @@ async function startEnrollment() {
   isEnrolling = true;
   updateEnrollButtonState();
 
-  const elOverwrite = document.getElementById("enroll-overwrite") as HTMLInputElement | null;
-  const overwrite = elOverwrite ? elOverwrite.checked : true;
-
   if (terminalEnrollArea) terminalEnrollArea.style.display = "block";
   if (btnRetryEnroll) btnRetryEnroll.style.display = "none";
   if (terminalEnroll) {
@@ -408,7 +405,6 @@ async function startEnrollment() {
     const result = await invoke<InstallResult>("run_enroll", {
       issuer,
       endpoint,
-      overwrite,
     });
 
     if (result.success) {

@@ -394,22 +394,15 @@ fn open_browser(url: &str) {
 async fn run_enroll(
     issuer: String,
     endpoint: String,
-    overwrite: bool,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    let mut oauth_args = vec![
+    let oauth_args = vec![
         "o-auth2".to_string(),
         "--issuer".to_string(),
         issuer,
         "--endpoint".to_string(),
         endpoint,
     ];
-    oauth_args.push("--overwrite".to_string());
-    oauth_args.push(if overwrite {
-        "true".to_string()
-    } else {
-        "false".to_string()
-    });
 
     // The process is already root at this point.
     // Call the binary directly — no pkexec or osascript wrapper needed.
