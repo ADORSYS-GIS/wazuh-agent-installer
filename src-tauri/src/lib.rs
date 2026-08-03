@@ -675,6 +675,7 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
             "/usr/local/bin/suricata".to_string(),
         ),
         ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
+        ("NetBird".to_string(), "/usr/local/bin/netbird".to_string()),
         (
             "USB DLP Scripts".to_string(),
             format!(
