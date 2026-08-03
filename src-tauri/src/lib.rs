@@ -279,6 +279,9 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     let mut command = {
         let mut c = create_command("bash");
         c.arg(&resolved_path);
+        if config.install_trivy {
+            c.arg("-t");
+        }
         // Inject env vars — we are already root so no env-stripping occurs
         c.env("WAZUH_MANAGER", &config.wazuh_manager)
             .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
@@ -360,6 +363,33 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     })
 }
 
+fn open_browser(url: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(uid) = std::env::var("PKEXEC_UID") {
+            // If running under pkexec, xdg-open fails because it lacks the user's DBUS session.
+            // We must launch it as the original user.
+            let _ = std::process::Command::new("sudo")
+                .arg("-u")
+                .arg(format!("#{}", uid))
+                .arg("xdg-open")
+                .arg(url)
+                .status();
+            return;
+        } else if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+            let _ = std::process::Command::new("sudo")
+                .arg("-u")
+                .arg(&sudo_user)
+                .arg("xdg-open")
+                .arg(url)
+                .status();
+            return;
+        }
+    }
+    // Fallback to Tauri opener for macOS/Windows or standard Linux
+    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+}
+
 #[tauri::command]
 async fn run_enroll(
     issuer: String,
@@ -374,9 +404,12 @@ async fn run_enroll(
         "--endpoint".to_string(),
         endpoint,
     ];
-    if overwrite {
-        oauth_args.push("--overwrite".to_string());
-    }
+    oauth_args.push("--overwrite".to_string());
+    oauth_args.push(if overwrite {
+        "true".to_string()
+    } else {
+        "false".to_string()
+    });
 
     // The process is already root at this point.
     // Call the binary directly — no pkexec or osascript wrapper needed.
@@ -426,6 +459,12 @@ async fn run_enroll(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            if let Some(url_start) = line.find("Opened your default browser to: ") {
+                let url = line[url_start + "Opened your default browser to: ".len()..].trim();
+                if !url.is_empty() {
+                    open_browser(url);
+                }
+            }
             let level = classify_line(&line);
             let _ = app_clone1.emit(
                 "enroll-log",
@@ -450,7 +489,7 @@ async fn run_enroll(
             if let Some(url_start) = line.find("Opened your default browser to: ") {
                 let url = line[url_start + "Opened your default browser to: ".len()..].trim();
                 if !url.is_empty() {
-                    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+                    open_browser(url);
                 }
             }
             let level = classify_line(&line);
