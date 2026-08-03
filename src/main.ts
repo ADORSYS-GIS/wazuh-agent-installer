@@ -69,9 +69,9 @@ const listen = hasTauri
       return () => {};
     };
 
-// ---- State ----
 let isInstalling = false;
 let isEnrolling = false;
+let isNetbirding = false;
 
 // ---- DOM refs ----
 // App container
@@ -89,6 +89,7 @@ const elIssuerCustom = document.getElementById("oauth-issuer-custom") as HTMLInp
 const elEndpointSelect = document.getElementById("cert-endpoint") as HTMLSelectElement | null;
 const elEndpointCustom = document.getElementById("cert-endpoint-custom") as HTMLInputElement | null;
 const elTrivy = document.getElementById("install-trivy") as HTMLInputElement | null;
+const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInputElement | null;
 
 // IDS mode pills
 const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode-group .pill");
@@ -110,6 +111,16 @@ const terminalEnrollArea = document.getElementById("enroll-terminal-area");
 const terminalEnroll = document.getElementById("enroll-terminal");
 const enrollStatusBanner = document.getElementById("enroll-status-banner");
 
+// NetBird
+const elNetbirdUrlSelect = document.getElementById("netbird-management-url") as HTMLSelectElement | null;
+const elNetbirdUrlCustom = document.getElementById("netbird-management-url-custom") as HTMLInputElement | null;
+const elNetbirdSetupKey = document.getElementById("netbird-setup-key") as HTMLInputElement | null;
+const btnStartNetbird = document.getElementById("btn-start-netbird") as HTMLButtonElement;
+const btnRetryNetbird = document.getElementById("btn-retry-netbird") as HTMLButtonElement;
+const terminalNetbirdArea = document.getElementById("netbird-terminal-area");
+const terminalNetbird = document.getElementById("netbird-terminal");
+const netbirdStatusBanner = document.getElementById("netbird-status-banner");
+
 // ---- Initialization ----
 
 async function boot() {
@@ -128,6 +139,8 @@ async function boot() {
   btnStartEnroll?.addEventListener("click", startEnrollment);
   btnRetryEnroll?.addEventListener("click", startEnrollment);
   btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
+  btnStartNetbird?.addEventListener("click", startNetbirdConnection);
+  btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
   btnRefreshComponents?.addEventListener("click", refreshComponents);
 
   finishBoot();
@@ -137,6 +150,7 @@ function finishBoot() {
   if (appContainer) appContainer.style.display = "block";
   updateInstallButtonState();
   updateEnrollButtonState();
+  updateNetbirdButtonState();
   refreshComponents(); // Initial load
 }
 
@@ -187,6 +201,7 @@ function initializeAppHeaderAndOptions(): void {
   populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
   populateDropdown("oauth-issuer", BRAND_CONFIG.oauthIssuers);
   populateDropdown("cert-endpoint", BRAND_CONFIG.certEndpoints);
+  populateDropdown("netbird-management-url", BRAND_CONFIG.netbirdManagementUrls);
 }
 
 function populateDropdown(selectId: string, options: { value: string; label: string }[]): void {
@@ -227,6 +242,8 @@ function setupCustomInputListeners(): void {
   bindSelectToCustom(elManagerSelect, elManagerCustom, updateInstallButtonState);
   bindSelectToCustom(elIssuerSelect, elIssuerCustom, updateEnrollButtonState);
   bindSelectToCustom(elEndpointSelect, elEndpointCustom, updateEnrollButtonState);
+  bindSelectToCustom(elNetbirdUrlSelect, elNetbirdUrlCustom, updateNetbirdButtonState);
+  elNetbirdSetupKey?.addEventListener("input", updateNetbirdButtonState);
 }
 
 function setupRadioCards(): void {
@@ -254,8 +271,19 @@ function getIssuerValue(): string {
 
 function getEndpointValue(): string {
   return elEndpointSelect?.value === "other"
-    ? (elEndpointCustom?.value.trim() ?? "")
+    ? elEndpointCustom?.value.trim() ?? ""
     : (elEndpointSelect?.value.trim() ?? "");
+}
+
+function getNetbirdUrlValue(): string {
+  if (elNetbirdUrlSelect?.value === "other") {
+    return elNetbirdUrlCustom?.value.trim() ?? "";
+  }
+  return elNetbirdUrlSelect?.value.trim() ?? "";
+}
+
+function getNetbirdSetupKey(): string {
+  return elNetbirdSetupKey?.value.trim() ?? "";
 }
 
 function getConfig() {
@@ -267,8 +295,11 @@ function getConfig() {
     ids_engine: "suricata",
     suricata_mode: selectedModePill ? (selectedModePill.dataset.mode ?? "ids") : "ids",
     install_trivy: elTrivy ? elTrivy.checked : false,
+    install_netbird: elNetbirdInstall ? elNetbirdInstall.checked : false,
     oauth_issuer: getIssuerValue(),
     cert_endpoint: getEndpointValue(),
+    netbird_url: getNetbirdUrlValue(),
+    netbird_key: getNetbirdSetupKey(),
   };
 }
 
@@ -425,6 +456,51 @@ async function startEnrollment() {
   }
 }
 
+async function startNetbirdConnection() {
+  const managementUrl = getNetbirdUrlValue();
+  const setupKey = getNetbirdSetupKey();
+
+  if (isNetbirding) return;
+  isNetbirding = true;
+  updateNetbirdButtonState();
+
+  if (terminalNetbirdArea) terminalNetbirdArea.style.display = "block";
+  if (btnRetryNetbird) btnRetryNetbird.style.display = "none";
+  if (terminalNetbird) {
+    terminalNetbird.innerHTML =
+      '<div class="terminal-placeholder"><span class="spinner"></span> Running netbird up…</div>';
+  }
+
+  showStatusBanner(netbirdStatusBanner, "running", "Connecting to NetBird…");
+
+  const unlistenLog = await listen<LogLine>("netbird-log", (e) => {
+    appendLog(terminalNetbird, e.payload.line, e.payload.level);
+  });
+
+  try {
+    const result = await invoke<InstallResult>("run_netbird_up", {
+      setupKey,
+      managementUrl,
+    });
+
+    if (result.success) {
+      showStatusBanner(netbirdStatusBanner, "success", "NetBird connected successfully!");
+    } else {
+      showStatusBanner(netbirdStatusBanner, "error", `NetBird connection failed: exit code ${result.exit_code}`);
+      if (btnRetryNetbird) btnRetryNetbird.style.display = "flex";
+    }
+  } catch (err: unknown) {
+    showStatusBanner(netbirdStatusBanner, "error", `NetBird connection error: ${err}`);
+    if (btnRetryNetbird) btnRetryNetbird.style.display = "flex";
+  } finally {
+    unlistenLog();
+    isNetbirding = false;
+    updateNetbirdButtonState();
+    refreshComponents();
+    enableSaveLogs("btn-save-netbird-logs", "netbird-terminal", "netbird");
+  }
+}
+
 // ---- Components Tab ----
 
 async function refreshComponents() {
@@ -467,6 +543,12 @@ async function refreshComponents() {
 // ---- Start ----
 boot();
 // ---- Helpers ----
+
+function updateNetbirdButtonState() {
+  if (btnStartNetbird) {
+    btnStartNetbird.disabled = !getNetbirdUrlValue() || isNetbirding;
+  }
+}
 
 function enableSaveLogs(buttonId: string, terminalId: string, prefix: string) {
   const btn = document.getElementById(buttonId);

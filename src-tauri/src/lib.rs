@@ -44,6 +44,7 @@ pub struct InstallConfig {
     pub ids_engine: String,
     pub suricata_mode: String,
     pub install_trivy: bool,
+    pub install_netbird: bool,
     pub oauth_issuer: String,
     pub cert_endpoint: String,
 }
@@ -270,8 +271,10 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            &resolved_path,
         ]);
+        if config.install_netbird {
+            c.arg("-InstallNetBird");
+        }
         c
     };
 
@@ -281,6 +284,9 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         c.arg(&resolved_path);
         if config.install_trivy {
             c.arg("-t");
+        }
+        if config.install_netbird {
+            c.arg("-b");
         }
         // Inject env vars — we are already root so no env-stripping occurs
         c.env("WAZUH_MANAGER", &config.wazuh_manager)
@@ -317,11 +323,21 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
+    let (tx_done, mut rx_done) = tokio::sync::mpsc::channel(1);
+    let tx_done_clone = tx_done.clone();
+
     let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             let level = classify_line(&line);
+            
+            // On macOS, daemons started by the script might keep stdout open and cause a hang.
+            // If we see the success message, signal completion.
+            if line.contains("Wazuh setup has been completed successfully") {
+                let _ = tx_done_clone.try_send(true);
+            }
+
             let _ = app_clone1.emit(
                 "install-log",
                 LogLine {
@@ -350,12 +366,24 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         }
     });
 
-    let status = child.wait().await.map_err(|e| e.to_string())?;
+    let status_future = child.wait();
+    
+    // Race between the process exiting naturally and our manual success signal
+    let (success, exit_code) = tokio::select! {
+        Ok(status) = status_future => {
+            (status.success(), status.code().unwrap_or(-1))
+        }
+        Some(_) = rx_done.recv() => {
+            // Give it a tiny bit of time to flush remaining logs naturally
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            (true, 0)
+        }
+    };
 
     Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
+        success,
+        exit_code,
+        message: if success {
             "Installation complete".into()
         } else {
             "Installation failed".into()
@@ -510,6 +538,86 @@ async fn run_enroll(
 }
 
 #[tauri::command]
+async fn run_netbird_up(
+    setup_key: String,
+    management_url: String,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    // Management URL defaults to the public NetBird Cloud when not provided.
+    let management_url = if management_url.trim().is_empty() {
+        "https://api.netbird.io:443".to_string()
+    } else {
+        management_url
+    };
+
+    let mut args = vec![
+        "up".to_string(),
+        "--management-url".to_string(),
+        management_url,
+    ];
+    if !setup_key.trim().is_empty() {
+        args.push("--setup-key".to_string());
+        args.push(setup_key);
+    }
+
+    #[cfg(unix)]
+    let mut cmd = create_command("netbird");
+    #[cfg(windows)]
+    let mut cmd = create_command("netbird.exe");
+
+    cmd.args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let app_clone1 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let level = classify_line(&line);
+            let _ = app_clone1.emit(
+                "netbird-log",
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let app_clone2 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let level = classify_line(&line);
+            let _ = app_clone2.emit(
+                "netbird-log",
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+
+    Ok(InstallResult {
+        success: status.success(),
+        exit_code: status.code().unwrap_or(-1),
+        message: if status.success() {
+            "NetBird connected successfully".into()
+        } else {
+            "NetBird connection failed".into()
+        },
+    })
+}
+
+#[tauri::command]
 async fn check_components() -> Result<Vec<ComponentStatus>, String> {
     // Use #[cfg(...)] compile-time blocks for platform-specific paths,
     // consistent with run_enroll() and run_install().
@@ -537,6 +645,7 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ("YARA".to_string(), "yara64.exe".to_string()),
         ("Suricata".to_string(), "suricata.exe".to_string()),
         ("Trivy".to_string(), "trivy.exe".to_string()),
+        ("NetBird".to_string(), "netbird.exe".to_string()),
         (
             "USB DLP Scripts".to_string(),
             format!(
@@ -591,7 +700,8 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ),
         ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
         ("Suricata".to_string(), "/usr/bin/suricata".to_string()),
-        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
+        ("Trivy".to_string(), "/usr/bin/trivy".to_string()),
+        ("NetBird".to_string(), "/usr/bin/netbird".to_string()),
         (
             "USB DLP Scripts".to_string(),
             format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path),
@@ -607,7 +717,7 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
 
         #[cfg(windows)]
         let installed = {
-            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
+            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" || path == "netbird.exe" {
                 create_command(&path)
                     .arg("--help")
                     .stdout(Stdio::null())
@@ -831,6 +941,7 @@ pub fn run() {
             get_platform,
             run_install,
             run_enroll,
+            run_netbird_up,
             check_components,
             save_logs
         ])
