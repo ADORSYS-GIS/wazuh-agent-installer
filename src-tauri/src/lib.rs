@@ -598,7 +598,7 @@ async fn run_netbird_up(
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             let trimmed = line.trim();
-            if trimmed.starts_with("https://") && trimmed.contains("user_code=") {
+            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
                 open_browser(trimmed);
             }
             if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
@@ -621,7 +621,7 @@ async fn run_netbird_up(
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             let trimmed = line.trim();
-            if trimmed.starts_with("https://") && trimmed.contains("user_code=") {
+            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
                 open_browser(trimmed);
             }
             if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
