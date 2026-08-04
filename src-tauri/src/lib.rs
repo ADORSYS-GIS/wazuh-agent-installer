@@ -437,6 +437,8 @@ async fn run_enroll(
         issuer,
         "--endpoint".to_string(),
         endpoint,
+        "--overwrite".to_string(),
+        "true".to_string(),
     ];
 
     // The process is already root at this point.
