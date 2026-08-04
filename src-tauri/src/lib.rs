@@ -654,9 +654,7 @@ async fn run_netbird_up(
             })
         },
         _ = connected.notified() => {
-            let _ = app.emit("netbird-log", LogLine { line: "DEBUG: select block woke up, killing child".into(), level: "info".into() });
-            let _ = child.kill().await;
-            let _ = app.emit("netbird-log", LogLine { line: "DEBUG: child killed, returning success".into(), level: "info".into() });
+            let _ = app.emit("netbird-log", LogLine { line: "DEBUG: select block woke up, returning success".into(), level: "info".into() });
             Ok(InstallResult {
                 success: true,
                 exit_code: 0,
