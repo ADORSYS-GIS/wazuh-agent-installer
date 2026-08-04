@@ -602,6 +602,7 @@ async fn run_netbird_up(
                 open_browser(trimmed);
             }
             if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
+                let _ = app_clone1.emit("netbird-log", LogLine { line: "DEBUG: notify_one() triggered from stdout".into(), level: "info".into() });
                 connected_clone1.notify_one();
             }
             let level = classify_line(&line);
@@ -625,6 +626,7 @@ async fn run_netbird_up(
                 open_browser(trimmed);
             }
             if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
+                let _ = app_clone2.emit("netbird-log", LogLine { line: "DEBUG: notify_one() triggered from stderr".into(), level: "info".into() });
                 connected_clone2.notify_one();
             }
             let level = classify_line(&line);
@@ -652,7 +654,9 @@ async fn run_netbird_up(
             })
         },
         _ = connected.notified() => {
+            let _ = app.emit("netbird-log", LogLine { line: "DEBUG: select block woke up, killing child".into(), level: "info".into() });
             let _ = child.kill().await;
+            let _ = app.emit("netbird-log", LogLine { line: "DEBUG: child killed, returning success".into(), level: "info".into() });
             Ok(InstallResult {
                 success: true,
                 exit_code: 0,
