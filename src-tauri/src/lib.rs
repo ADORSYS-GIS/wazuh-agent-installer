@@ -454,6 +454,8 @@ async fn run_enroll(
         let exe = "/var/ossec/bin/wazuh-cert-oauth2-client";
         let mut c = create_command(exe);
         c.args(&oauth_args);
+        // Prevent xdg-open from hanging under sudo by overriding the browser
+        c.env("BROWSER", "echo");
         c
     };
 
@@ -470,6 +472,8 @@ async fn run_enroll(
             "PATH",
             format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
         );
+        // Prevent 'open' from hanging under sudo by overriding the browser
+        c.env("BROWSER", "echo");
         c
     };
 
