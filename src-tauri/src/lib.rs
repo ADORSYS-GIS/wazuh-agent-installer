@@ -498,6 +498,8 @@ async fn run_enroll(
                 if !url.is_empty() {
                     open_browser(url);
                 }
+            } else if line.trim().starts_with("https://") && line.contains("/realms/") {
+                open_browser(line.trim());
             }
             let level = classify_line(&line);
             let _ = app_clone1.emit(
@@ -525,6 +527,8 @@ async fn run_enroll(
                 if !url.is_empty() {
                     open_browser(url);
                 }
+            } else if line.trim().starts_with("https://") && line.contains("/realms/") {
+                open_browser(line.trim());
             }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
