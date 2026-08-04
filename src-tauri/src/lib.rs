@@ -52,10 +52,6 @@ pub struct InstallConfig {
 // ---- Helpers ----
 
 async fn get_component_version(name: &str, path: &str) -> Option<String> {
-    if name == "USB DLP Scripts" {
-        return Some("Installed".to_string());
-    }
-
     let mut args = vec![];
     let mut cmd_target = path.to_string();
 
@@ -589,6 +585,10 @@ async fn run_netbird_up(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.starts_with("https://") && trimmed.contains("user_code=") {
+                open_browser(trimmed);
+            }
             let level = classify_line(&line);
             let _ = app_clone1.emit(
                 "netbird-log",
@@ -604,6 +604,10 @@ async fn run_netbird_up(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.starts_with("https://") && trimmed.contains("user_code=") {
+                open_browser(trimmed);
+            }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
                 "netbird-log",
@@ -657,13 +661,6 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ("Suricata".to_string(), "suricata.exe".to_string()),
         ("Trivy".to_string(), "trivy.exe".to_string()),
         ("NetBird".to_string(), "netbird.exe".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!(
-                "{}\\active-response\\bin\\disable-usb-storage.ps1",
-                ossec_path
-            ),
-        ),
     ];
 
     #[cfg(target_os = "macos")]
@@ -687,13 +684,6 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ),
         ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
         ("NetBird".to_string(), "/usr/local/bin/netbird".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!(
-                "{}/active-response/bin/disable-usb-storage-macos.sh",
-                ossec_path
-            ),
-        ),
     ];
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -714,10 +704,6 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ("Suricata".to_string(), "/usr/bin/suricata".to_string()),
         ("Trivy".to_string(), "/usr/bin/trivy".to_string()),
         ("NetBird".to_string(), "/usr/bin/netbird".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path),
-        ),
     ];
 
     let mut results = Vec::new();

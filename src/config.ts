@@ -74,6 +74,5 @@ export const COMPONENT_DESCRIPTIONS: Record<string, string> = {
   YARA: "Malware identification engine used to perform file content pattern matching for advanced threats.",
   Suricata: "High performance Network IDS, IPS and Network Security Monitoring engine.",
   Trivy: "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.",
-  "USB DLP Scripts": "Active response scripts to monitor, block, and manage unauthorized USB storage devices.",
   NetBird: "WireGuard-based overlay VPN client providing secure mesh networking between agents.",
 };
