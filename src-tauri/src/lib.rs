@@ -590,6 +590,9 @@ async fn run_netbird_up(
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
+    let connected = std::sync::Arc::new(tokio::sync::Notify::new());
+    let connected_clone1 = connected.clone();
+
     let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
@@ -597,6 +600,9 @@ async fn run_netbird_up(
             let trimmed = line.trim();
             if trimmed.starts_with("https://") && trimmed.contains("user_code=") {
                 open_browser(trimmed);
+            }
+            if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
+                connected_clone1.notify_one();
             }
             let level = classify_line(&line);
             let _ = app_clone1.emit(
@@ -610,12 +616,16 @@ async fn run_netbird_up(
     });
 
     let app_clone2 = app.clone();
+    let connected_clone2 = connected.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             let trimmed = line.trim();
             if trimmed.starts_with("https://") && trimmed.contains("user_code=") {
                 open_browser(trimmed);
+            }
+            if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
+                connected_clone2.notify_one();
             }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
@@ -628,17 +638,28 @@ async fn run_netbird_up(
         }
     });
 
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "NetBird connected successfully".into()
-        } else {
-            "NetBird connection failed".into()
+    tokio::select! {
+        res = child.wait() => {
+            let status = res.map_err(|e| e.to_string())?;
+            Ok(InstallResult {
+                success: status.success(),
+                exit_code: status.code().unwrap_or(-1),
+                message: if status.success() {
+                    "NetBird connected successfully".into()
+                } else {
+                    "NetBird connection failed".into()
+                },
+            })
         },
-    })
+        _ = connected.notified() => {
+            let _ = child.kill().await;
+            Ok(InstallResult {
+                success: true,
+                exit_code: 0,
+                message: "NetBird connected successfully".into(),
+            })
+        }
+    }
 }
 
 #[tauri::command]
