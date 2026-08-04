@@ -402,8 +402,6 @@ fn open_browser(url: &str) {
     #[cfg(target_os = "linux")]
     {
         if let Ok(uid) = std::env::var("PKEXEC_UID") {
-            // If running under pkexec, xdg-open fails because it lacks the user's DBUS session.
-            // We must launch it as the original user.
             let _ = std::process::Command::new("sudo")
                 .arg("-u")
                 .arg(format!("#{}", uid))
@@ -421,7 +419,16 @@ fn open_browser(url: &str) {
             return;
         }
     }
-    // Fallback to Tauri opener for macOS/Windows or standard Linux
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        return;
+    }
+    // Fallback to Tauri opener for Windows or standard Linux
     let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
 
@@ -456,26 +463,14 @@ async fn run_enroll(
         let exe = "/var/ossec/bin/wazuh-cert-oauth2-client";
         let mut c = create_command(exe);
         c.args(&oauth_args);
-        // Prevent xdg-open from hanging under sudo by overriding the browser
-        c.env("BROWSER", "echo");
         c
     };
 
     #[cfg(target_os = "macos")]
     let mut command = {
-        let current_path =
-            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-        // On macOS (running as root), call the binary directly.
-        // Intercept the browser URL from stderr and open it via Tauri's GUI context.
-        let exe = "/Library/Ossec/bin/wazuh-cert-oauth2-client";
-        let mut c = create_command(exe);
+        let mut c = create_command("sudo");
+        c.arg("/Library/Ossec/bin/wazuh-cert-oauth2-client");
         c.args(&oauth_args);
-        c.env(
-            "PATH",
-            format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
-        );
-        // Prevent 'open' from hanging under sudo by overriding the browser
-        c.env("BROWSER", "echo");
         c
     };
 
