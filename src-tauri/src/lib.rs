@@ -568,7 +568,16 @@ async fn run_netbird_up(
     }
 
     #[cfg(unix)]
-    let mut cmd = create_command("netbird");
+    let mut cmd = {
+        let mut c = create_command("netbird");
+        let current_path = std::env::var("PATH")
+            .unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        c.env(
+            "PATH",
+            format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
+        );
+        c
+    };
     #[cfg(windows)]
     let mut cmd = create_command("netbird.exe");
 
