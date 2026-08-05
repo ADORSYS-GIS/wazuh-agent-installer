@@ -520,8 +520,12 @@ async fn run_enroll(
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-    let saw_error = Arc::new(AtomicBool::new(false));
+    // Signal channel for when enrollment completes
+    let (tx_done, mut rx_done) = tokio::sync::mpsc::channel(1);
+    let tx_done_clone = tx_done.clone();
 
+    // Track if any error was seen in the logs
+    let saw_error = Arc::new(AtomicBool::new(false));
     let app_clone1 = app.clone();
     let saw_error_clone1 = Arc::clone(&saw_error);
     tokio::spawn(async move {
@@ -568,6 +572,11 @@ async fn run_enroll(
             } else if line.trim().starts_with("https://") && line.contains("/realms/") {
                 open_browser(line.trim());
             }
+            // On macOS, daemons started by the OAuth2 client might keep stdout open and cause a hang.
+            // If we see the completion message, signal completion.
+            if line.contains("Done!") {
+                let _ = tx_done_clone.try_send(true);
+            }
             let level = classify_line(&line);
             if level == "error" {
                 saw_error_clone2.store(true, Ordering::Relaxed);
@@ -582,14 +591,24 @@ async fn run_enroll(
         }
     });
 
-    let status = child.wait().await.map_err(|e| e.to_string())?;
+    let status_future = child.wait();
 
-    let actually_ok = status.success() && !saw_error.load(Ordering::Relaxed);
+    // Race between the process exiting naturally and our manual completion signal
+    let (success, exit_code) = tokio::select! {
+        Ok(status) = status_future => {
+            (status.success(), status.code().unwrap_or(-1))
+        }
+        Some(_) = rx_done.recv() => {
+            // Give it a tiny bit of time to flush remaining logs naturally
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            (true, 0)
+        }
+    };
 
     Ok(InstallResult {
-        success: actually_ok,
-        exit_code: status.code().unwrap_or(-1),
-        message: if actually_ok {
+        success,
+        exit_code,
+        message: if success {
             "Enrollment complete".into()
         } else {
             "Enrollment failed".into()
