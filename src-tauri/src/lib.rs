@@ -466,7 +466,19 @@ async fn run_enroll(
 
     #[cfg(target_os = "macos")]
     let mut command = {
+        let wrapper_dir = "/tmp/wazuh-installer-bin";
+        let _ = std::fs::create_dir_all(wrapper_dir);
+        let gsed_path = format!("{}/gsed", wrapper_dir);
+        let wrapper_script = "#!/bin/sh\nif [ \"$1\" = \"-i\" ]; then\n  shift\n  exec sed -i '' \"$@\"\nelse\n  exec sed \"$@\"\nfi\n";
+        let _ = std::fs::write(&gsed_path, wrapper_script);
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&gsed_path, std::fs::Permissions::from_mode(0o755));
+
+        let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+
         let mut c = create_command("sudo");
+        c.arg("env");
+        c.arg(format!("PATH={}:{}", wrapper_dir, current_path));
         c.arg("/Library/Ossec/bin/wazuh-cert-oauth2-client");
         c.args(&oauth_args);
         c
