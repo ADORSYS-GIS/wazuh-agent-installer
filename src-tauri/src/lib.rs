@@ -769,55 +769,60 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ("NetBird".to_string(), "/usr/bin/netbird".to_string()),
     ];
 
-    let mut results = Vec::new();
+    let mut tasks = Vec::new();
 
     for (name, path) in components {
-        // Check existence without sudo — reading file metadata is always permitted
-        #[cfg(unix)]
-        let installed = std::path::Path::new(&path).exists();
+        tasks.push(tokio::spawn(async move {
+            // Check existence without sudo — reading file metadata is always permitted
+            #[cfg(unix)]
+            let installed = std::path::Path::new(&path).exists();
 
-        #[cfg(windows)]
-        let installed = {
-            if path == "yara64.exe"
-                || path == "suricata.exe"
-                || path == "trivy.exe"
-                || path == "netbird.exe"
-            {
-                create_command(&path)
-                    .arg("--help")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await
-                    .is_ok()
-            } else if path.ends_with("wazuh-agent.exe") {
-                std::path::Path::new(&path).exists()
-                    || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
-                        .exists()
-                    || create_command("sc")
-                        .args(["query", "WazuhSvc"])
+            #[cfg(windows)]
+            let installed = {
+                if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" || path == "netbird.exe" {
+                    create_command(&path)
+                        .arg("--help")
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
                         .status()
                         .await
-                        .map_or(false, |s| s.success())
+                        .is_ok()
+                } else if path.ends_with("wazuh-agent.exe") {
+                    std::path::Path::new(&path).exists()
+                        || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
+                            .exists()
+                        || create_command("sc")
+                            .args(["query", "WazuhSvc"])
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .status()
+                            .await
+                            .map_or(false, |s| s.success())
+                } else {
+                    std::path::Path::new(&path).exists()
+                }
+            };
+
+            let version = if installed {
+                get_component_version(&name, &path).await
             } else {
-                std::path::Path::new(&path).exists()
+                None
+            };
+
+            ComponentStatus {
+                name,
+                installed,
+                version,
+                path,
             }
-        };
+        }));
+    }
 
-        let version = if installed {
-            get_component_version(&name, &path).await
-        } else {
-            None
-        };
-
-        results.push(ComponentStatus {
-            name,
-            installed,
-            version,
-            path,
-        });
+    let mut results = Vec::new();
+    for task in tasks {
+        if let Ok(status) = task.await {
+            results.push(status);
+        }
     }
 
     Ok(results)
