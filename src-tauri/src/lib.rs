@@ -421,14 +421,37 @@ fn open_browser(url: &str) {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open")
+        let user = std::process::Command::new("stat")
+            .arg("-f")
+            .arg("%Su")
+            .arg("/dev/console")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "root".to_string());
+
+        let _ = std::process::Command::new("sudo")
+            .arg("-u")
+            .arg(user)
+            .arg("open")
             .arg(url)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
         return;
     }
-    // Fallback to Tauri opener for Windows or standard Linux
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        return;
+    }
+    // Fallback to Tauri opener for standard Linux
     let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
 
