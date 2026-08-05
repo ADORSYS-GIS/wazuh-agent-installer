@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::process::Stdio;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -454,15 +455,19 @@ fn open_browser(url: &str) {
 async fn run_enroll(
     issuer: String,
     endpoint: String,
+    overwrite: bool,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    let oauth_args = vec![
+    let mut oauth_args = vec![
         "o-auth2".to_string(),
         "--issuer".to_string(),
         issuer,
         "--endpoint".to_string(),
         endpoint,
     ];
+    if overwrite {
+        oauth_args.push("--overwrite".to_string());
+    }
 
     // The process is already root at this point.
     // Call the binary directly — no pkexec or osascript wrapper needed.
@@ -509,7 +514,10 @@ async fn run_enroll(
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
+    let saw_error = Arc::new(AtomicBool::new(false));
+
     let app_clone1 = app.clone();
+    let saw_error_clone1 = Arc::clone(&saw_error);
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -522,6 +530,9 @@ async fn run_enroll(
                 open_browser(line.trim());
             }
             let level = classify_line(&line);
+            if level == "error" {
+                saw_error_clone1.store(true, Ordering::Relaxed);
+            }
             let _ = app_clone1.emit(
                 "enroll-log",
                 LogLine {
@@ -533,6 +544,7 @@ async fn run_enroll(
     });
 
     let app_clone2 = app.clone();
+    let saw_error_clone2 = Arc::clone(&saw_error);
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -551,6 +563,9 @@ async fn run_enroll(
                 open_browser(line.trim());
             }
             let level = classify_line(&line);
+            if level == "error" {
+                saw_error_clone2.store(true, Ordering::Relaxed);
+            }
             let _ = app_clone2.emit(
                 "enroll-log",
                 LogLine {
@@ -563,10 +578,12 @@ async fn run_enroll(
 
     let status = child.wait().await.map_err(|e| e.to_string())?;
 
+    let actually_ok = status.success() && !saw_error.load(Ordering::Relaxed);
+
     Ok(InstallResult {
-        success: status.success(),
+        success: actually_ok,
         exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
+        message: if actually_ok {
             "Enrollment complete".into()
         } else {
             "Enrollment failed".into()
