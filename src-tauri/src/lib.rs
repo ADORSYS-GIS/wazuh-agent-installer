@@ -467,12 +467,10 @@ async fn run_enroll(
     endpoint: String,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    let mut oauth_args = vec![
+    let oauth_args = vec![
         "o-auth2".to_string(),
         "--issuer".to_string(),
         issuer,
-        "--client-id".to_string(),
-        "wazuh-cert-oauth2-client".to_string(),
         "--endpoint".to_string(),
         endpoint,
     ];
