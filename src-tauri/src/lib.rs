@@ -427,9 +427,19 @@ fn open_browser(url: &str) {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|| "root".to_string());
 
-        let _ = std::process::Command::new("sudo")
+        let uid = std::process::Command::new("id")
             .arg("-u")
-            .arg(user)
+            .arg(&user)
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "501".to_string());
+
+        let _ = std::process::Command::new("sudo")
+            .arg("launchctl")
+            .arg("asuser")
+            .arg(&uid)
             .arg("open")
             .arg(url)
             .stdout(std::process::Stdio::null())
@@ -455,19 +465,17 @@ fn open_browser(url: &str) {
 async fn run_enroll(
     issuer: String,
     endpoint: String,
-    overwrite: bool,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
     let mut oauth_args = vec![
         "o-auth2".to_string(),
         "--issuer".to_string(),
         issuer,
+        "--client-id".to_string(),
+        "wazuh-cert-oauth2-client".to_string(),
         "--endpoint".to_string(),
         endpoint,
     ];
-    if overwrite {
-        oauth_args.push("--overwrite".to_string());
-    }
 
     // The process is already root at this point.
     // Call the binary directly — no pkexec or osascript wrapper needed.
