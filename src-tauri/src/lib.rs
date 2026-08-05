@@ -273,12 +273,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut c = create_command("powershell");
-        c.args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-        ]);
+        c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
         if config.install_netbird {
             c.arg("-InstallNetBird");
         }
@@ -338,7 +333,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             let level = classify_line(&line);
-            
+
             // On macOS, daemons started by the script might keep stdout open and cause a hang.
             // If we see the success message, signal completion.
             if line.contains("Wazuh setup has been completed successfully") {
@@ -374,7 +369,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     });
 
     let status_future = child.wait();
-    
+
     // Race between the process exiting naturally and our manual success signal
     let (success, exit_code) = tokio::select! {
         Ok(status) = status_future => {
@@ -489,21 +484,18 @@ async fn run_enroll(
 
     #[cfg(target_os = "macos")]
     let mut command = {
-        let wrapper_dir = "/tmp/wazuh-installer-bin";
-        let _ = std::fs::create_dir_all(wrapper_dir);
-        let gsed_path = format!("{}/gsed", wrapper_dir);
-        let wrapper_script = "#!/bin/sh\nif [ \"$1\" = \"-i\" ]; then\n  shift\n  exec sed -i '' \"$@\"\nelse\n  exec sed \"$@\"\nfi\n";
-        let _ = std::fs::write(&gsed_path, wrapper_script);
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&gsed_path, std::fs::Permissions::from_mode(0o755));
-
-        let current_path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-
-        let mut c = create_command("sudo");
-        c.arg("env");
-        c.arg(format!("PATH={}:{}", wrapper_dir, current_path));
-        c.arg("/Library/Ossec/bin/wazuh-cert-oauth2-client");
+        // The process is already root at this point; call the binary directly.
+        // The OAuth2 client spawns `gsed` by name, so ensure PATH includes the
+        // Homebrew locations where the real gsed lives (sudo would otherwise
+        // reset PATH and the spawn would fail with ENOENT).
+        let current_path =
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        let mut c = create_command("/Library/Ossec/bin/wazuh-cert-oauth2-client");
         c.args(&oauth_args);
+        c.env(
+            "PATH",
+            format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
+        );
         c
     };
 
@@ -608,8 +600,8 @@ async fn run_netbird_up(
     #[cfg(unix)]
     let mut cmd = {
         let mut c = create_command("netbird");
-        let current_path = std::env::var("PATH")
-            .unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        let current_path =
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
         c.env(
             "PATH",
             format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
@@ -639,7 +631,9 @@ async fn run_netbird_up(
             if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
                 open_browser(trimmed);
             }
-            if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
+            if trimmed.to_lowercase().contains("connected")
+                && !trimmed.to_lowercase().contains("disconnected")
+            {
                 connected_clone1.notify_one();
             }
             let level = classify_line(&line);
@@ -662,7 +656,9 @@ async fn run_netbird_up(
             if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
                 open_browser(trimmed);
             }
-            if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
+            if trimmed.to_lowercase().contains("connected")
+                && !trimmed.to_lowercase().contains("disconnected")
+            {
                 connected_clone2.notify_one();
             }
             let level = classify_line(&line);
@@ -782,7 +778,11 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
 
         #[cfg(windows)]
         let installed = {
-            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" || path == "netbird.exe" {
+            if path == "yara64.exe"
+                || path == "suricata.exe"
+                || path == "trivy.exe"
+                || path == "netbird.exe"
+            {
                 create_command(&path)
                     .arg("--help")
                     .stdout(Stdio::null())
