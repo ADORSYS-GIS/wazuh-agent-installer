@@ -473,6 +473,8 @@ async fn run_enroll(
         issuer,
         "--endpoint".to_string(),
         endpoint,
+        "--agent-control".to_string(),
+        "false".to_string(),
     ];
 
     // The process is already root at this point.
@@ -605,11 +607,49 @@ async fn run_enroll(
         }
     };
 
+    // Manually restart the wazuh-agent with detached pipes so it doesn't hang
+    // Only restart if enrollment succeeded and no errors were seen
+    let actually_ok = success && !saw_error.load(Ordering::Relaxed);
+
+    if actually_ok {
+        #[cfg(target_os = "windows")]
+        let mut restart_cmd = {
+            let mut c = create_command("sc");
+            c.args(["stop", "WazuhSvc"]);
+            let _ = c.status(); // ignore error
+            let mut c = create_command("sc");
+            c.args(["start", "WazuhSvc"]);
+            c
+        };
+        #[cfg(target_os = "linux")]
+        let mut restart_cmd = {
+            let mut c = create_command("/var/ossec/bin/wazuh-control");
+            c.arg("restart");
+            c
+        };
+        #[cfg(target_os = "macos")]
+        let mut restart_cmd = {
+            let mut c = create_command("/Library/Ossec/bin/wazuh-control");
+            c.arg("restart");
+            c
+        };
+
+        let _ = restart_cmd
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        
+        let _ = app.emit("enroll-log", LogLine {
+            line: "wazuh agent restarted".into(),
+            level: "info".into(),
+        });
+    }
+
     Ok(InstallResult {
-        success,
+        success: actually_ok,
         exit_code,
-        message: if success {
-            "Enrollment complete".into()
+        message: if actually_ok {
+            "Enrollment complete, restarting agent...".into()
         } else {
             "Enrollment failed".into()
         },
