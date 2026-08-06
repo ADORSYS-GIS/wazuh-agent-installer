@@ -278,6 +278,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
             "-ExecutionPolicy",
             "Bypass",
             "-File",
+            &resolved_path,
         ]);
         if config.install_netbird {
             c.arg("-InstallNetBird");
