@@ -98,7 +98,17 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                 let first_line = out_str.lines().next().unwrap_or(&out_str);
                 return Some(first_line.trim().to_string());
             } else if name == "Suricata" {
-                if let Some(idx) = out_str.find("version ") {
+                let lower = out_str.to_lowercase();
+                if let Some(idx) = lower.find("suricata ") {
+                    let rest = &out_str[idx + 9..];
+                    if let Some(first_word) = rest.split_whitespace().next() {
+                        let cleaned = first_word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+                        if !cleaned.is_empty() {
+                            return Some(cleaned.to_string());
+                        }
+                    }
+                }
+                if let Some(idx) = lower.find("version ") {
                     let rest = &out_str[idx + 8..];
                     return Some(
                         rest.split_whitespace()
@@ -767,22 +777,128 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
     let mut results = Vec::new();
 
     for (name, path) in components {
-        // Check existence without sudo — reading file metadata is always permitted
         #[cfg(unix)]
-        let installed = std::path::Path::new(&path).exists();
+        let (installed, effective_path) = {
+            if name == "NetBird" {
+                if std::path::Path::new(&path).exists() {
+                    (true, path.clone())
+                } else if std::path::Path::new("/usr/bin/netbird").exists() {
+                    (true, "/usr/bin/netbird".to_string())
+                } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+                    (true, "/usr/local/bin/netbird".to_string())
+                } else {
+                    (false, path.clone())
+                }
+            } else if name == "Suricata" {
+                if std::path::Path::new(&path).exists() {
+                    (true, path.clone())
+                } else if std::path::Path::new("/usr/bin/suricata").exists() {
+                    (true, "/usr/bin/suricata".to_string())
+                } else if std::path::Path::new("/usr/local/bin/suricata").exists() {
+                    (true, "/usr/local/bin/suricata".to_string())
+                } else if std::path::Path::new("/opt/homebrew/bin/suricata").exists() {
+                    (true, "/opt/homebrew/bin/suricata".to_string())
+                } else {
+                    (false, path.clone())
+                }
+            } else if name == "Trivy" {
+                if std::path::Path::new(&path).exists() {
+                    (true, path.clone())
+                } else if std::path::Path::new("/usr/bin/trivy").exists() {
+                    (true, "/usr/bin/trivy".to_string())
+                } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
+                    (true, "/usr/local/bin/trivy".to_string())
+                } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
+                    (true, "/opt/homebrew/bin/trivy".to_string())
+                } else {
+                    (false, path.clone())
+                }
+            } else {
+                (std::path::Path::new(&path).exists(), path.clone())
+            }
+        };
 
         #[cfg(windows)]
-        let installed = {
-            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" || path == "netbird.exe" {
-                create_command(&path)
-                    .arg("--help")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await
-                    .is_ok()
+        let (installed, effective_path) = {
+            if name == "NetBird" {
+                let default_p1 = r"C:\Program Files\Netbird\netbird.exe";
+                let default_p2 = r"C:\Program Files (x86)\Netbird\netbird.exe";
+                if std::path::Path::new(default_p1).exists() {
+                    (true, default_p1.to_string())
+                } else if std::path::Path::new(default_p2).exists() {
+                    (true, default_p2.to_string())
+                } else {
+                    let ok = create_command(&path)
+                        .arg("--help")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success());
+                    (ok, path.clone())
+                }
+            } else if name == "Suricata" {
+                let p1 = r"C:\Program Files\Suricata\suricata.exe";
+                let p2 = r"C:\Program Files (x86)\Suricata\suricata.exe";
+                let p3 = r"C:\Suricata\suricata.exe";
+                if std::path::Path::new(p1).exists() {
+                    (true, p1.to_string())
+                } else if std::path::Path::new(p2).exists() {
+                    (true, p2.to_string())
+                } else if std::path::Path::new(p3).exists() {
+                    (true, p3.to_string())
+                } else {
+                    let ok = create_command(&path)
+                        .arg("--help")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success());
+                    (ok, path.clone())
+                }
+            } else if name == "Trivy" {
+                let p1 = r"C:\Program Files\Trivy\trivy.exe";
+                let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
+                let p3 = r"C:\Trivy\trivy.exe";
+                if std::path::Path::new(p1).exists() {
+                    (true, p1.to_string())
+                } else if std::path::Path::new(p2).exists() {
+                    (true, p2.to_string())
+                } else if std::path::Path::new(p3).exists() {
+                    (true, p3.to_string())
+                } else {
+                    let ok = create_command(&path)
+                        .arg("--help")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success());
+                    (ok, path.clone())
+                }
+            } else if name == "YARA" {
+                let p1 = r"C:\Program Files\YARA\yara64.exe";
+                let p2 = r"C:\Program Files (x86)\YARA\yara64.exe";
+                let p3 = r"C:\YARA\yara64.exe";
+                if std::path::Path::new(p1).exists() {
+                    (true, p1.to_string())
+                } else if std::path::Path::new(p2).exists() {
+                    (true, p2.to_string())
+                } else if std::path::Path::new(p3).exists() {
+                    (true, p3.to_string())
+                } else {
+                    let ok = create_command(&path)
+                        .arg("--help")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success());
+                    (ok, path.clone())
+                }
             } else if path.ends_with("wazuh-agent.exe") {
-                std::path::Path::new(&path).exists()
+                let ok = std::path::Path::new(&path).exists()
                     || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
                         .exists()
                     || create_command("sc")
@@ -791,14 +907,15 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
                         .stderr(Stdio::null())
                         .status()
                         .await
-                        .map_or(false, |s| s.success())
+                        .map_or(false, |s| s.success());
+                (ok, path.clone())
             } else {
-                std::path::Path::new(&path).exists()
+                (std::path::Path::new(&path).exists(), path.clone())
             }
         };
 
         let version = if installed {
-            get_component_version(&name, &path).await
+            get_component_version(&name, &effective_path).await
         } else {
             None
         };
@@ -807,7 +924,7 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
             name,
             installed,
             version,
-            path,
+            path: effective_path,
         });
     }
 
