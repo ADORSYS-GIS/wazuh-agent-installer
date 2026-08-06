@@ -482,6 +482,15 @@ async fn run_enroll(
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
+    // Use the same Notify/select! pattern as run_netbird_up.
+    // On macOS the wazuh daemons restarted by the OAuth2 client inherit the
+    // pipe file descriptors and hold them open, so child.wait() would hang
+    // indefinitely even after enrollment has completed. Detecting "] Done!"
+    // lets us return immediately — exactly like NetBird detects "connected".
+    let enrolled = std::sync::Arc::new(tokio::sync::Notify::new());
+    let enrolled_clone1 = enrolled.clone();
+    let enrolled_clone2 = enrolled.clone();
+
     let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
@@ -493,6 +502,9 @@ async fn run_enroll(
                 }
             } else if line.trim().starts_with("https://") && line.contains("/realms/") {
                 open_browser(line.trim());
+            }
+            if line.contains("] Done!") || line.trim() == "Done!" {
+                enrolled_clone1.notify_one();
             }
             let level = classify_line(&line);
             let _ = app_clone1.emit(
@@ -523,6 +535,9 @@ async fn run_enroll(
             } else if line.trim().starts_with("https://") && line.contains("/realms/") {
                 open_browser(line.trim());
             }
+            if line.contains("] Done!") || line.trim() == "Done!" {
+                enrolled_clone2.notify_one();
+            }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
                 "enroll-log",
@@ -534,17 +549,27 @@ async fn run_enroll(
         }
     });
 
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "Enrollment complete".into()
-        } else {
-            "Enrollment failed".into()
+    tokio::select! {
+        res = child.wait() => {
+            let status = res.map_err(|e| e.to_string())?;
+            Ok(InstallResult {
+                success: status.success(),
+                exit_code: status.code().unwrap_or(-1),
+                message: if status.success() {
+                    "Enrollment complete".into()
+                } else {
+                    "Enrollment failed".into()
+                },
+            })
         },
-    })
+        _ = enrolled.notified() => {
+            Ok(InstallResult {
+                success: true,
+                exit_code: 0,
+                message: "Enrollment complete".into(),
+            })
+        }
+    }
 }
 
 #[tauri::command]
