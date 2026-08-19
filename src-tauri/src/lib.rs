@@ -102,7 +102,8 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                 if let Some(idx) = lower.find("suricata ") {
                     let rest = &out_str[idx + 9..];
                     if let Some(first_word) = rest.split_whitespace().next() {
-                        let cleaned = first_word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+                        let cleaned = first_word
+                            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
                         if !cleaned.is_empty() {
                             return Some(cleaned.to_string());
                         }
@@ -349,7 +350,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             let level = classify_line(&line);
-            
+
             // On macOS, daemons started by the script might keep stdout open and cause a hang.
             // If we see the success message, signal completion.
             if line.contains("Wazuh setup has been completed successfully") {
@@ -385,7 +386,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     });
 
     let status_future = child.wait();
-    
+
     // Race between the process exiting naturally and our manual success signal
     let (success, exit_code) = tokio::select! {
         Ok(status) = status_future => {
@@ -609,8 +610,8 @@ async fn run_netbird_up(
     #[cfg(unix)]
     let mut cmd = {
         let mut c = create_command("netbird");
-        let current_path = std::env::var("PATH")
-            .unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        let current_path =
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
         c.env(
             "PATH",
             format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
@@ -640,7 +641,9 @@ async fn run_netbird_up(
             if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
                 open_browser(trimmed);
             }
-            if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
+            if trimmed.to_lowercase().contains("connected")
+                && !trimmed.to_lowercase().contains("disconnected")
+            {
                 connected_clone1.notify_one();
             }
             let level = classify_line(&line);
@@ -663,7 +666,9 @@ async fn run_netbird_up(
             if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
                 open_browser(trimmed);
             }
-            if trimmed.to_lowercase().contains("connected") && !trimmed.to_lowercase().contains("disconnected") {
+            if trimmed.to_lowercase().contains("connected")
+                && !trimmed.to_lowercase().contains("disconnected")
+            {
                 connected_clone2.notify_one();
             }
             let level = classify_line(&line);
