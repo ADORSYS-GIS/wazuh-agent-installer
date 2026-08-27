@@ -52,6 +52,7 @@
                 placeholder="Enter manager address"
                 style="display: none; margin-top: 6px"
               />
+              <div id="wazuh-manager-prod-text" class="prod-readonly-text" style="display: none; margin-top: 4px; font-family: monospace; color: var(--brand-text-primary);"></div>
             </div>
 
             <h3 class="subsection-title">Network IDS Engine</h3>
@@ -197,6 +198,7 @@
                       placeholder="https://login.example.com/realms/myrealm"
                       style="display: none; margin-top: 6px"
                     />
+                    <div id="oauth-issuer-prod-text" class="prod-readonly-text" style="display: none; margin-top: 4px; font-family: monospace; color: var(--brand-text-primary);"></div>
                   </div>
 
                   <div class="form-group">
@@ -211,6 +213,7 @@
                       placeholder="https://cert.example.com/api/register-agent"
                       style="display: none; margin-top: 6px"
                     />
+                    <div id="cert-endpoint-prod-text" class="prod-readonly-text" style="display: none; margin-top: 4px; font-family: monospace; color: var(--brand-text-primary);"></div>
                   </div>
                 </div>
 
@@ -256,7 +259,7 @@
 
             <div class="card compact" style="margin-bottom: 24px">
               <p class="toggle-desc" style="margin-bottom: 16px">
-                Connect this agent to a NetBird network. Management URL defaults to <strong>api.netbird.io</strong>.
+                Connect this agent to a NetBird network. Management URL defaults to <strong>netbird.guard.adorsys.com</strong>.
                 Setup key is optional.
               </p>
 
@@ -273,6 +276,7 @@
                     placeholder="https://netbird.example.com"
                     style="display: none; margin-top: 6px"
                   />
+                  <div id="netbird-url-prod-text" class="prod-readonly-text" style="display: none; margin-top: 4px; font-family: monospace; color: var(--brand-text-primary);"></div>
                 </div>
 
                 <div class="form-group">

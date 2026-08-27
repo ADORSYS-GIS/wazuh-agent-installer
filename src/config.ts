@@ -3,6 +3,8 @@
 // ============================================================
 import logoUrl from "./assets/adorsys-logo.png";
 
+export const IS_PROD = import.meta.env.VITE_APP_FLAVOR === "prod";
+
 export const BRAND_CONFIG = {
   // Brand Metadata
   companyName: "Adorsys",
@@ -61,8 +63,8 @@ export const BRAND_CONFIG = {
     { value: "https://cert.dev.wazuh.adorsys.team/api/register-agent", label: "cert.dev.wazuh.adorsys.team (dev)" },
   ],
   netbirdManagementUrls: [
+    { value: "https://netbird.guard.adorsys.com", label: "netbird.guard.adorsys.com (prod)" },
     { value: "https://api.netbird.io:443", label: "NetBird Cloud (api.netbird.io)" },
-    { value: "https://netbird.guard.adorsys.com", label: "netbird.guard.adorsys.com" },
   ],
 };
 

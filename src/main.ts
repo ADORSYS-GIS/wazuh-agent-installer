@@ -1,4 +1,4 @@
-import { BRAND_CONFIG } from "./config";
+import { BRAND_CONFIG, IS_PROD } from "./config";
 import "@fontsource-variable/plus-jakarta-sans";
 
 // ---- Tauri Typings ----
@@ -212,10 +212,28 @@ function initializeAppHeaderAndOptions(): void {
   if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
   document.title = BRAND_CONFIG.appTitle;
 
-  populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
-  populateDropdown("oauth-issuer", BRAND_CONFIG.oauthIssuers);
-  populateDropdown("cert-endpoint", BRAND_CONFIG.certEndpoints);
-  populateDropdown("netbird-management-url", BRAND_CONFIG.netbirdManagementUrls);
+  if (IS_PROD) {
+    const setupProdField = (id: string, prodValue: string) => {
+      const selectEl = document.getElementById(id);
+      const textEl = document.getElementById(`${id}-prod-text`);
+      if (selectEl) selectEl.style.display = "none";
+      if (textEl) {
+        textEl.style.display = "block";
+        textEl.textContent = prodValue;
+      }
+    };
+    // Use the first value in the array as the prod default, stripping "(prod)" tags
+    const cleanLabel = (label: string) => label.replace(/\s*\(prod(uction)?\)/i, "");
+    setupProdField("wazuh-manager", cleanLabel(BRAND_CONFIG.managers[0].label));
+    setupProdField("oauth-issuer", cleanLabel(BRAND_CONFIG.oauthIssuers[0].label));
+    setupProdField("cert-endpoint", cleanLabel(BRAND_CONFIG.certEndpoints[0].label));
+    setupProdField("netbird-management-url", cleanLabel(BRAND_CONFIG.netbirdManagementUrls[0].label));
+  } else {
+    populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
+    populateDropdown("oauth-issuer", BRAND_CONFIG.oauthIssuers);
+    populateDropdown("cert-endpoint", BRAND_CONFIG.certEndpoints);
+    populateDropdown("netbird-management-url", BRAND_CONFIG.netbirdManagementUrls);
+  }
 }
 
 function populateDropdown(selectId: string, options: { value: string; label: string }[]): void {
@@ -272,24 +290,28 @@ function setupRadioCards(): void {
 // ---- Data Retrieval ----
 
 function getManagerValue(): string {
+  if (IS_PROD) return BRAND_CONFIG.managers[0].value;
   return elManagerSelect?.value === "other"
     ? (elManagerCustom?.value.trim() ?? "")
     : (elManagerSelect?.value.trim() ?? "");
 }
 
 function getIssuerValue(): string {
+  if (IS_PROD) return BRAND_CONFIG.oauthIssuers[0].value;
   return elIssuerSelect?.value === "other"
     ? (elIssuerCustom?.value.trim() ?? "")
     : (elIssuerSelect?.value.trim() ?? "");
 }
 
 function getEndpointValue(): string {
+  if (IS_PROD) return BRAND_CONFIG.certEndpoints[0].value;
   return elEndpointSelect?.value === "other"
     ? elEndpointCustom?.value.trim() ?? ""
     : (elEndpointSelect?.value.trim() ?? "");
 }
 
 function getNetbirdUrlValue(): string {
+  if (IS_PROD) return BRAND_CONFIG.netbirdManagementUrls[0].value;
   if (elNetbirdUrlSelect?.value === "other") {
     return elNetbirdUrlCustom?.value.trim() ?? "";
   }

@@ -8,4 +8,8 @@ export default defineConfig({
     emptyOutDir: true,
     target: "esnext",
   },
+  server: {
+    port: 5173,
+    strictPort: true,
+  }
 });
