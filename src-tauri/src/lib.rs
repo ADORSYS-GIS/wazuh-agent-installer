@@ -481,9 +481,8 @@ async fn run_enroll(
         let current_path =
             std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
         let full_path = format!("/opt/homebrew/bin:/usr/local/bin:{current_path}");
-        let mut c = create_command("sudo");
-        c.arg(format!("PATH={full_path}"));
-        c.arg("/Library/Ossec/bin/wazuh-cert-oauth2-client");
+        let mut c = create_command("/Library/Ossec/bin/wazuh-cert-oauth2-client");
+        c.env("PATH", full_path);
         c.args(&oauth_args);
         c
     };
