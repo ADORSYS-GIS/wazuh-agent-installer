@@ -327,7 +327,7 @@ function updateEnrollButtonState() {
   if (btnStartEnroll) {
     btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
     if (isReEnrolling) {
-      btnStartEnroll.textContent = "⚠️ Re-enroll Device";
+      btnStartEnroll.textContent = "Re-enroll Device";
       btnStartEnroll.classList.remove("btn-primary");
       btnStartEnroll.classList.add("btn-danger");
     } else {

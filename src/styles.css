@@ -701,7 +701,7 @@ input:checked + .slider:before {
 }
 
 .enrolled-info-ok {
-  color: var(--brand-status-success);
+  font-weight: 500;
 }
 
 .enrolled-info-warn {
@@ -751,9 +751,6 @@ input:checked + .slider:before {
   padding: 14px 0 4px;
 }
 
-.danger-warning strong {
-  color: var(--brand-status-warn);
-}
 
 /* ---- Danger Button ---- */
 .btn-danger {
