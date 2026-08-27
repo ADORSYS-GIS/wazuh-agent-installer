@@ -984,7 +984,7 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
 
     // Parse manager address from ossec.conf <address> element
     #[cfg(target_os = "windows")]
-    let conf_path = r"C:\Program Files (x86)\ossec-agent\etc\ossec.conf";
+    let conf_path = r"C:\Program Files (x86)\ossec-agent\ossec.conf";
     #[cfg(target_os = "macos")]
     let conf_path = "/Library/Ossec/etc/ossec.conf";
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
