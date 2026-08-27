@@ -958,7 +958,7 @@ struct EnrollmentState {
 #[tauri::command]
 async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(target_os = "windows")]
-    let keys_path = r"C:\Program Files (x86)\ossec-agent\etc\client.keys";
+    let keys_path = r"C:\Program Files (x86)\ossec-agent\client.keys";
     #[cfg(target_os = "macos")]
     let keys_path = "/Library/Ossec/etc/client.keys";
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
