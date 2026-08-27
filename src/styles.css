@@ -708,22 +708,6 @@ input:checked + .slider:before {
   color: var(--brand-status-warn);
 }
 
-/* Stopped state — amber tint overrides the default green card */
-.enrolled-card--stopped {
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.07) 0%, rgba(245, 158, 11, 0.03) 100%);
-  border-color: rgba(251, 191, 36, 0.25);
-}
-
-.enrolled-card--active {
-  background: linear-gradient(135deg, rgba(52, 211, 153, 0.08) 0%, rgba(16, 185, 129, 0.04) 100%);
-  border-color: rgba(52, 211, 153, 0.25);
-}
-
-.enrolled-checkmark--stopped {
-  background: rgba(251, 191, 36, 0.15);
-  border-color: rgba(251, 191, 36, 0.4);
-  color: var(--brand-status-warn);
-}
 
 /* ---- Danger / Advanced Section ---- */
 .danger-section {

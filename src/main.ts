@@ -326,6 +326,15 @@ function updateInstallButtonState() {
 function updateEnrollButtonState() {
   if (btnStartEnroll) {
     btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
+    if (isReEnrolling) {
+      btnStartEnroll.textContent = "⚠️ Re-enroll Device";
+      btnStartEnroll.classList.remove("btn-primary");
+      btnStartEnroll.classList.add("btn-danger");
+    } else {
+      btnStartEnroll.textContent = "🔐 Run Enrollment";
+      btnStartEnroll.classList.add("btn-primary");
+      btnStartEnroll.classList.remove("btn-danger");
+    }
   }
 }
 
@@ -455,8 +464,17 @@ async function startEnrollment() {
 
     if (result.success) {
       showStatusBanner(enrollStatusBanner, "success", "✓ Agent enrolled successfully!");
-      // Wait 1.5s for client.keys to be fully written before checking state
-      setTimeout(() => checkEnrollmentState(), 1500);
+      // Poll 3 times at 1s intervals for client.keys to be written
+      let attempts = 0;
+      const poll = () => {
+        attempts++;
+        checkEnrollmentState().then(() => {
+          if (!isReEnrolling && attempts < 3) {
+            setTimeout(poll, 1000);
+          }
+        });
+      };
+      setTimeout(poll, 1000);
     } else {
       showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: exit code ${result.exit_code}`);
       if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
@@ -540,12 +558,7 @@ async function checkEnrollmentState(): Promise<void> {
         dangerBody.appendChild(formSection);
         formSection.style.display = "block";
         isReEnrolling = true; // from here on, any enrollment is a re-enrollment
-        if (btnStartEnroll) {
-          btnStartEnroll.textContent = "⚠️ Re-enroll Device";
-          btnStartEnroll.classList.remove("btn-primary");
-          btnStartEnroll.classList.add("btn-danger");
-          btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
-        }
+        updateEnrollButtonState();
       }
 
       // Populate info rows
@@ -571,12 +584,7 @@ async function checkEnrollmentState(): Promise<void> {
         formSection.style.display = "block";
       }
 
-      // Reset button to primary enroll style
-      if (btnStartEnroll) {
-        btnStartEnroll.textContent = "🔐 Run Enrollment";
-        btnStartEnroll.classList.add("btn-primary");
-        btnStartEnroll.classList.remove("btn-danger");
-      }
+      updateEnrollButtonState();
 
       // Show sidebar red badge
       if (navBadge) {
