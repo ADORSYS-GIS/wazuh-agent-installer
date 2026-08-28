@@ -20,6 +20,12 @@ interface ComponentStatus {
   path: string;
 }
 
+interface EnrollmentState {
+  enrolled: boolean;
+  agent_name?: string;
+  manager?: string;
+}
+
 declare global {
   interface Window {
     __TAURI__?: {
@@ -59,6 +65,9 @@ const invoke = hasTauri
           { name: "OAuth2 Client", installed: false, version: null, path: "/var/ossec/bin/wazuh-cert-oauth2-client" },
         ] as unknown as T;
       }
+      if (cmd === "check_enrollment") {
+        return { enrolled: false } as unknown as T;
+      }
       return {} as T;
     };
 
@@ -71,6 +80,7 @@ const listen = hasTauri
 
 let isInstalling = false;
 let isEnrolling = false;
+let isReEnrolling = false; // true when the user is already enrolled — passes --overwrite to the client
 let isNetbirding = false;
 
 // ---- DOM refs ----
@@ -152,6 +162,10 @@ function finishBoot() {
   updateEnrollButtonState();
   updateNetbirdButtonState();
   refreshComponents(); // Initial load
+  checkEnrollmentState(); // Check if already enrolled on startup
+
+  // Keep the enrolled card in sync while the app is open
+  setInterval(() => checkEnrollmentState(), 15_000);
 }
 
 function switchTab(targetId: string) {
@@ -312,6 +326,15 @@ function updateInstallButtonState() {
 function updateEnrollButtonState() {
   if (btnStartEnroll) {
     btnStartEnroll.disabled = !getIssuerValue() || !getEndpointValue() || isEnrolling;
+    if (isReEnrolling) {
+      btnStartEnroll.textContent = "Re-enroll Device";
+      btnStartEnroll.classList.remove("btn-primary");
+      btnStartEnroll.classList.add("btn-danger");
+    } else {
+      btnStartEnroll.textContent = "🔐 Run Enrollment";
+      btnStartEnroll.classList.add("btn-primary");
+      btnStartEnroll.classList.remove("btn-danger");
+    }
   }
 }
 
@@ -436,10 +459,22 @@ async function startEnrollment() {
     const result = await invoke<InstallResult>("run_enroll", {
       issuer,
       endpoint,
+      overwrite: isReEnrolling,
     });
 
     if (result.success) {
-      showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
+      showStatusBanner(enrollStatusBanner, "success", "✓ Agent enrolled successfully!");
+      // Poll 3 times at 1s intervals for client.keys to be written
+      let attempts = 0;
+      const poll = () => {
+        attempts++;
+        checkEnrollmentState().then(() => {
+          if (!isReEnrolling && attempts < 3) {
+            setTimeout(poll, 1000);
+          }
+        });
+      };
+      setTimeout(poll, 1000);
     } else {
       showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: exit code ${result.exit_code}`);
       if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
@@ -498,6 +533,68 @@ async function startNetbirdConnection() {
     updateNetbirdButtonState();
     refreshComponents();
     enableSaveLogs("btn-save-netbird-logs", "netbird-terminal", "netbird");
+  }
+}
+
+// ---- Enrollment State ----
+
+async function checkEnrollmentState(): Promise<void> {
+  try {
+    const state = await invoke<EnrollmentState>("check_enrollment");
+
+    const activeCard = document.getElementById("enroll-active-card");
+    const formSection = document.getElementById("enroll-form-section");
+    const dangerBody = document.getElementById("enroll-danger-body");
+    const navBadge = document.getElementById("enroll-nav-badge");
+    const agentNameEl = document.getElementById("enroll-info-agent-name");
+    const managerEl = document.getElementById("enroll-info-manager");
+
+    if (state.enrolled) {
+      // Show the status card
+      if (activeCard) activeCard.style.display = "block";
+
+      // Move the form into the Advanced / danger section
+      if (dangerBody && formSection && formSection.parentElement !== dangerBody) {
+        dangerBody.appendChild(formSection);
+        formSection.style.display = "block";
+        isReEnrolling = true; // from here on, any enrollment is a re-enrollment
+        updateEnrollButtonState();
+      }
+
+      // Populate info rows
+      if (agentNameEl) agentNameEl.textContent = state.agent_name ?? "Unknown";
+      if (managerEl) managerEl.textContent = state.manager ?? "Unknown";
+
+      // Show the sidebar green badge
+      if (navBadge) {
+        navBadge.style.display = "flex";
+        navBadge.className = "enroll-nav-badge enroll-nav-badge--active";
+        navBadge.textContent = "✓";
+      }
+    } else {
+      // Not enrolled — hide the card, show the form normally
+      if (activeCard) activeCard.style.display = "none";
+      isReEnrolling = false; // fresh machine — no overwrite needed
+
+      // Move form back to its original position in the tab panel
+      const tabPanel = document.getElementById("tab-enrollment");
+      if (tabPanel && formSection && formSection.parentElement !== tabPanel) {
+        const terminalArea = document.getElementById("enroll-terminal-area");
+        tabPanel.insertBefore(formSection, terminalArea);
+        formSection.style.display = "block";
+      }
+
+      updateEnrollButtonState();
+
+      // Show sidebar red badge
+      if (navBadge) {
+        navBadge.style.display = "flex";
+        navBadge.className = "enroll-nav-badge enroll-nav-badge--missing";
+        navBadge.textContent = "✗";
+      }
+    }
+  } catch (err) {
+    console.warn("[checkEnrollmentState] Could not determine enrollment state:", err);
   }
 }
 

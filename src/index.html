@@ -24,7 +24,7 @@
 
           <nav class="sidebar-nav">
             <button class="nav-item active" data-target="tab-setup"><span class="nav-icon">⚙️</span> Setup</button>
-            <button class="nav-item" data-target="tab-enrollment"><span class="nav-icon">🔐</span> Enrollment</button>
+            <button class="nav-item" data-target="tab-enrollment"><span class="nav-icon">🔐</span> Enrollment <span class="enroll-nav-badge" id="enroll-nav-badge">✗</span></button>
             <button class="nav-item" data-target="tab-netbird"><span class="nav-icon">🐦</span> NetBird</button>
             <button class="nav-item" data-target="tab-components"><span class="nav-icon">🧩</span> Overview</button>
           </nav>
@@ -138,42 +138,89 @@
           <section id="tab-enrollment" class="tab-panel">
             <h2 class="section-title">Agent Enrollment</h2>
 
-            <div class="card compact" style="margin-bottom: 24px">
-              <div class="form-grid-2col">
-                <div class="form-group">
-                  <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
-                  <select class="form-input form-select" id="oauth-issuer">
-                    <option value="">— Select issuer —</option>
-                  </select>
-                  <input
-                    class="form-input"
-                    type="text"
-                    id="oauth-issuer-custom"
-                    placeholder="https://login.example.com/realms/myrealm"
-                    style="display: none; margin-top: 6px"
-                  />
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
-                  <select class="form-input form-select" id="cert-endpoint">
-                    <option value="">— Select endpoint —</option>
-                  </select>
-                  <input
-                    class="form-input"
-                    type="text"
-                    id="cert-endpoint-custom"
-                    placeholder="https://cert.example.com/api/register-agent"
-                    style="display: none; margin-top: 6px"
-                  />
+            <!-- ===== ENROLLED STATE CARD (shown when already enrolled) ===== -->
+            <div id="enroll-active-card" class="enrolled-card" style="display: none">
+              <div class="enrolled-card-header">
+                <div class="enrolled-checkmark">✓</div>
+                <div>
+                  <div class="enrolled-title">Agent Already Enrolled</div>
+                  <div class="enrolled-subtitle">This machine is registered with the Wazuh cluster.</div>
                 </div>
               </div>
 
-              <div class="action-row" style="margin-top: 20px">
-                <button id="btn-start-enroll" class="btn btn-primary" disabled>🔐 Run Enrollment</button>
+              <div class="enrolled-info-grid">
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Agent Name</span>
+                  <span class="enrolled-info-value" id="enroll-info-agent-name">—</span>
+                </div>
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Manager</span>
+                  <span class="enrolled-info-value" id="enroll-info-manager">—</span>
+                </div>
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Certificate Keys</span>
+                  <span class="enrolled-info-value enrolled-info-ok">Present &amp; Valid</span>
+                </div>
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Status</span>
+                  <span class="enrolled-info-value enrolled-info-ok">Enrolled</span>
+                </div>
+              </div>
+
+              <!-- Advanced: Re-enroll (collapsed by default, form section injected here by JS) -->
+              <details class="danger-section" id="enroll-advanced-details">
+                <summary class="danger-summary">⚠️ Advanced — Re-enroll this device</summary>
+                <div class="danger-body" id="enroll-danger-body">
+                  <p class="danger-warning">
+                    Re-enrolling will <strong>overwrite your existing cryptographic keys</strong> and
+                    disconnect this agent until the new certificate is accepted by the cluster.
+                    Only proceed if instructed by your administrator.
+                  </p>
+                  <!-- #enroll-form-section is moved here by JS when enrolled -->
+                </div>
+              </details>
+            </div>
+
+            <!-- ===== ENROLLMENT FORM (standalone when not enrolled, moved into Advanced when enrolled) ===== -->
+            <div id="enroll-form-section">
+              <div class="card compact" style="margin-bottom: 24px">
+                <div class="form-grid-2col">
+                  <div class="form-group">
+                    <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
+                    <select class="form-input form-select" id="oauth-issuer">
+                      <option value="">— Select issuer —</option>
+                    </select>
+                    <input
+                      class="form-input"
+                      type="text"
+                      id="oauth-issuer-custom"
+                      placeholder="https://login.example.com/realms/myrealm"
+                      style="display: none; margin-top: 6px"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
+                    <select class="form-input form-select" id="cert-endpoint">
+                      <option value="">— Select endpoint —</option>
+                    </select>
+                    <input
+                      class="form-input"
+                      type="text"
+                      id="cert-endpoint-custom"
+                      placeholder="https://cert.example.com/api/register-agent"
+                      style="display: none; margin-top: 6px"
+                    />
+                  </div>
+                </div>
+
+                <div class="action-row" style="margin-top: 20px">
+                  <button id="btn-start-enroll" class="btn btn-primary" disabled>🔐 Run Enrollment</button>
+                </div>
               </div>
             </div>
 
+            <!-- Enrollment terminal output (shared between both states) -->
             <div id="enroll-terminal-area" style="display: none">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
                 <h3 class="subsection-title" style="margin-bottom: 0; margin-top: 0">Enrollment Output</h3>

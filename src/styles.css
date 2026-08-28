@@ -618,3 +618,195 @@ input:checked + .slider:before {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+
+/* ---- Enrolled State Card ---- */
+.enrolled-card {
+  background: var(--brand-bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+  animation: fadeUp 0.4s ease;
+}
+
+.enrolled-card-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.enrolled-checkmark {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--brand-status-success);
+  flex-shrink: 0;
+  animation: popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes popIn {
+  from { transform: scale(0.4); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.enrolled-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--brand-text-primary);
+  margin-bottom: 4px;
+}
+
+.enrolled-subtitle {
+  font-size: 13px;
+  color: var(--brand-text-secondary);
+}
+
+.enrolled-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.enrolled-info-row {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.enrolled-info-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--brand-text-secondary);
+}
+
+.enrolled-info-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--brand-text-primary);
+  word-break: break-all;
+}
+
+.enrolled-info-ok {
+  font-weight: 500;
+}
+
+.enrolled-info-warn {
+  color: var(--brand-status-warn);
+}
+
+
+/* ---- Danger / Advanced Section ---- */
+.danger-section {
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.03);
+  overflow: hidden;
+}
+
+.danger-summary {
+  padding: 14px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-status-warn);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.danger-summary:hover {
+  background: rgba(251, 191, 36, 0.05);
+}
+
+.danger-summary::-webkit-details-marker {
+  display: none;
+}
+
+.danger-body {
+  padding: 0 18px 18px;
+  border-top: 1px solid rgba(251, 191, 36, 0.15);
+}
+
+.danger-warning {
+  font-size: 13px;
+  color: var(--brand-text-secondary);
+  line-height: 1.6;
+  padding: 14px 0 4px;
+}
+
+
+/* ---- Danger Button ---- */
+.btn-danger {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--brand-status-error);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.25);
+  border-color: rgba(248, 113, 113, 0.5);
+  transform: translateY(-1px);
+}
+
+/* ---- Sidebar Enrollment Badge ---- */
+.enroll-nav-badge {
+  margin-left: auto;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeUp 0.3s ease;
+}
+
+.enroll-nav-badge--active {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--brand-status-success);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.enroll-nav-badge--missing {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--brand-status-error);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+/* Compact card modifier */
+.card.compact {
+  padding: 16px;
+}
+.toggle-row.compact .toggle-title {
+  font-size: 14px;
+}
+.toggle-row.compact .toggle-desc {
+  font-size: 12px;
+}
+.suricata-info-card.compact {
+  padding: 12px 16px;
+}
+.sub-option {
+  display: none;
+}
+.sub-option.visible {
+  display: block;
+}

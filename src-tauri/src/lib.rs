@@ -443,20 +443,26 @@ fn open_browser(url: &str) {
     // Fallback to Tauri opener for Windows or standard Linux
     let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
-
 #[tauri::command]
 async fn run_enroll(
     issuer: String,
     endpoint: String,
+    overwrite: bool,
     app: AppHandle,
 ) -> Result<InstallResult, String> {
-    let oauth_args = vec![
+    let mut oauth_args = vec![
         "o-auth2".to_string(),
         "--issuer".to_string(),
         issuer,
         "--endpoint".to_string(),
         endpoint,
     ];
+
+    // Only pass --overwrite when explicitly re-enrolling an already-enrolled agent
+    if overwrite {
+        oauth_args.push("--overwrite".to_string());
+        oauth_args.push("true".to_string());
+    }
 
     // The process is already root at this point.
     // Call the binary directly — no pkexec or osascript wrapper needed.
@@ -939,6 +945,69 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
     Ok(results)
 }
 
+// ---- Enrollment State ----
+
+#[derive(Serialize)]
+struct EnrollmentState {
+    enrolled: bool,
+    agent_name: Option<String>,
+    manager: Option<String>,
+}
+
+#[tauri::command]
+async fn check_enrollment() -> Result<EnrollmentState, String> {
+    #[cfg(target_os = "windows")]
+    let keys_path = r"C:\Program Files (x86)\ossec-agent\client.keys";
+    #[cfg(target_os = "macos")]
+    let keys_path = "/Library/Ossec/etc/client.keys";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let keys_path = "/var/ossec/etc/client.keys";
+
+    let keys_content = std::fs::read_to_string(keys_path).unwrap_or_default();
+
+    // Check if the file has at least one non-empty line (a real key)
+    let first_key_line = keys_content.lines().find(|l| !l.trim().is_empty());
+
+    if first_key_line.is_none() {
+        return Ok(EnrollmentState {
+            enrolled: false,
+            agent_name: None,
+            manager: None,
+        });
+    }
+
+    // Parse agent name from first line of client.keys: "<id> <name> <ip> <key>"
+    let agent_name = first_key_line
+        .and_then(|line| line.split_whitespace().nth(1))
+        .map(|s| s.to_string());
+
+    // Parse manager address from ossec.conf <address> element
+    #[cfg(target_os = "windows")]
+    let conf_path = r"C:\Program Files (x86)\ossec-agent\ossec.conf";
+    #[cfg(target_os = "macos")]
+    let conf_path = "/Library/Ossec/etc/ossec.conf";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let conf_path = "/var/ossec/etc/ossec.conf";
+
+    let manager = std::fs::read_to_string(conf_path).ok().and_then(|content| {
+        content
+            .lines()
+            .find(|l| l.trim().starts_with("<address>"))
+            .and_then(|line| {
+                line.trim()
+                    .strip_prefix("<address>")
+                    .and_then(|s| s.strip_suffix("</address>"))
+                    .map(|s| s.trim().to_string())
+            })
+    });
+
+    Ok(EnrollmentState {
+        enrolled: true,
+        agent_name,
+        manager,
+    })
+}
+
 #[tauri::command]
 async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
     let mut path = dirs::download_dir().unwrap_or_else(|| std::env::current_dir().unwrap());
@@ -1124,6 +1193,7 @@ pub fn run() {
             run_enroll,
             run_netbird_up,
             check_components,
+            check_enrollment,
             save_logs
         ])
         .setup(|app| {
