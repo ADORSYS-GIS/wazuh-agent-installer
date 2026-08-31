@@ -14,6 +14,25 @@ use std::os::windows::process::CommandExt;
 
 // ---- Types ----
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AppConfig {
+    pub wazuh_manager_url: String,
+    pub wazuh_oauth_issuer: String,
+    pub wazuh_cert_endpoint: String,
+    pub netbird_management_url: String,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            wazuh_manager_url: "manager.wazuh.adorsys.team".to_string(),
+            wazuh_oauth_issuer: "https://login.wazuh.adorsys.team/realms/adorsys".to_string(),
+            wazuh_cert_endpoint: "https://cert.wazuh.adorsys.team/api/register-agent".to_string(),
+            netbird_management_url: "https://netbird.guard.adorsys.com".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Clone)]
 struct LogLine {
     line: String,
@@ -99,8 +118,9 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                 return Some(first_line.trim().to_string());
             } else if name == "Suricata" {
                 let lower = out_str.to_lowercase();
-                if let Some(idx) = lower.find("suricata ") {
-                    let rest = &out_str[idx + 9..];
+                // Expected output from `suricata -V`: "This is Suricata version 7.0.17 RELEASE"
+                if let Some(idx) = lower.find("version ") {
+                    let rest = &out_str[idx + 8..];
                     if let Some(first_word) = rest.split_whitespace().next() {
                         let cleaned = first_word
                             .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
@@ -109,14 +129,15 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                         }
                     }
                 }
-                if let Some(idx) = lower.find("version ") {
-                    let rest = &out_str[idx + 8..];
-                    return Some(
-                        rest.split_whitespace()
-                            .next()
-                            .unwrap_or(&out_str)
-                            .to_string(),
-                    );
+                if let Some(idx) = lower.find("suricata ") {
+                    let rest = &out_str[idx + 9..];
+                    if let Some(first_word) = rest.split_whitespace().next() {
+                        let cleaned = first_word
+                            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+                        if !cleaned.is_empty() && cleaned != "version" {
+                            return Some(cleaned.to_string());
+                        }
+                    }
                 }
                 return Some(out_str.trim().to_string());
             } else if name == "Trivy" {
@@ -1019,6 +1040,27 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn get_app_config(app: AppHandle) -> Result<AppConfig, String> {
+    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let config_path = config_dir.join("config.json");
+    if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        match serde_json::from_str(&content) {
+            Ok(config) => Ok(config),
+            Err(e) => {
+                eprintln!(
+                    "Failed to parse config.json, falling back to defaults: {}",
+                    e
+                );
+                Ok(AppConfig::default())
+            }
+        }
+    } else {
+        Ok(AppConfig::default())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Capture our PID before elevation so the elevated child can watch us.
@@ -1195,9 +1237,24 @@ pub fn run() {
             run_netbird_up,
             check_components,
             check_enrollment,
-            save_logs
+            save_logs,
+            get_app_config
         ])
         .setup(|app| {
+            // Generate default config file if it doesn't exist
+            if let Ok(config_dir) = app.path().app_config_dir() {
+                if !config_dir.exists() {
+                    let _ = std::fs::create_dir_all(&config_dir);
+                }
+                let config_path = config_dir.join("config.json");
+                if !config_path.exists() {
+                    let default_config = AppConfig::default();
+                    if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+                        let _ = std::fs::write(config_path, json);
+                    }
+                }
+            }
+
             let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;

@@ -3,7 +3,6 @@
 // ============================================================
 import logoUrl from "./assets/adorsys-logo.png";
 
-export const IS_PROD = import.meta.env.VITE_APP_FLAVOR === "prod";
 
 export const BRAND_CONFIG = {
   // Brand Metadata
@@ -44,28 +43,7 @@ export const BRAND_CONFIG = {
     statusWarnDim: "rgba(251, 191, 36, 0.12)",
   },
 
-  // Wazuh Agent default configuration
-  managers: [
-    { value: "manager.wazuh.adorsys.team", label: "manager.wazuh.adorsys.team (prod)" },
-    { value: "single-cluster.dev.wazuh.adorsys.team", label: "single-cluster.dev.wazuh.adorsys.team (dev)" },
-  ],
 
-  oauthIssuers: [
-    { value: "https://login.wazuh.adorsys.team/realms/adorsys", label: "login.wazuh.adorsys.team / adorsys" },
-    {
-      value: "https://login.dev.wazuh.adorsys.team/realms/test-adorsys",
-      label: "login.dev.wazuh.adorsys.team / test-adorsys (dev)",
-    },
-  ],
-
-  certEndpoints: [
-    { value: "https://cert.wazuh.adorsys.team/api/register-agent", label: "cert.wazuh.adorsys.team (production)" },
-    { value: "https://cert.dev.wazuh.adorsys.team/api/register-agent", label: "cert.dev.wazuh.adorsys.team (dev)" },
-  ],
-  netbirdManagementUrls: [
-    { value: "https://netbird.guard.adorsys.com", label: "netbird.guard.adorsys.com (prod)" },
-    { value: "https://api.netbird.io:443", label: "NetBird Cloud (api.netbird.io)" },
-  ],
 };
 
 // Human-readable descriptions for each component, shown in the Overview tab.

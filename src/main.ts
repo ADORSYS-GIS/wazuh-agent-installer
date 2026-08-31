@@ -1,4 +1,4 @@
-import { BRAND_CONFIG, IS_PROD } from "./config";
+import { BRAND_CONFIG } from "./config";
 import "@fontsource-variable/plus-jakarta-sans";
 
 // ---- Tauri Typings ----
@@ -24,6 +24,13 @@ interface EnrollmentState {
   enrolled: boolean;
   agent_name?: string;
   manager?: string;
+}
+
+interface AppConfig {
+  wazuh_manager_url: string;
+  wazuh_oauth_issuer: string;
+  wazuh_cert_endpoint: string;
+  netbird_management_url: string;
 }
 
 declare global {
@@ -92,12 +99,6 @@ const navItems = document.querySelectorAll<HTMLElement>(".nav-item");
 const tabPanels = document.querySelectorAll<HTMLElement>(".tab-panel");
 
 // Config inputs
-const elManagerSelect = document.getElementById("wazuh-manager") as HTMLSelectElement | null;
-const elManagerCustom = document.getElementById("wazuh-manager-custom") as HTMLInputElement | null;
-const elIssuerSelect = document.getElementById("oauth-issuer") as HTMLSelectElement | null;
-const elIssuerCustom = document.getElementById("oauth-issuer-custom") as HTMLInputElement | null;
-const elEndpointSelect = document.getElementById("cert-endpoint") as HTMLSelectElement | null;
-const elEndpointCustom = document.getElementById("cert-endpoint-custom") as HTMLInputElement | null;
 const elTrivy = document.getElementById("install-trivy") as HTMLInputElement | null;
 const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInputElement | null;
 
@@ -122,8 +123,6 @@ const terminalEnroll = document.getElementById("enroll-terminal");
 const enrollStatusBanner = document.getElementById("enroll-status-banner");
 
 // NetBird
-const elNetbirdUrlSelect = document.getElementById("netbird-management-url") as HTMLSelectElement | null;
-const elNetbirdUrlCustom = document.getElementById("netbird-management-url-custom") as HTMLInputElement | null;
 const elNetbirdSetupKey = document.getElementById("netbird-setup-key") as HTMLInputElement | null;
 const btnStartNetbird = document.getElementById("btn-start-netbird") as HTMLButtonElement;
 const btnRetryNetbird = document.getElementById("btn-retry-netbird") as HTMLButtonElement;
@@ -133,15 +132,31 @@ const netbirdStatusBanner = document.getElementById("netbird-status-banner");
 
 // ---- Initialization ----
 
+let appConfig: AppConfig | null = null;
+
 async function boot() {
+  try {
+    appConfig = await invoke<AppConfig>("get_app_config");
+  } catch (err) {
+    console.error("Failed to load app config:", err);
+  }
+
   applyBrandTheme();
   initializeAppHeaderAndOptions();
-  setupCustomInputListeners();
   setupRadioCards();
 
   // Tab handling
   navItems.forEach((item) => {
-    item.addEventListener("click", () => switchTab(item.dataset.target!));
+    item.addEventListener("click", () => {
+      if (item.classList.contains("nav-accordion-toggle")) {
+        const accordion = item.closest(".nav-group-accordion");
+        if (accordion) accordion.classList.toggle("expanded");
+        return;
+      }
+      if (item.dataset.target) {
+        switchTab(item.dataset.target);
+      }
+    });
   });
 
   // Action listeners
@@ -211,71 +226,6 @@ function initializeAppHeaderAndOptions(): void {
   if (appTitle) appTitle.textContent = BRAND_CONFIG.appTitle;
   if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
   document.title = BRAND_CONFIG.appTitle;
-
-  if (IS_PROD) {
-    const setupProdField = (id: string, prodValue: string) => {
-      const selectEl = document.getElementById(id);
-      const textEl = document.getElementById(`${id}-prod-text`);
-      if (selectEl) selectEl.style.display = "none";
-      if (textEl) {
-        textEl.style.display = "block";
-        textEl.textContent = prodValue;
-      }
-    };
-    // Use the first value in the array as the prod default, stripping "(prod)" tags
-    const cleanLabel = (label: string) => label.replace(/\s*\(prod(uction)?\)/i, "");
-    setupProdField("wazuh-manager", cleanLabel(BRAND_CONFIG.managers[0].label));
-    setupProdField("oauth-issuer", cleanLabel(BRAND_CONFIG.oauthIssuers[0].label));
-    setupProdField("cert-endpoint", cleanLabel(BRAND_CONFIG.certEndpoints[0].label));
-    setupProdField("netbird-management-url", cleanLabel(BRAND_CONFIG.netbirdManagementUrls[0].label));
-  } else {
-    populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
-    populateDropdown("oauth-issuer", BRAND_CONFIG.oauthIssuers);
-    populateDropdown("cert-endpoint", BRAND_CONFIG.certEndpoints);
-    populateDropdown("netbird-management-url", BRAND_CONFIG.netbirdManagementUrls);
-  }
-}
-
-function populateDropdown(selectId: string, options: { value: string; label: string }[]): void {
-  const selectEl = document.getElementById(selectId) as HTMLSelectElement | null;
-  if (!selectEl) return;
-  const placeholderOption = selectEl.options[0];
-  selectEl.innerHTML = "";
-  if (placeholderOption) selectEl.appendChild(placeholderOption);
-
-  options.forEach((opt) => {
-    const option = document.createElement("option");
-    option.value = opt.value;
-    option.textContent = opt.label;
-    selectEl.appendChild(option);
-  });
-
-  const otherOpt = document.createElement("option");
-  otherOpt.value = "other";
-  otherOpt.textContent = "Other (enter manually)…";
-  selectEl.appendChild(otherOpt);
-}
-
-function setupCustomInputListeners(): void {
-  const bindSelectToCustom = (sel: HTMLSelectElement | null, cus: HTMLInputElement | null, updateBtn: () => void) => {
-    sel?.addEventListener("change", () => {
-      if (sel.value === "other" && cus) {
-        cus.style.display = "block";
-        cus.focus();
-      } else if (cus) {
-        cus.style.display = "none";
-        cus.value = "";
-      }
-      updateBtn();
-    });
-    cus?.addEventListener("input", updateBtn);
-  };
-
-  bindSelectToCustom(elManagerSelect, elManagerCustom, updateInstallButtonState);
-  bindSelectToCustom(elIssuerSelect, elIssuerCustom, updateEnrollButtonState);
-  bindSelectToCustom(elEndpointSelect, elEndpointCustom, updateEnrollButtonState);
-  bindSelectToCustom(elNetbirdUrlSelect, elNetbirdUrlCustom, updateNetbirdButtonState);
-  elNetbirdSetupKey?.addEventListener("input", updateNetbirdButtonState);
 }
 
 function setupRadioCards(): void {
@@ -290,32 +240,19 @@ function setupRadioCards(): void {
 // ---- Data Retrieval ----
 
 function getManagerValue(): string {
-  if (IS_PROD) return BRAND_CONFIG.managers[0].value;
-  return elManagerSelect?.value === "other"
-    ? (elManagerCustom?.value.trim() ?? "")
-    : (elManagerSelect?.value.trim() ?? "");
+  return appConfig?.wazuh_manager_url ?? "";
 }
 
 function getIssuerValue(): string {
-  if (IS_PROD) return BRAND_CONFIG.oauthIssuers[0].value;
-  return elIssuerSelect?.value === "other"
-    ? (elIssuerCustom?.value.trim() ?? "")
-    : (elIssuerSelect?.value.trim() ?? "");
+  return appConfig?.wazuh_oauth_issuer ?? "";
 }
 
 function getEndpointValue(): string {
-  if (IS_PROD) return BRAND_CONFIG.certEndpoints[0].value;
-  return elEndpointSelect?.value === "other"
-    ? elEndpointCustom?.value.trim() ?? ""
-    : (elEndpointSelect?.value.trim() ?? "");
+  return appConfig?.wazuh_cert_endpoint ?? "";
 }
 
 function getNetbirdUrlValue(): string {
-  if (IS_PROD) return BRAND_CONFIG.netbirdManagementUrls[0].value;
-  if (elNetbirdUrlSelect?.value === "other") {
-    return elNetbirdUrlCustom?.value.trim() ?? "";
-  }
-  return elNetbirdUrlSelect?.value.trim() ?? "";
+  return appConfig?.netbird_management_url ?? "";
 }
 
 function getNetbirdSetupKey(): string {
@@ -551,7 +488,6 @@ async function checkEnrollmentState(): Promise<void> {
     const dangerBody = document.getElementById("enroll-danger-body");
     const navBadge = document.getElementById("enroll-nav-badge");
     const agentNameEl = document.getElementById("enroll-info-agent-name");
-    const managerEl = document.getElementById("enroll-info-manager");
 
     if (state.enrolled) {
       // Show the status card
@@ -572,7 +508,6 @@ async function checkEnrollmentState(): Promise<void> {
 
       // Populate info rows
       if (agentNameEl) agentNameEl.textContent = state.agent_name ?? "Unknown";
-      if (managerEl) managerEl.textContent = state.manager ?? "Unknown";
 
       // Show the sidebar green badge
       if (navBadge) {

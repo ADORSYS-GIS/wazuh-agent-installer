@@ -13,7 +13,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flavor: [prod, dev]
         include:
           - platform: ubuntu-22.04
             args: ''
@@ -107,18 +106,6 @@ jobs:
             fs.writeFileSync('src/config.ts', content);
           "
 
-      - name: Apply flavor settings
-        if: matrix.flavor == 'dev'
-        shell: bash
-        run: |
-          node -e "
-            const fs = require('fs');
-            const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-            conf.build.beforeBuildCommand = 'npm run build:dev';
-            conf.productName = 'wazuh-agent-installer-dev';
-            conf.identifier = 'com.adorsys.wazuh.dev';
-            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
-          "
 
       # ── Build & Release ───────────────────────────────────────────────────
       - name: Build and publish release
