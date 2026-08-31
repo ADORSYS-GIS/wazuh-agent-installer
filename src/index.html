@@ -24,7 +24,8 @@
 
           <nav class="sidebar-nav">
             <button class="nav-item active" data-target="tab-setup"><span class="nav-icon">⚙️</span> Setup</button>
-            <button class="nav-item" data-target="tab-enrollment"><span class="nav-icon">🔐</span> Enrollment</button>
+            <button class="nav-item" data-target="tab-enrollment"><span class="nav-icon">🔐</span> Enrollment <span class="enroll-nav-badge" id="enroll-nav-badge">✗</span></button>
+            <button class="nav-item" data-target="tab-netbird"><span class="nav-icon">🐦</span> NetBird</button>
             <button class="nav-item" data-target="tab-components"><span class="nav-icon">🧩</span> Overview</button>
           </nav>
 
@@ -73,10 +74,25 @@
               <div class="toggle-row compact">
                 <div class="toggle-info">
                   <div class="toggle-title">Install Trivy</div>
-                  <div class="toggle-desc">Vulnerability scanner for containers and filesystems.</div>
+                  <div class="toggle-desc">
+                    Comprehensive vulnerability scanner for containers, filesystems, and dependencies.
+                  </div>
                 </div>
                 <label class="toggle-switch">
                   <input type="checkbox" id="install-trivy" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="card compact" style="margin-top: 16px">
+              <div class="toggle-row compact">
+                <div class="toggle-info">
+                  <div class="toggle-title">Install NetBird</div>
+                  <div class="toggle-desc">WireGuard-based overlay VPN client for secure mesh networking.</div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="install-netbird" />
                   <span class="slider"></span>
                 </label>
               </div>
@@ -122,53 +138,89 @@
           <section id="tab-enrollment" class="tab-panel">
             <h2 class="section-title">Agent Enrollment</h2>
 
-            <div class="card compact" style="margin-bottom: 24px">
-              <div class="form-grid-2col">
-                <div class="form-group">
-                  <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
-                  <select class="form-input form-select" id="oauth-issuer">
-                    <option value="">— Select issuer —</option>
-                  </select>
-                  <input
-                    class="form-input"
-                    type="text"
-                    id="oauth-issuer-custom"
-                    placeholder="https://login.example.com/realms/myrealm"
-                    style="display: none; margin-top: 6px"
-                  />
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
-                  <select class="form-input form-select" id="cert-endpoint">
-                    <option value="">— Select endpoint —</option>
-                  </select>
-                  <input
-                    class="form-input"
-                    type="text"
-                    id="cert-endpoint-custom"
-                    placeholder="https://cert.example.com/api/register-agent"
-                    style="display: none; margin-top: 6px"
-                  />
+            <!-- ===== ENROLLED STATE CARD (shown when already enrolled) ===== -->
+            <div id="enroll-active-card" class="enrolled-card" style="display: none">
+              <div class="enrolled-card-header">
+                <div class="enrolled-checkmark">✓</div>
+                <div>
+                  <div class="enrolled-title">Agent Already Enrolled</div>
+                  <div class="enrolled-subtitle">This machine is registered with the Wazuh cluster.</div>
                 </div>
               </div>
 
-              <div class="toggle-row compact" style="margin-top: 16px">
-                <div class="toggle-info">
-                  <div class="toggle-title">Overwrite Existing Credentials</div>
-                  <div class="toggle-desc">Replace any existing enrollment certificates for this agent.</div>
+              <div class="enrolled-info-grid">
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Agent Name</span>
+                  <span class="enrolled-info-value" id="enroll-info-agent-name">—</span>
                 </div>
-                <label class="toggle-switch">
-                  <input type="checkbox" id="enroll-overwrite" checked />
-                  <span class="slider"></span>
-                </label>
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Manager</span>
+                  <span class="enrolled-info-value" id="enroll-info-manager">—</span>
+                </div>
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Certificate Keys</span>
+                  <span class="enrolled-info-value enrolled-info-ok">Present &amp; Valid</span>
+                </div>
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Status</span>
+                  <span class="enrolled-info-value enrolled-info-ok">Enrolled</span>
+                </div>
               </div>
 
-              <div class="action-row" style="margin-top: 20px">
-                <button id="btn-start-enroll" class="btn btn-primary" disabled>🔐 Run Enrollment</button>
+              <!-- Advanced: Re-enroll (collapsed by default, form section injected here by JS) -->
+              <details class="danger-section" id="enroll-advanced-details">
+                <summary class="danger-summary">⚠️ Advanced — Re-enroll this device</summary>
+                <div class="danger-body" id="enroll-danger-body">
+                  <p class="danger-warning">
+                    Re-enrolling will <strong>overwrite your existing cryptographic keys</strong> and
+                    disconnect this agent until the new certificate is accepted by the cluster.
+                    Only proceed if instructed by your administrator.
+                  </p>
+                  <!-- #enroll-form-section is moved here by JS when enrolled -->
+                </div>
+              </details>
+            </div>
+
+            <!-- ===== ENROLLMENT FORM (standalone when not enrolled, moved into Advanced when enrolled) ===== -->
+            <div id="enroll-form-section">
+              <div class="card compact" style="margin-bottom: 24px">
+                <div class="form-grid-2col">
+                  <div class="form-group">
+                    <label class="form-label" for="oauth-issuer">OAuth2 Issuer URL</label>
+                    <select class="form-input form-select" id="oauth-issuer">
+                      <option value="">— Select issuer —</option>
+                    </select>
+                    <input
+                      class="form-input"
+                      type="text"
+                      id="oauth-issuer-custom"
+                      placeholder="https://login.example.com/realms/myrealm"
+                      style="display: none; margin-top: 6px"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label class="form-label" for="cert-endpoint">Certificate Endpoint</label>
+                    <select class="form-input form-select" id="cert-endpoint">
+                      <option value="">— Select endpoint —</option>
+                    </select>
+                    <input
+                      class="form-input"
+                      type="text"
+                      id="cert-endpoint-custom"
+                      placeholder="https://cert.example.com/api/register-agent"
+                      style="display: none; margin-top: 6px"
+                    />
+                  </div>
+                </div>
+
+                <div class="action-row" style="margin-top: 20px">
+                  <button id="btn-start-enroll" class="btn btn-primary" disabled>🔐 Run Enrollment</button>
+                </div>
               </div>
             </div>
 
+            <!-- Enrollment terminal output (shared between both states) -->
             <div id="enroll-terminal-area" style="display: none">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
                 <h3 class="subsection-title" style="margin-bottom: 0; margin-top: 0">Enrollment Output</h3>
@@ -194,6 +246,80 @@
                 style="display: none; margin-top: 10px; width: 100%; justify-content: center"
               >
                 ↺ Retry Enrollment
+              </button>
+            </div>
+          </section>
+
+          <!-- NetBird Tab -->
+          <section id="tab-netbird" class="tab-panel">
+            <h2 class="section-title">NetBird Connection</h2>
+
+            <div class="card compact" style="margin-bottom: 24px">
+              <p class="toggle-desc" style="margin-bottom: 16px">
+                Connect this agent to a NetBird network. Management URL defaults to <strong>api.netbird.io</strong>.
+                Setup key is optional.
+              </p>
+
+              <div class="form-grid-2col">
+                <div class="form-group">
+                  <label class="form-label" for="netbird-management-url">Management URL</label>
+                  <select class="form-input form-select" id="netbird-management-url">
+                    <option value="">— Select management URL —</option>
+                  </select>
+                  <input
+                    class="form-input"
+                    type="text"
+                    id="netbird-management-url-custom"
+                    placeholder="https://netbird.example.com"
+                    style="display: none; margin-top: 6px"
+                  />
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="netbird-setup-key"
+                    >Setup Key
+                    <span style="color: var(--brand-text-muted); font-weight: normal">(optional)</span></label
+                  >
+                  <input
+                    class="form-input"
+                    type="password"
+                    id="netbird-setup-key"
+                    placeholder="Paste your NetBird setup key (optional)"
+                    autocomplete="off"
+                  />
+                </div>
+              </div>
+
+              <div class="action-row" style="margin-top: 20px">
+                <button id="btn-start-netbird" class="btn btn-primary" disabled>🐦 Connect NetBird</button>
+              </div>
+            </div>
+
+            <div id="netbird-terminal-area" style="display: none">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
+                <h3 class="subsection-title" style="margin-bottom: 0; margin-top: 0">NetBird Output</h3>
+                <button
+                  class="btn btn-secondary"
+                  id="btn-save-netbird-logs"
+                  type="button"
+                  style="display: none; padding: 4px 12px; font-size: 12px; height: auto"
+                >
+                  ⬇ Save Logs
+                </button>
+              </div>
+              <div class="terminal" id="netbird-terminal">
+                <div class="terminal-placeholder" id="netbird-terminal-placeholder">
+                  <span class="spinner"></span> Connecting NetBird…
+                </div>
+              </div>
+              <div class="status-banner" id="netbird-status-banner"></div>
+              <button
+                class="btn btn-ghost"
+                id="btn-retry-netbird"
+                type="button"
+                style="display: none; margin-top: 10px; width: 100%; justify-content: center"
+              >
+                ↺ Retry Connection
               </button>
             </div>
           </section>

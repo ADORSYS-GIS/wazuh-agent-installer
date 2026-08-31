@@ -7,15 +7,24 @@ VERSION="${1:-latest}"
 echo "📥 Downloading Wazuh Agent Installer for macOS..."
 
 if [ "$VERSION" = "latest" ]; then
-  DL_URL=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" \
-    | grep browser_download_url | grep dmg | head -1 | cut -d'"' -f4)
+  TAG=$(curl -sI "https://github.com/$REPO/releases/latest" | grep -i '^location:' | awk -F'/' '{print $NF}' | tr -d '\r')
 else
-  DL_URL=$(curl -s "https://api.github.com/repos/$REPO/releases/tags/$VERSION" \
-    | grep browser_download_url | grep dmg | head -1 | cut -d'"' -f4)
+  TAG="$VERSION"
 fi
 
-if [ -z "$DL_URL" ]; then
-  echo "❌ Could not find macOS DMG in release"
+if [ -z "$TAG" ]; then
+  echo "❌ Could not determine version tag."
+  exit 1
+fi
+
+VER="${TAG#v}"
+TAG="v${VER}"
+
+DL_URL="https://github.com/$REPO/releases/download/${TAG}/Wazuh.Agent.Installer_${VER}_universal.dmg"
+
+# Verify URL exists before downloading
+if ! curl -sI -f "$DL_URL" > /dev/null; then
+  echo "❌ Could not find macOS DMG ($DL_URL) in release"
   echo "   Visit https://github.com/$REPO/releases to check available assets"
   exit 1
 fi

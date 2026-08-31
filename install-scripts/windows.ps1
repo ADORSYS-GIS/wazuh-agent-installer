@@ -5,28 +5,35 @@ param(
 $Repo = "ADORSYS-GIS/wazuh-agent-installer"
 Write-Host "📥 Downloading Wazuh Agent Installer for Windows..." -ForegroundColor Cyan
 
-$ReleaseUrl = if ($Version -eq "latest") {
-    "https://api.github.com/repos/$Repo/releases/latest"
+if ($Version -eq "latest") {
+    $Response = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -MaximumRedirection 0 -ErrorAction Ignore
+    if ($Response.StatusCode -in 301, 302) {
+        $Tag = ($Response.Headers.Location -split '/')[-1]
+    } else {
+        Write-Error "❌ Could not determine latest version tag."
+        exit 1
+    }
 } else {
-    "https://api.github.com/repos/$Repo/releases/tags/$Version"
+    $Tag = $Version
 }
 
-try {
-    $ReleaseInfo = Invoke-RestMethod -Uri $ReleaseUrl -ErrorAction Stop
-} catch {
-    Write-Error "❌ Failed to fetch release information. Check your internet connection or the version tag."
+if (-not $Tag) {
+    Write-Error "❌ Could not determine version tag."
     exit 1
 }
 
-$Asset = $ReleaseInfo.assets | Where-Object { $_.name -match '\.msi$' } | Select-Object -First 1
+$Ver = $Tag.TrimStart('v')
+$Tag = "v$Ver"
 
-if (-not $Asset) {
-    Write-Error "❌ Could not find Windows .msi package in release"
+$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/Wazuh.Agent.Installer_${Ver}_x64_en-US.msi"
+
+try {
+    Invoke-WebRequest -Uri $DownloadUrl -Method Head -ErrorAction Stop > $null
+} catch {
+    Write-Error "❌ Could not find Windows .msi package ($DownloadUrl) in release"
     Write-Host "   Visit https://github.com/$Repo/releases to check available assets"
     exit 1
 }
-
-$DownloadUrl = $Asset.browser_download_url
 $TempPath = Join-Path $env:TEMP "WazuhInstaller_$Version.msi"
 
 Write-Host "Downloading from: $DownloadUrl"

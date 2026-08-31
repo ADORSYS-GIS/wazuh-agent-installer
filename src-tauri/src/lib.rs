@@ -44,6 +44,7 @@ pub struct InstallConfig {
     pub ids_engine: String,
     pub suricata_mode: String,
     pub install_trivy: bool,
+    pub install_netbird: bool,
     pub oauth_issuer: String,
     pub cert_endpoint: String,
 }
@@ -51,10 +52,6 @@ pub struct InstallConfig {
 // ---- Helpers ----
 
 async fn get_component_version(name: &str, path: &str) -> Option<String> {
-    if name == "USB DLP Scripts" {
-        return Some("Installed".to_string());
-    }
-
     let mut args = vec![];
     let mut cmd_target = path.to_string();
 
@@ -75,6 +72,8 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
         }
     } else if name == "Suricata" {
         args.push("-V".to_string());
+    } else if name == "NetBird" {
+        args.push("version".to_string());
     } else {
         args.push("--version".to_string());
     }
@@ -99,7 +98,18 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                 let first_line = out_str.lines().next().unwrap_or(&out_str);
                 return Some(first_line.trim().to_string());
             } else if name == "Suricata" {
-                if let Some(idx) = out_str.find("version ") {
+                let lower = out_str.to_lowercase();
+                if let Some(idx) = lower.find("suricata ") {
+                    let rest = &out_str[idx + 9..];
+                    if let Some(first_word) = rest.split_whitespace().next() {
+                        let cleaned = first_word
+                            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+                        if !cleaned.is_empty() {
+                            return Some(cleaned.to_string());
+                        }
+                    }
+                }
+                if let Some(idx) = lower.find("version ") {
                     let rest = &out_str[idx + 8..];
                     return Some(
                         rest.split_whitespace()
@@ -133,6 +143,15 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                     let trimmed = out_str.trim();
                     if !trimmed.is_empty() {
                         return Some(trimmed.to_string());
+                    }
+                }
+            } else if name == "NetBird" {
+                // `netbird version` outputs just the version on a single line
+                let trimmed = out_str.trim();
+                if let Some(first) = trimmed.lines().next() {
+                    let v = first.trim().to_string();
+                    if !v.is_empty() {
+                        return Some(v);
                     }
                 }
             } else {
@@ -272,6 +291,9 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
             "-File",
             &resolved_path,
         ]);
+        if config.install_netbird {
+            c.arg("-InstallNetBird");
+        }
         c
     };
 
@@ -279,6 +301,12 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     let mut command = {
         let mut c = create_command("bash");
         c.arg(&resolved_path);
+        if config.install_trivy {
+            c.arg("-t");
+        }
+        if config.install_netbird {
+            c.arg("-b");
+        }
         // Inject env vars — we are already root so no env-stripping occurs
         c.env("WAZUH_MANAGER", &config.wazuh_manager)
             .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
@@ -314,11 +342,21 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
+    let (tx_done, mut rx_done) = tokio::sync::mpsc::channel(1);
+    let tx_done_clone = tx_done.clone();
+
     let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             let level = classify_line(&line);
+
+            // On macOS, daemons started by the script might keep stdout open and cause a hang.
+            // If we see the success message, signal completion.
+            if line.contains("Wazuh setup has been completed successfully") {
+                let _ = tx_done_clone.try_send(true);
+            }
+
             let _ = app_clone1.emit(
                 "install-log",
                 LogLine {
@@ -347,12 +385,24 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         }
     });
 
-    let status = child.wait().await.map_err(|e| e.to_string())?;
+    let status_future = child.wait();
+
+    // Race between the process exiting naturally and our manual success signal
+    let (success, exit_code) = tokio::select! {
+        Ok(status) = status_future => {
+            (status.success(), status.code().unwrap_or(-1))
+        }
+        Some(_) = rx_done.recv() => {
+            // Give it a tiny bit of time to flush remaining logs naturally
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            (true, 0)
+        }
+    };
 
     Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
+        success,
+        exit_code,
+        message: if success {
             "Installation complete".into()
         } else {
             "Installation failed".into()
@@ -360,6 +410,39 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     })
 }
 
+fn open_browser(url: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(uid) = std::env::var("PKEXEC_UID") {
+            let _ = std::process::Command::new("sudo")
+                .arg("-u")
+                .arg(format!("#{}", uid))
+                .arg("xdg-open")
+                .arg(url)
+                .status();
+            return;
+        } else if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+            let _ = std::process::Command::new("sudo")
+                .arg("-u")
+                .arg(&sudo_user)
+                .arg("xdg-open")
+                .arg(url)
+                .status();
+            return;
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        return;
+    }
+    // Fallback to Tauri opener for Windows or standard Linux
+    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+}
 #[tauri::command]
 async fn run_enroll(
     issuer: String,
@@ -374,8 +457,11 @@ async fn run_enroll(
         "--endpoint".to_string(),
         endpoint,
     ];
+
+    // Only pass --overwrite when explicitly re-enrolling an already-enrolled agent
     if overwrite {
         oauth_args.push("--overwrite".to_string());
+        oauth_args.push("true".to_string());
     }
 
     // The process is already root at this point.
@@ -400,15 +486,10 @@ async fn run_enroll(
     let mut command = {
         let current_path =
             std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-        // On macOS (running as root), call the binary directly.
-        // Intercept the browser URL from stderr and open it via Tauri's GUI context.
-        let exe = "/Library/Ossec/bin/wazuh-cert-oauth2-client";
-        let mut c = create_command(exe);
+        let full_path = format!("/opt/homebrew/bin:/usr/local/bin:{current_path}");
+        let mut c = create_command("/Library/Ossec/bin/wazuh-cert-oauth2-client");
+        c.env("PATH", full_path);
         c.args(&oauth_args);
-        c.env(
-            "PATH",
-            format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
-        );
         c
     };
 
@@ -422,10 +503,30 @@ async fn run_enroll(
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
+    // Use the same Notify/select! pattern as run_netbird_up.
+    // On macOS the wazuh daemons restarted by the OAuth2 client inherit the
+    // pipe file descriptors and hold them open, so child.wait() would hang
+    // indefinitely even after enrollment has completed. Detecting "] Done!"
+    // lets us return immediately — exactly like NetBird detects "connected".
+    let enrolled = std::sync::Arc::new(tokio::sync::Notify::new());
+    let enrolled_clone1 = enrolled.clone();
+    let enrolled_clone2 = enrolled.clone();
+
     let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            if let Some(url_start) = line.find("Opened your default browser to: ") {
+                let url = line[url_start + "Opened your default browser to: ".len()..].trim();
+                if !url.is_empty() {
+                    open_browser(url);
+                }
+            } else if line.trim().starts_with("https://") && line.contains("/realms/") {
+                open_browser(line.trim());
+            }
+            if line.contains("] Done!") || line.trim() == "Done!" {
+                enrolled_clone1.notify_one();
+            }
             let level = classify_line(&line);
             let _ = app_clone1.emit(
                 "enroll-log",
@@ -450,8 +551,13 @@ async fn run_enroll(
             if let Some(url_start) = line.find("Opened your default browser to: ") {
                 let url = line[url_start + "Opened your default browser to: ".len()..].trim();
                 if !url.is_empty() {
-                    let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+                    open_browser(url);
                 }
+            } else if line.trim().starts_with("https://") && line.contains("/realms/") {
+                open_browser(line.trim());
+            }
+            if line.contains("] Done!") || line.trim() == "Done!" {
+                enrolled_clone2.notify_one();
             }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
@@ -464,17 +570,148 @@ async fn run_enroll(
         }
     });
 
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-
-    Ok(InstallResult {
-        success: status.success(),
-        exit_code: status.code().unwrap_or(-1),
-        message: if status.success() {
-            "Enrollment complete".into()
-        } else {
-            "Enrollment failed".into()
+    tokio::select! {
+        res = child.wait() => {
+            let status = res.map_err(|e| e.to_string())?;
+            Ok(InstallResult {
+                success: status.success(),
+                exit_code: status.code().unwrap_or(-1),
+                message: if status.success() {
+                    "Enrollment complete".into()
+                } else {
+                    "Enrollment failed".into()
+                },
+            })
         },
-    })
+        _ = enrolled.notified() => {
+            Ok(InstallResult {
+                success: true,
+                exit_code: 0,
+                message: "Enrollment complete".into(),
+            })
+        }
+    }
+}
+
+#[tauri::command]
+async fn run_netbird_up(
+    setup_key: String,
+    management_url: String,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    // Management URL defaults to the public NetBird Cloud when not provided.
+    let management_url = if management_url.trim().is_empty() {
+        "https://api.netbird.io:443".to_string()
+    } else {
+        management_url
+    };
+
+    let mut args = vec![
+        "up".to_string(),
+        "--management-url".to_string(),
+        management_url,
+    ];
+    if !setup_key.trim().is_empty() {
+        args.push("--setup-key".to_string());
+        args.push(setup_key);
+    }
+
+    #[cfg(unix)]
+    let mut cmd = {
+        let mut c = create_command("netbird");
+        let current_path =
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
+        c.env(
+            "PATH",
+            format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
+        );
+        c
+    };
+    #[cfg(windows)]
+    let mut cmd = create_command("netbird.exe");
+
+    cmd.args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let connected = std::sync::Arc::new(tokio::sync::Notify::new());
+    let connected_clone1 = connected.clone();
+
+    let app_clone1 = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
+                open_browser(trimmed);
+            }
+            if trimmed.to_lowercase().contains("connected")
+                && !trimmed.to_lowercase().contains("disconnected")
+            {
+                connected_clone1.notify_one();
+            }
+            let level = classify_line(&line);
+            let _ = app_clone1.emit(
+                "netbird-log",
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    let app_clone2 = app.clone();
+    let connected_clone2 = connected.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
+                open_browser(trimmed);
+            }
+            if trimmed.to_lowercase().contains("connected")
+                && !trimmed.to_lowercase().contains("disconnected")
+            {
+                connected_clone2.notify_one();
+            }
+            let level = classify_line(&line);
+            let _ = app_clone2.emit(
+                "netbird-log",
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+
+    tokio::select! {
+        res = child.wait() => {
+            let status = res.map_err(|e| e.to_string())?;
+            Ok(InstallResult {
+                success: status.success(),
+                exit_code: status.code().unwrap_or(-1),
+                message: if status.success() {
+                    "NetBird connected successfully".into()
+                } else {
+                    "NetBird connection failed".into()
+                },
+            })
+        },
+        _ = connected.notified() => {
+            Ok(InstallResult {
+                success: true,
+                exit_code: 0,
+                message: "NetBird connected successfully".into(),
+            })
+        }
+    }
 }
 
 #[tauri::command]
@@ -505,13 +742,7 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ("YARA".to_string(), "yara64.exe".to_string()),
         ("Suricata".to_string(), "suricata.exe".to_string()),
         ("Trivy".to_string(), "trivy.exe".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!(
-                "{}\\active-response\\bin\\disable-usb-storage.ps1",
-                ossec_path
-            ),
-        ),
+        ("NetBird".to_string(), "netbird.exe".to_string()),
     ];
 
     #[cfg(target_os = "macos")]
@@ -534,13 +765,7 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
             "/usr/local/bin/suricata".to_string(),
         ),
         ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!(
-                "{}/active-response/bin/disable-usb-storage-macos.sh",
-                ossec_path
-            ),
-        ),
+        ("NetBird".to_string(), "/usr/local/bin/netbird".to_string()),
     ];
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -559,32 +784,135 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ),
         ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
         ("Suricata".to_string(), "/usr/bin/suricata".to_string()),
-        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
-        (
-            "USB DLP Scripts".to_string(),
-            format!("{}/active-response/bin/disable-usb-storage.sh", ossec_path),
-        ),
+        ("Trivy".to_string(), "/usr/bin/trivy".to_string()),
+        ("NetBird".to_string(), "/usr/bin/netbird".to_string()),
     ];
 
     let mut results = Vec::new();
 
     for (name, path) in components {
-        // Check existence without sudo — reading file metadata is always permitted
         #[cfg(unix)]
-        let installed = std::path::Path::new(&path).exists();
+        let (installed, effective_path) = {
+            if name == "NetBird" {
+                if std::path::Path::new(&path).exists() {
+                    (true, path.clone())
+                } else if std::path::Path::new("/usr/bin/netbird").exists() {
+                    (true, "/usr/bin/netbird".to_string())
+                } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+                    (true, "/usr/local/bin/netbird".to_string())
+                } else {
+                    (false, path.clone())
+                }
+            } else if name == "Suricata" {
+                if std::path::Path::new(&path).exists() {
+                    (true, path.clone())
+                } else if std::path::Path::new("/usr/bin/suricata").exists() {
+                    (true, "/usr/bin/suricata".to_string())
+                } else if std::path::Path::new("/usr/local/bin/suricata").exists() {
+                    (true, "/usr/local/bin/suricata".to_string())
+                } else if std::path::Path::new("/opt/homebrew/bin/suricata").exists() {
+                    (true, "/opt/homebrew/bin/suricata".to_string())
+                } else {
+                    (false, path.clone())
+                }
+            } else if name == "Trivy" {
+                if std::path::Path::new(&path).exists() {
+                    (true, path.clone())
+                } else if std::path::Path::new("/usr/bin/trivy").exists() {
+                    (true, "/usr/bin/trivy".to_string())
+                } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
+                    (true, "/usr/local/bin/trivy".to_string())
+                } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
+                    (true, "/opt/homebrew/bin/trivy".to_string())
+                } else {
+                    (false, path.clone())
+                }
+            } else {
+                (std::path::Path::new(&path).exists(), path.clone())
+            }
+        };
 
         #[cfg(windows)]
-        let installed = {
-            if path == "yara64.exe" || path == "suricata.exe" || path == "trivy.exe" {
-                create_command(&path)
-                    .arg("--help")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await
-                    .is_ok()
+        let (installed, effective_path) = {
+            if name == "NetBird" {
+                let default_p1 = r"C:\Program Files\Netbird\netbird.exe";
+                let default_p2 = r"C:\Program Files (x86)\Netbird\netbird.exe";
+                if std::path::Path::new(default_p1).exists() {
+                    (true, default_p1.to_string())
+                } else if std::path::Path::new(default_p2).exists() {
+                    (true, default_p2.to_string())
+                } else {
+                    let ok = create_command(&path)
+                        .arg("--help")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success());
+                    (ok, path.clone())
+                }
+            } else if name == "Suricata" {
+                let p1 = r"C:\Program Files\Suricata\suricata.exe";
+                let p2 = r"C:\Program Files (x86)\Suricata\suricata.exe";
+                let p3 = r"C:\Suricata\suricata.exe";
+                if std::path::Path::new(p1).exists() {
+                    (true, p1.to_string())
+                } else if std::path::Path::new(p2).exists() {
+                    (true, p2.to_string())
+                } else if std::path::Path::new(p3).exists() {
+                    (true, p3.to_string())
+                } else {
+                    let ok = create_command(&path)
+                        .arg("--help")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success());
+                    (ok, path.clone())
+                }
+            } else if name == "Trivy" {
+                let p1 = r"C:\Program Files\Trivy\trivy.exe";
+                let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
+                let p3 = r"C:\Trivy\trivy.exe";
+                if std::path::Path::new(p1).exists() {
+                    (true, p1.to_string())
+                } else if std::path::Path::new(p2).exists() {
+                    (true, p2.to_string())
+                } else if std::path::Path::new(p3).exists() {
+                    (true, p3.to_string())
+                } else {
+                    let ok = create_command(&path)
+                        .arg("--help")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success());
+                    (ok, path.clone())
+                }
+            } else if name == "YARA" {
+                let p1 = r"C:\Program Files\YARA\yara64.exe";
+                let p2 = r"C:\Program Files (x86)\YARA\yara64.exe";
+                let p3 = r"C:\YARA\yara64.exe";
+                if std::path::Path::new(p1).exists() {
+                    (true, p1.to_string())
+                } else if std::path::Path::new(p2).exists() {
+                    (true, p2.to_string())
+                } else if std::path::Path::new(p3).exists() {
+                    (true, p3.to_string())
+                } else {
+                    let ok = create_command(&path)
+                        .arg("--help")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .map_or(false, |s| s.success());
+                    (ok, path.clone())
+                }
             } else if path.ends_with("wazuh-agent.exe") {
-                std::path::Path::new(&path).exists()
+                let ok = std::path::Path::new(&path).exists()
                     || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
                         .exists()
                     || create_command("sc")
@@ -593,14 +921,15 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
                         .stderr(Stdio::null())
                         .status()
                         .await
-                        .map_or(false, |s| s.success())
+                        .map_or(false, |s| s.success());
+                (ok, path.clone())
             } else {
-                std::path::Path::new(&path).exists()
+                (std::path::Path::new(&path).exists(), path.clone())
             }
         };
 
         let version = if installed {
-            get_component_version(&name, &path).await
+            get_component_version(&name, &effective_path).await
         } else {
             None
         };
@@ -609,11 +938,74 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
             name,
             installed,
             version,
-            path,
+            path: effective_path,
         });
     }
 
     Ok(results)
+}
+
+// ---- Enrollment State ----
+
+#[derive(Serialize)]
+struct EnrollmentState {
+    enrolled: bool,
+    agent_name: Option<String>,
+    manager: Option<String>,
+}
+
+#[tauri::command]
+async fn check_enrollment() -> Result<EnrollmentState, String> {
+    #[cfg(target_os = "windows")]
+    let keys_path = r"C:\Program Files (x86)\ossec-agent\client.keys";
+    #[cfg(target_os = "macos")]
+    let keys_path = "/Library/Ossec/etc/client.keys";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let keys_path = "/var/ossec/etc/client.keys";
+
+    let keys_content = std::fs::read_to_string(keys_path).unwrap_or_default();
+
+    // Check if the file has at least one non-empty line (a real key)
+    let first_key_line = keys_content.lines().find(|l| !l.trim().is_empty());
+
+    if first_key_line.is_none() {
+        return Ok(EnrollmentState {
+            enrolled: false,
+            agent_name: None,
+            manager: None,
+        });
+    }
+
+    // Parse agent name from first line of client.keys: "<id> <name> <ip> <key>"
+    let agent_name = first_key_line
+        .and_then(|line| line.split_whitespace().nth(1))
+        .map(|s| s.to_string());
+
+    // Parse manager address from ossec.conf <address> element
+    #[cfg(target_os = "windows")]
+    let conf_path = r"C:\Program Files (x86)\ossec-agent\ossec.conf";
+    #[cfg(target_os = "macos")]
+    let conf_path = "/Library/Ossec/etc/ossec.conf";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let conf_path = "/var/ossec/etc/ossec.conf";
+
+    let manager = std::fs::read_to_string(conf_path).ok().and_then(|content| {
+        content
+            .lines()
+            .find(|l| l.trim().starts_with("<address>"))
+            .and_then(|line| {
+                line.trim()
+                    .strip_prefix("<address>")
+                    .and_then(|s| s.strip_suffix("</address>"))
+                    .map(|s| s.trim().to_string())
+            })
+    });
+
+    Ok(EnrollmentState {
+        enrolled: true,
+        agent_name,
+        manager,
+    })
 }
 
 #[tauri::command]
@@ -799,7 +1191,9 @@ pub fn run() {
             get_platform,
             run_install,
             run_enroll,
+            run_netbird_up,
             check_components,
+            check_enrollment,
             save_logs
         ])
         .setup(|app| {

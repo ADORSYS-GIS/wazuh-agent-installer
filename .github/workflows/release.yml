@@ -98,10 +98,13 @@ jobs:
             content = content.replace(/^version = \"[^\"]*\"/m, 'version = \"' + process.env.CLEAN_VERSION + '\"');
             fs.writeFileSync('src-tauri/Cargo.toml', content);
           "
-          # Note: src/config.ts appVersion is intentionally not patched here.
-          # It is a UI display value populated by the build-time config, not a
-          # build-system version identifier. Single source of truth: tauri.conf.json.
-
+          # Update src/config.ts
+          node -e "
+            const fs = require('fs');
+            let content = fs.readFileSync('src/config.ts', 'utf8');
+            content = content.replace(/appVersion:\s*\"[^\"]*\"/, 'appVersion: \"v' + process.env.CLEAN_VERSION + '\"');
+            fs.writeFileSync('src/config.ts', content);
+          "
 
       # ── Build & Release ───────────────────────────────────────────────────
       - name: Build and publish release
