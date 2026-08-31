@@ -1063,6 +1063,28 @@ fn get_app_config(app: AppHandle) -> Result<AppConfig, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Pre-create the config file as the normal user before elevating to root
+    // to prevent the config file and directory from being root-owned.
+    #[cfg(unix)]
+    if unsafe { libc::geteuid() } != 0 {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            let config_dir = if cfg!(target_os = "macos") {
+                std::path::PathBuf::from(&home)
+                    .join("Library/Application Support/com.adorsys.wazuh-agent-installer")
+            } else {
+                std::path::PathBuf::from(&home).join(".config/com.adorsys.wazuh-agent-installer")
+            };
+            if !config_dir.exists() {
+                let _ = std::fs::create_dir_all(&config_dir);
+                let default_config = AppConfig::default();
+                if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+                    let _ = std::fs::write(config_dir.join("config.json"), json);
+                }
+            }
+        }
+    }
+
     // Capture our PID before elevation so the elevated child can watch us.
     // Only needed on Unix — the watchdog that consumes it is #[cfg(unix)].
     #[cfg(unix)]
@@ -1172,7 +1194,9 @@ pub fn run() {
         for a in &args {
             parts.push(sq(a));
         }
-        let shell_cmd = format!("sh -c {}", sq(&parts.join(" ")));
+        let home = std::env::var("HOME").unwrap_or_default();
+        let env_setup = format!("export HOME={};", sq(&home));
+        let shell_cmd = format!("{} sh -c {}", env_setup, sq(&parts.join(" ")));
 
         // The shell_cmd will be embedded inside a double-quoted AppleScript string.
         // We must escape any backslashes or double-quotes so they don't break the outer AppleScript layer.
