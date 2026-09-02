@@ -567,6 +567,7 @@ async function checkNetbirdState(): Promise<void> {
     const dangerBody = document.getElementById("netbird-danger-body");
     const ipEl = document.getElementById("netbird-info-ip");
     const mgmtEl = document.getElementById("netbird-info-mgmt");
+    const navBadge = document.getElementById("netbird-nav-badge");
 
     if (state.daemon_status === "Connected") {
       if (activeCard) activeCard.style.display = "block";
@@ -587,6 +588,12 @@ async function checkNetbirdState(): Promise<void> {
         mgmtEl.className = state.management_connected ? "enrolled-info-value enrolled-info-ok" : "enrolled-info-value";
         if (!state.management_connected) mgmtEl.style.color = "var(--color-danger)";
       }
+
+      if (navBadge) {
+        navBadge.style.display = "flex";
+        navBadge.className = "enroll-nav-badge enroll-nav-badge--active";
+        navBadge.textContent = "✓";
+      }
     } else {
       if (activeCard) activeCard.style.display = "none";
 
@@ -601,6 +608,12 @@ async function checkNetbirdState(): Promise<void> {
         btnStartNetbird.textContent = "🐦 Connect NetBird";
         btnStartNetbird.classList.add("btn-primary");
         btnStartNetbird.classList.remove("btn-danger");
+      }
+
+      if (navBadge) {
+        navBadge.style.display = "flex";
+        navBadge.className = "enroll-nav-badge enroll-nav-badge--missing";
+        navBadge.textContent = "✗";
       }
     }
   } catch (err) {
