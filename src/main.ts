@@ -115,7 +115,7 @@ const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode
 const btnStartInstall = document.getElementById("btn-start-install") as HTMLButtonElement;
 const btnStartEnroll = document.getElementById("btn-start-enroll") as HTMLButtonElement;
 const btnRetryEnroll = document.getElementById("btn-retry-enroll") as HTMLButtonElement;
-const btnGoEnroll = document.getElementById("btn-go-enroll") as HTMLButtonElement;
+
 const btnRefreshComponents = document.getElementById("btn-refresh-components") as HTMLButtonElement;
 
 // Terminals
@@ -169,7 +169,7 @@ async function boot() {
   btnStartInstall?.addEventListener("click", startInstall);
   btnStartEnroll?.addEventListener("click", startEnrollment);
   btnRetryEnroll?.addEventListener("click", startEnrollment);
-  btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
+
   btnStartNetbird?.addEventListener("click", startNetbirdConnection);
   btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
   btnRefreshComponents?.addEventListener("click", refreshComponents);
@@ -372,20 +372,12 @@ function showInstallResult(success: boolean, desc: string) {
   const icon = document.getElementById("result-icon");
   const title = document.getElementById("result-title");
   const descEl = document.getElementById("result-desc");
-  const btn = document.getElementById("btn-go-enroll");
-
   if (icon) {
     icon.className = `result-icon ${success ? "success" : "error"}`;
     icon.textContent = success ? "✓" : "✕";
   }
   if (title) title.textContent = success ? "Installation Complete" : "Installation Failed";
   if (descEl) descEl.textContent = desc;
-  if (btn) {
-    btn.style.display = success ? "inline-flex" : "none";
-    if (success) {
-      btn.textContent = "Go to Enrollment →";
-    }
-  }
 }
 
 // ---- Enrollment Flow ----
