@@ -967,6 +967,78 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
     Ok(results)
 }
 
+// ---- Netbird State ----
+
+#[derive(Serialize)]
+struct NetbirdState {
+    daemon_status: Option<String>,
+    netbird_ip: Option<String>,
+    management_connected: bool,
+}
+
+#[tauri::command]
+async fn check_netbird() -> Result<NetbirdState, String> {
+    let mut cmd = create_command("netbird");
+
+    // Fallback to absolute paths if "netbird" is not in PATH
+    #[cfg(target_os = "windows")]
+    {
+        if std::process::Command::new("netbird")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            if std::path::Path::new(r"C:\Program Files\Netbird\netbird.exe").exists() {
+                cmd = create_command(r"C:\Program Files\Netbird\netbird.exe");
+            } else if std::path::Path::new(r"C:\Program Files (x86)\Netbird\netbird.exe").exists() {
+                cmd = create_command(r"C:\Program Files (x86)\Netbird\netbird.exe");
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if std::process::Command::new("netbird")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            if std::path::Path::new("/usr/bin/netbird").exists() {
+                cmd = create_command("/usr/bin/netbird");
+            } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+                cmd = create_command("/usr/local/bin/netbird");
+            }
+        }
+    }
+
+    cmd.args(["status", "-j"]);
+    
+    let output = cmd.output().await.map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Ok(NetbirdState {
+            daemon_status: None,
+            netbird_ip: None,
+            management_connected: false,
+        });
+    }
+
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+
+    let daemon_status = parsed["daemonStatus"].as_str().map(|s| s.to_string());
+    let netbird_ip = parsed["netbirdIp"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let management_connected = parsed["management"]["connected"].as_bool().unwrap_or(false);
+
+    Ok(NetbirdState {
+        daemon_status,
+        netbird_ip,
+        management_connected,
+    })
+}
+
 // ---- Enrollment State ----
 
 #[derive(Serialize)]
@@ -1261,6 +1333,7 @@ pub fn run() {
             run_netbird_up,
             check_components,
             check_enrollment,
+            check_netbird,
             save_logs,
             get_app_config
         ])

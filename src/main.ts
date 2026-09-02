@@ -26,6 +26,12 @@ interface EnrollmentState {
   manager?: string;
 }
 
+interface NetbirdState {
+  daemon_status?: string;
+  netbird_ip?: string;
+  management_connected: boolean;
+}
+
 interface AppConfig {
   wazuh_manager_url: string;
   wazuh_oauth_issuer: string;
@@ -178,9 +184,11 @@ function finishBoot() {
   updateNetbirdButtonState();
   refreshComponents(); // Initial load
   checkEnrollmentState(); // Check if already enrolled on startup
+  checkNetbirdState(); // Check if already connected to Netbird on startup
 
   // Keep the enrolled card in sync while the app is open
   setInterval(() => checkEnrollmentState(), 15_000);
+  setInterval(() => checkNetbirdState(), 15_000);
 }
 
 function switchTab(targetId: string) {
@@ -461,6 +469,7 @@ async function startNetbirdConnection() {
 
     if (result.success) {
       showStatusBanner(netbirdStatusBanner, "success", "NetBird connected successfully!");
+      setTimeout(() => checkNetbirdState(), 1500);
     } else {
       showStatusBanner(netbirdStatusBanner, "error", `NetBird connection failed: exit code ${result.exit_code}`);
       if (btnRetryNetbird) btnRetryNetbird.style.display = "flex";
@@ -544,6 +553,58 @@ async function checkEnrollmentState(): Promise<void> {
     }
   } catch (err) {
     console.warn("[checkEnrollmentState] Could not determine enrollment state:", err);
+  }
+}
+
+// ---- Netbird State ----
+
+async function checkNetbirdState(): Promise<void> {
+  try {
+    const state = await invoke<NetbirdState>("check_netbird");
+
+    const activeCard = document.getElementById("netbird-active-card");
+    const formSection = document.getElementById("netbird-form-section");
+    const dangerBody = document.getElementById("netbird-danger-body");
+    const ipEl = document.getElementById("netbird-info-ip");
+    const mgmtEl = document.getElementById("netbird-info-mgmt");
+
+    if (state.daemon_status === "Connected") {
+      if (activeCard) activeCard.style.display = "block";
+
+      if (dangerBody && formSection && formSection.parentElement !== dangerBody) {
+        dangerBody.appendChild(formSection);
+        formSection.style.display = "block";
+        if (btnStartNetbird) {
+          btnStartNetbird.textContent = "⚠️ Reconnect NetBird";
+          btnStartNetbird.classList.remove("btn-primary");
+          btnStartNetbird.classList.add("btn-danger");
+        }
+      }
+
+      if (ipEl) ipEl.textContent = state.netbird_ip ?? "Unknown";
+      if (mgmtEl) {
+        mgmtEl.textContent = state.management_connected ? "Connected" : "Disconnected";
+        mgmtEl.className = state.management_connected ? "enrolled-info-value enrolled-info-ok" : "enrolled-info-value";
+        if (!state.management_connected) mgmtEl.style.color = "var(--color-danger)";
+      }
+    } else {
+      if (activeCard) activeCard.style.display = "none";
+
+      const tabPanel = document.getElementById("tab-netbird");
+      if (tabPanel && formSection && formSection.parentElement !== tabPanel) {
+        const terminalArea = document.getElementById("netbird-terminal-area");
+        tabPanel.insertBefore(formSection, terminalArea);
+        formSection.style.display = "block";
+      }
+
+      if (btnStartNetbird) {
+        btnStartNetbird.textContent = "🐦 Connect NetBird";
+        btnStartNetbird.classList.add("btn-primary");
+        btnStartNetbird.classList.remove("btn-danger");
+      }
+    }
+  } catch (err) {
+    console.warn("[checkNetbirdState] Could not determine netbird state:", err);
   }
 }
 

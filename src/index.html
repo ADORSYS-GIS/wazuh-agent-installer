@@ -217,7 +217,38 @@
           <section id="tab-netbird" class="tab-panel">
             <h2 class="section-title">NetBird Connection</h2>
 
-            <div class="card compact" style="margin-bottom: 24px">
+            <!-- ===== CONNECTED STATE CARD (shown when netbird is connected) ===== -->
+            <div id="netbird-active-card" class="enrolled-card" style="display: none">
+              <div class="enrolled-card-header">
+                <div class="enrolled-checkmark">✓</div>
+                <div>
+                  <div class="enrolled-title">NetBird Connected</div>
+                  <div class="enrolled-subtitle">This device is securely connected to the NetBird network.</div>
+                </div>
+              </div>
+
+              <div class="enrolled-info-grid">
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">NetBird IP</span>
+                  <span class="enrolled-info-value" id="netbird-info-ip">—</span>
+                </div>
+                <div class="enrolled-info-row">
+                  <span class="enrolled-info-label">Management API</span>
+                  <span class="enrolled-info-value enrolled-info-ok" id="netbird-info-mgmt">Connected</span>
+                </div>
+              </div>
+
+              <details class="danger-section" id="netbird-advanced-details">
+                <summary class="danger-summary">⚠️ Advanced — Reconnect device</summary>
+                <div class="danger-body" id="netbird-danger-body">
+                  <p class="danger-warning">
+                    Reconnecting will force a new login session and may disconnect your current tunnel.
+                  </p>
+                </div>
+              </details>
+            </div>
+
+            <div class="card compact" id="netbird-form-section" style="margin-bottom: 24px">
               <p class="toggle-desc" style="margin-bottom: 16px">
                 Connect your device to the secure NetBird network.
                 Setup key is optional.
