@@ -3,7 +3,6 @@
 // ============================================================
 import logoUrl from "./assets/adorsys-logo.png";
 
-
 export const BRAND_CONFIG = {
   // Brand Metadata
   companyName: "Adorsys",
@@ -42,15 +41,15 @@ export const BRAND_CONFIG = {
     statusWarn: "#fbbf24",
     statusWarnDim: "rgba(251, 191, 36, 0.12)",
   },
-
-
 };
 
 // Human-readable descriptions for each component, shown in the Overview tab.
 export const COMPONENT_DESCRIPTIONS: Record<string, string> = {
   "Wazuh Agent": "Core security agent responsible for system monitoring, log collection, and threat detection.",
-  "OAuth2 Client": "Custom client that automatically negotiates certificates and authenticates the agent with the central cluster.",
-  "Agent Status Monitor": "Background service ensuring the Wazuh agent remains healthy and restarts automatically if it crashes.",
+  "OAuth2 Client":
+    "Custom client that automatically negotiates certificates and authenticates the agent with the central cluster.",
+  "Agent Status Monitor":
+    "Background service ensuring the Wazuh agent remains healthy and restarts automatically if it crashes.",
   YARA: "Malware identification engine used to perform file content pattern matching for advanced threats.",
   Suricata: "High performance Network IDS, IPS and Network Security Monitoring engine.",
   Trivy: "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.",

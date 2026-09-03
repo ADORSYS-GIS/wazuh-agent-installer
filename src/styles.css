@@ -652,8 +652,14 @@ input:checked + .slider:before {
 }
 
 @keyframes popIn {
-  from { transform: scale(0.4); opacity: 0; }
-  to   { transform: scale(1);   opacity: 1; }
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .enrolled-title {
@@ -865,7 +871,10 @@ input:checked + .slider:before {
   overflow: hidden;
   max-height: 0;
   opacity: 0;
-  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, padding 0.3s ease;
+  transition:
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease,
+    padding 0.3s ease;
   padding-left: 32px; /* Indent sub items */
   padding-right: 12px;
 }

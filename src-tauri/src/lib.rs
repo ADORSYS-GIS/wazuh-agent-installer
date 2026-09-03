@@ -1011,7 +1011,7 @@ async fn check_netbird() -> Result<NetbirdState, String> {
     }
 
     cmd.args(["status", "-j"]);
-    
+
     let output = cmd.output().await.map_err(|e| e.to_string())?;
 
     if !output.status.success() {
