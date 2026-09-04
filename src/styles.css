@@ -652,8 +652,14 @@ input:checked + .slider:before {
 }
 
 @keyframes popIn {
-  from { transform: scale(0.4); opacity: 0; }
-  to   { transform: scale(1);   opacity: 1; }
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .enrolled-title {
@@ -809,4 +815,109 @@ input:checked + .slider:before {
 }
 .sub-option.visible {
   display: block;
+}
+
+/* ---- Sidebar Icons & Accordion ---- */
+.nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-text-secondary);
+  transition: color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.nav-item.active .nav-icon {
+  color: var(--brand-primary);
+}
+
+.nav-item:hover .nav-icon {
+  color: var(--brand-text-primary);
+}
+
+.nav-chevron {
+  margin-left: 8px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--brand-text-secondary);
+}
+
+.nav-group-accordion.expanded .nav-chevron {
+  transform: rotate(90deg);
+}
+
+.nav-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition:
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease,
+    padding 0.3s ease;
+  padding-left: 32px; /* Indent sub items */
+  padding-right: 12px;
+}
+
+.nav-group-accordion.expanded .nav-submenu {
+  max-height: 200px;
+  opacity: 1;
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+
+.nav-accordion-toggle {
+  width: calc(100% - 24px); /* Account for padding */
+  margin: 0 12px;
+}
+
+/* Sidebar Responsive */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 68px;
+    transition: width 0.3s ease;
+  }
+  .sidebar-brand {
+    justify-content: center;
+    padding: 24px 0;
+  }
+  .sidebar-brand .brand-text {
+    display: none;
+  }
+  .nav-text {
+    display: none;
+  }
+  .nav-chevron {
+    display: none;
+  }
+  .enroll-nav-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
+    font-size: 0; /* hide the text '✗' or '✓', just show the colored dot */
+    margin: 0;
+  }
+  .nav-item {
+    justify-content: center;
+    padding: 12px;
+    position: relative;
+    width: auto;
+    margin: 0 8px;
+  }
+  .nav-submenu {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .main-content {
+    padding: 24px;
+  }
+  .form-grid-2col {
+    grid-template-columns: 1fr;
+  }
+  .components-grid {
+    grid-template-columns: 1fr;
+  }
 }

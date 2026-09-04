@@ -26,6 +26,19 @@ interface EnrollmentState {
   manager?: string;
 }
 
+interface NetbirdState {
+  daemon_status?: string;
+  netbird_ip?: string;
+  management_connected: boolean;
+}
+
+interface AppConfig {
+  wazuh_manager_url: string;
+  wazuh_oauth_issuer: string;
+  wazuh_cert_endpoint: string;
+  netbird_management_url: string;
+}
+
 declare global {
   interface Window {
     __TAURI__?: {
@@ -92,12 +105,6 @@ const navItems = document.querySelectorAll<HTMLElement>(".nav-item");
 const tabPanels = document.querySelectorAll<HTMLElement>(".tab-panel");
 
 // Config inputs
-const elManagerSelect = document.getElementById("wazuh-manager") as HTMLSelectElement | null;
-const elManagerCustom = document.getElementById("wazuh-manager-custom") as HTMLInputElement | null;
-const elIssuerSelect = document.getElementById("oauth-issuer") as HTMLSelectElement | null;
-const elIssuerCustom = document.getElementById("oauth-issuer-custom") as HTMLInputElement | null;
-const elEndpointSelect = document.getElementById("cert-endpoint") as HTMLSelectElement | null;
-const elEndpointCustom = document.getElementById("cert-endpoint-custom") as HTMLInputElement | null;
 const elTrivy = document.getElementById("install-trivy") as HTMLInputElement | null;
 const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInputElement | null;
 
@@ -108,7 +115,7 @@ const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode
 const btnStartInstall = document.getElementById("btn-start-install") as HTMLButtonElement;
 const btnStartEnroll = document.getElementById("btn-start-enroll") as HTMLButtonElement;
 const btnRetryEnroll = document.getElementById("btn-retry-enroll") as HTMLButtonElement;
-const btnGoEnroll = document.getElementById("btn-go-enroll") as HTMLButtonElement;
+
 const btnRefreshComponents = document.getElementById("btn-refresh-components") as HTMLButtonElement;
 
 // Terminals
@@ -122,8 +129,6 @@ const terminalEnroll = document.getElementById("enroll-terminal");
 const enrollStatusBanner = document.getElementById("enroll-status-banner");
 
 // NetBird
-const elNetbirdUrlSelect = document.getElementById("netbird-management-url") as HTMLSelectElement | null;
-const elNetbirdUrlCustom = document.getElementById("netbird-management-url-custom") as HTMLInputElement | null;
 const elNetbirdSetupKey = document.getElementById("netbird-setup-key") as HTMLInputElement | null;
 const btnStartNetbird = document.getElementById("btn-start-netbird") as HTMLButtonElement;
 const btnRetryNetbird = document.getElementById("btn-retry-netbird") as HTMLButtonElement;
@@ -133,22 +138,38 @@ const netbirdStatusBanner = document.getElementById("netbird-status-banner");
 
 // ---- Initialization ----
 
+let appConfig: AppConfig | null = null;
+
 async function boot() {
+  try {
+    appConfig = await invoke<AppConfig>("get_app_config");
+  } catch (err) {
+    console.error("Failed to load app config:", err);
+  }
+
   applyBrandTheme();
   initializeAppHeaderAndOptions();
-  setupCustomInputListeners();
   setupRadioCards();
 
   // Tab handling
   navItems.forEach((item) => {
-    item.addEventListener("click", () => switchTab(item.dataset.target!));
+    item.addEventListener("click", () => {
+      if (item.classList.contains("nav-accordion-toggle")) {
+        const accordion = item.closest(".nav-group-accordion");
+        if (accordion) accordion.classList.toggle("expanded");
+        return;
+      }
+      if (item.dataset.target) {
+        switchTab(item.dataset.target);
+      }
+    });
   });
 
   // Action listeners
   btnStartInstall?.addEventListener("click", startInstall);
   btnStartEnroll?.addEventListener("click", startEnrollment);
   btnRetryEnroll?.addEventListener("click", startEnrollment);
-  btnGoEnroll?.addEventListener("click", () => switchTab("tab-enrollment"));
+
   btnStartNetbird?.addEventListener("click", startNetbirdConnection);
   btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
   btnRefreshComponents?.addEventListener("click", refreshComponents);
@@ -163,9 +184,11 @@ function finishBoot() {
   updateNetbirdButtonState();
   refreshComponents(); // Initial load
   checkEnrollmentState(); // Check if already enrolled on startup
+  checkNetbirdState(); // Check if already connected to Netbird on startup
 
   // Keep the enrolled card in sync while the app is open
   setInterval(() => checkEnrollmentState(), 15_000);
+  setInterval(() => checkNetbirdState(), 15_000);
 }
 
 function switchTab(targetId: string) {
@@ -211,53 +234,6 @@ function initializeAppHeaderAndOptions(): void {
   if (appTitle) appTitle.textContent = BRAND_CONFIG.appTitle;
   if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
   document.title = BRAND_CONFIG.appTitle;
-
-  populateDropdown("wazuh-manager", BRAND_CONFIG.managers);
-  populateDropdown("oauth-issuer", BRAND_CONFIG.oauthIssuers);
-  populateDropdown("cert-endpoint", BRAND_CONFIG.certEndpoints);
-  populateDropdown("netbird-management-url", BRAND_CONFIG.netbirdManagementUrls);
-}
-
-function populateDropdown(selectId: string, options: { value: string; label: string }[]): void {
-  const selectEl = document.getElementById(selectId) as HTMLSelectElement | null;
-  if (!selectEl) return;
-  const placeholderOption = selectEl.options[0];
-  selectEl.innerHTML = "";
-  if (placeholderOption) selectEl.appendChild(placeholderOption);
-
-  options.forEach((opt) => {
-    const option = document.createElement("option");
-    option.value = opt.value;
-    option.textContent = opt.label;
-    selectEl.appendChild(option);
-  });
-
-  const otherOpt = document.createElement("option");
-  otherOpt.value = "other";
-  otherOpt.textContent = "Other (enter manually)…";
-  selectEl.appendChild(otherOpt);
-}
-
-function setupCustomInputListeners(): void {
-  const bindSelectToCustom = (sel: HTMLSelectElement | null, cus: HTMLInputElement | null, updateBtn: () => void) => {
-    sel?.addEventListener("change", () => {
-      if (sel.value === "other" && cus) {
-        cus.style.display = "block";
-        cus.focus();
-      } else if (cus) {
-        cus.style.display = "none";
-        cus.value = "";
-      }
-      updateBtn();
-    });
-    cus?.addEventListener("input", updateBtn);
-  };
-
-  bindSelectToCustom(elManagerSelect, elManagerCustom, updateInstallButtonState);
-  bindSelectToCustom(elIssuerSelect, elIssuerCustom, updateEnrollButtonState);
-  bindSelectToCustom(elEndpointSelect, elEndpointCustom, updateEnrollButtonState);
-  bindSelectToCustom(elNetbirdUrlSelect, elNetbirdUrlCustom, updateNetbirdButtonState);
-  elNetbirdSetupKey?.addEventListener("input", updateNetbirdButtonState);
 }
 
 function setupRadioCards(): void {
@@ -272,28 +248,19 @@ function setupRadioCards(): void {
 // ---- Data Retrieval ----
 
 function getManagerValue(): string {
-  return elManagerSelect?.value === "other"
-    ? (elManagerCustom?.value.trim() ?? "")
-    : (elManagerSelect?.value.trim() ?? "");
+  return appConfig?.wazuh_manager_url ?? "";
 }
 
 function getIssuerValue(): string {
-  return elIssuerSelect?.value === "other"
-    ? (elIssuerCustom?.value.trim() ?? "")
-    : (elIssuerSelect?.value.trim() ?? "");
+  return appConfig?.wazuh_oauth_issuer ?? "";
 }
 
 function getEndpointValue(): string {
-  return elEndpointSelect?.value === "other"
-    ? elEndpointCustom?.value.trim() ?? ""
-    : (elEndpointSelect?.value.trim() ?? "");
+  return appConfig?.wazuh_cert_endpoint ?? "";
 }
 
 function getNetbirdUrlValue(): string {
-  if (elNetbirdUrlSelect?.value === "other") {
-    return elNetbirdUrlCustom?.value.trim() ?? "";
-  }
-  return elNetbirdUrlSelect?.value.trim() ?? "";
+  return appConfig?.netbird_management_url ?? "";
 }
 
 function getNetbirdSetupKey(): string {
@@ -414,20 +381,12 @@ function showInstallResult(success: boolean, desc: string) {
   const icon = document.getElementById("result-icon");
   const title = document.getElementById("result-title");
   const descEl = document.getElementById("result-desc");
-  const btn = document.getElementById("btn-go-enroll");
-
   if (icon) {
     icon.className = `result-icon ${success ? "success" : "error"}`;
     icon.textContent = success ? "✓" : "✕";
   }
   if (title) title.textContent = success ? "Installation Complete" : "Installation Failed";
   if (descEl) descEl.textContent = desc;
-  if (btn) {
-    btn.style.display = success ? "inline-flex" : "none";
-    if (success) {
-      btn.textContent = "Go to Enrollment →";
-    }
-  }
 }
 
 // ---- Enrollment Flow ----
@@ -520,6 +479,7 @@ async function startNetbirdConnection() {
 
     if (result.success) {
       showStatusBanner(netbirdStatusBanner, "success", "NetBird connected successfully!");
+      setTimeout(() => checkNetbirdState(), 1500);
     } else {
       showStatusBanner(netbirdStatusBanner, "error", `NetBird connection failed: exit code ${result.exit_code}`);
       if (btnRetryNetbird) btnRetryNetbird.style.display = "flex";
@@ -547,7 +507,6 @@ async function checkEnrollmentState(): Promise<void> {
     const dangerBody = document.getElementById("enroll-danger-body");
     const navBadge = document.getElementById("enroll-nav-badge");
     const agentNameEl = document.getElementById("enroll-info-agent-name");
-    const managerEl = document.getElementById("enroll-info-manager");
 
     if (state.enrolled) {
       // Show the status card
@@ -563,7 +522,6 @@ async function checkEnrollmentState(): Promise<void> {
 
       // Populate info rows
       if (agentNameEl) agentNameEl.textContent = state.agent_name ?? "Unknown";
-      if (managerEl) managerEl.textContent = state.manager ?? "Unknown";
 
       // Show the sidebar green badge
       if (navBadge) {
@@ -595,6 +553,71 @@ async function checkEnrollmentState(): Promise<void> {
     }
   } catch (err) {
     console.warn("[checkEnrollmentState] Could not determine enrollment state:", err);
+  }
+}
+
+// ---- Netbird State ----
+
+async function checkNetbirdState(): Promise<void> {
+  try {
+    const state = await invoke<NetbirdState>("check_netbird");
+
+    const activeCard = document.getElementById("netbird-active-card");
+    const formSection = document.getElementById("netbird-form-section");
+    const dangerBody = document.getElementById("netbird-danger-body");
+    const ipEl = document.getElementById("netbird-info-ip");
+    const mgmtEl = document.getElementById("netbird-info-mgmt");
+    const navBadge = document.getElementById("netbird-nav-badge");
+
+    if (state.daemon_status === "Connected") {
+      if (activeCard) activeCard.style.display = "block";
+
+      if (dangerBody && formSection && formSection.parentElement !== dangerBody) {
+        dangerBody.appendChild(formSection);
+        formSection.style.display = "block";
+        if (btnStartNetbird) {
+          btnStartNetbird.textContent = "⚠️ Reconnect NetBird";
+          btnStartNetbird.classList.remove("btn-primary");
+          btnStartNetbird.classList.add("btn-danger");
+        }
+      }
+
+      if (ipEl) ipEl.textContent = state.netbird_ip ?? "Unknown";
+      if (mgmtEl) {
+        mgmtEl.textContent = state.management_connected ? "Connected" : "Disconnected";
+        mgmtEl.className = state.management_connected ? "enrolled-info-value enrolled-info-ok" : "enrolled-info-value";
+        if (!state.management_connected) mgmtEl.style.color = "var(--color-danger)";
+      }
+
+      if (navBadge) {
+        navBadge.style.display = "flex";
+        navBadge.className = "enroll-nav-badge enroll-nav-badge--active";
+        navBadge.textContent = "✓";
+      }
+    } else {
+      if (activeCard) activeCard.style.display = "none";
+
+      const tabPanel = document.getElementById("tab-netbird");
+      if (tabPanel && formSection && formSection.parentElement !== tabPanel) {
+        const terminalArea = document.getElementById("netbird-terminal-area");
+        tabPanel.insertBefore(formSection, terminalArea);
+        formSection.style.display = "block";
+      }
+
+      if (btnStartNetbird) {
+        btnStartNetbird.textContent = "🐦 Connect NetBird";
+        btnStartNetbird.classList.add("btn-primary");
+        btnStartNetbird.classList.remove("btn-danger");
+      }
+
+      if (navBadge) {
+        navBadge.style.display = "flex";
+        navBadge.className = "enroll-nav-badge enroll-nav-badge--missing";
+        navBadge.textContent = "✗";
+      }
+    }
+  } catch (err) {
+    console.warn("[checkNetbirdState] Could not determine netbird state:", err);
   }
 }
 
