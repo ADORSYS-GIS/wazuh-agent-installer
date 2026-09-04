@@ -25,3 +25,6 @@ dist-ssr
 
 # Rust build artifacts
 /target
+
+# Compiled JavaScript in src
+src/*.js
