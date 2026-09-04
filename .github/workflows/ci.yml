@@ -3,6 +3,11 @@ name: CI
 on:
   pull_request:
     branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
 
 jobs:
   ci:
@@ -24,8 +29,8 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:
-          workspaces: './src-tauri -> target'
-          shared-key: 'bust-cache-1'
+          workspaces: "./src-tauri -> target"
+          shared-key: "bust-cache-1"
 
       - name: Install CI tools
         uses: taiki-e/install-action@d9be7d8cda89035c9c843f78bd44d4f72d8403d4
@@ -35,8 +40,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
-          cache: 'npm'
+          node-version: "lts/*"
+          cache: "npm"
 
       - name: Install frontend dependencies
         run: npm ci
@@ -71,3 +76,13 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         working-directory: ./src-tauri
         run: cargo machete --with-metadata
+
+  scan:
+    needs: ci
+    uses: ADORSYS-GIS/adorsys-ci-cd-templates/.github/workflows/sonarqube.yml@1566ed0da26bd29f41625655dd7171a5464762fd # main
+    with:
+      project-key: wazuh-agent-installer
+      exclusions: "**/target/**,**/node_modules/**,**/dist/**"
+    secrets:
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
