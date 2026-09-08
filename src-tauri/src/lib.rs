@@ -14,6 +14,25 @@ use std::os::windows::process::CommandExt;
 
 // ---- Types ----
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AppConfig {
+    pub wazuh_manager_url: String,
+    pub wazuh_oauth_issuer: String,
+    pub wazuh_cert_endpoint: String,
+    pub netbird_management_url: String,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            wazuh_manager_url: "manager.wazuh.adorsys.team".to_string(),
+            wazuh_oauth_issuer: "https://login.wazuh.adorsys.team/realms/adorsys".to_string(),
+            wazuh_cert_endpoint: "https://cert.wazuh.adorsys.team/api/register-agent".to_string(),
+            netbird_management_url: "https://netbird.guard.adorsys.com".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Clone)]
 struct LogLine {
     line: String,
@@ -99,8 +118,9 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                 return Some(first_line.trim().to_string());
             } else if name == "Suricata" {
                 let lower = out_str.to_lowercase();
-                if let Some(idx) = lower.find("suricata ") {
-                    let rest = &out_str[idx + 9..];
+                // Expected output from `suricata -V`: "This is Suricata version 7.0.17 RELEASE"
+                if let Some(idx) = lower.find("version ") {
+                    let rest = &out_str[idx + 8..];
                     if let Some(first_word) = rest.split_whitespace().next() {
                         let cleaned = first_word
                             .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
@@ -109,14 +129,15 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                         }
                     }
                 }
-                if let Some(idx) = lower.find("version ") {
-                    let rest = &out_str[idx + 8..];
-                    return Some(
-                        rest.split_whitespace()
-                            .next()
-                            .unwrap_or(&out_str)
-                            .to_string(),
-                    );
+                if let Some(idx) = lower.find("suricata ") {
+                    let rest = &out_str[idx + 9..];
+                    if let Some(first_word) = rest.split_whitespace().next() {
+                        let cleaned = first_word
+                            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+                        if !cleaned.is_empty() && cleaned != "version" {
+                            return Some(cleaned.to_string());
+                        }
+                    }
                 }
                 return Some(out_str.trim().to_string());
             } else if name == "Trivy" {
@@ -945,6 +966,78 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
     Ok(results)
 }
 
+// ---- Netbird State ----
+
+#[derive(Serialize)]
+struct NetbirdState {
+    daemon_status: Option<String>,
+    netbird_ip: Option<String>,
+    management_connected: bool,
+}
+
+#[tauri::command]
+async fn check_netbird() -> Result<NetbirdState, String> {
+    let mut cmd = create_command("netbird");
+
+    // Fallback to absolute paths if "netbird" is not in PATH
+    #[cfg(target_os = "windows")]
+    {
+        if std::process::Command::new("netbird")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            if std::path::Path::new(r"C:\Program Files\Netbird\netbird.exe").exists() {
+                cmd = create_command(r"C:\Program Files\Netbird\netbird.exe");
+            } else if std::path::Path::new(r"C:\Program Files (x86)\Netbird\netbird.exe").exists() {
+                cmd = create_command(r"C:\Program Files (x86)\Netbird\netbird.exe");
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if std::process::Command::new("netbird")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            if std::path::Path::new("/usr/bin/netbird").exists() {
+                cmd = create_command("/usr/bin/netbird");
+            } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+                cmd = create_command("/usr/local/bin/netbird");
+            }
+        }
+    }
+
+    cmd.args(["status", "-j"]);
+
+    let output = cmd.output().await.map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Ok(NetbirdState {
+            daemon_status: None,
+            netbird_ip: None,
+            management_connected: false,
+        });
+    }
+
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+
+    let daemon_status = parsed["daemonStatus"].as_str().map(|s| s.to_string());
+    let netbird_ip = parsed["netbirdIp"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let management_connected = parsed["management"]["connected"].as_bool().unwrap_or(false);
+
+    Ok(NetbirdState {
+        daemon_status,
+        netbird_ip,
+        management_connected,
+    })
+}
+
 // ---- Enrollment State ----
 
 #[derive(Serialize)]
@@ -1018,8 +1111,51 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn get_app_config(app: AppHandle) -> Result<AppConfig, String> {
+    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let config_path = config_dir.join("config.json");
+    if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        match serde_json::from_str(&content) {
+            Ok(config) => Ok(config),
+            Err(e) => {
+                eprintln!(
+                    "Failed to parse config.json, falling back to defaults: {}",
+                    e
+                );
+                Ok(AppConfig::default())
+            }
+        }
+    } else {
+        Ok(AppConfig::default())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Pre-create the config file as the normal user before elevating to root
+    // to prevent the config file and directory from being root-owned.
+    #[cfg(unix)]
+    if unsafe { libc::geteuid() } != 0 {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            let config_dir = if cfg!(target_os = "macos") {
+                std::path::PathBuf::from(&home)
+                    .join("Library/Application Support/com.adorsys.wazuh-agent-installer")
+            } else {
+                std::path::PathBuf::from(&home).join(".config/com.adorsys.wazuh-agent-installer")
+            };
+            if !config_dir.exists() {
+                let _ = std::fs::create_dir_all(&config_dir);
+                let default_config = AppConfig::default();
+                if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+                    let _ = std::fs::write(config_dir.join("config.json"), json);
+                }
+            }
+        }
+    }
+
     // Capture our PID before elevation so the elevated child can watch us.
     // Only needed on Unix — the watchdog that consumes it is #[cfg(unix)].
     #[cfg(unix)]
@@ -1129,7 +1265,9 @@ pub fn run() {
         for a in &args {
             parts.push(sq(a));
         }
-        let shell_cmd = format!("sh -c {}", sq(&parts.join(" ")));
+        let home = std::env::var("HOME").unwrap_or_default();
+        let env_setup = format!("export HOME={};", sq(&home));
+        let shell_cmd = format!("{} sh -c {}", env_setup, sq(&parts.join(" ")));
 
         // The shell_cmd will be embedded inside a double-quoted AppleScript string.
         // We must escape any backslashes or double-quotes so they don't break the outer AppleScript layer.
@@ -1194,9 +1332,25 @@ pub fn run() {
             run_netbird_up,
             check_components,
             check_enrollment,
-            save_logs
+            check_netbird,
+            save_logs,
+            get_app_config
         ])
         .setup(|app| {
+            // Generate default config file if it doesn't exist
+            if let Ok(config_dir) = app.path().app_config_dir() {
+                if !config_dir.exists() {
+                    let _ = std::fs::create_dir_all(&config_dir);
+                }
+                let config_path = config_dir.join("config.json");
+                if !config_path.exists() {
+                    let default_config = AppConfig::default();
+                    if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+                        let _ = std::fs::write(config_path, json);
+                    }
+                }
+            }
+
             let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;

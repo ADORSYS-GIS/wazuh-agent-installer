@@ -106,6 +106,7 @@ jobs:
             fs.writeFileSync('src/config.ts', content);
           "
 
+
       # ── Build & Release ───────────────────────────────────────────────────
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0

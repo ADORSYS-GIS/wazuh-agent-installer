@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:dev": "tsc && vite build --mode development",
     "tauri": "tauri",
     "lint": "eslint \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.{ts,css,html}\" \"*.json\" \".prettierrc\" \".eslintrc.json\"",
