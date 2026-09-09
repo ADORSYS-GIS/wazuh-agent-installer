@@ -398,10 +398,7 @@ fn spawn_install_stdout_reader(
     });
 }
 
-fn spawn_install_stderr_reader(
-    stderr: tokio::process::ChildStderr,
-    app: AppHandle,
-) {
+fn spawn_install_stderr_reader(stderr: tokio::process::ChildStderr, app: AppHandle) {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
