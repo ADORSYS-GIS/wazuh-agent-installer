@@ -101,7 +101,12 @@ fn parse_suricata_version(out_str: &str) -> Option<String> {
 fn parse_trivy_version(out_str: &str) -> Option<String> {
     if let Some(idx) = out_str.find("Version: ") {
         let rest = &out_str[idx + 9..];
-        return Some(rest.split_whitespace().next().unwrap_or(out_str).to_string());
+        return Some(
+            rest.split_whitespace()
+                .next()
+                .unwrap_or(out_str)
+                .to_string(),
+        );
     }
     Some(out_str.trim().to_string())
 }
@@ -143,7 +148,8 @@ fn parse_default_version(out_str: &str) -> Option<String> {
             for p in parts {
                 let is_date = p.contains('-') && p.split('-').count() == 3;
                 let is_path = p.contains('/') || p.contains('\\');
-                if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') && !is_date && !is_path {
+                if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') && !is_date && !is_path
+                {
                     return Some(p.to_string());
                 }
             }
@@ -879,8 +885,7 @@ async fn check_component_windows(name: &str, path: &str) -> (bool, String) {
         }
     } else if path.ends_with("wazuh-agent.exe") {
         let ok = std::path::Path::new(path).exists()
-            || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
-                .exists()
+            || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe")).exists()
             || create_command("sc")
                 .args(["query", "WazuhSvc"])
                 .stdout(Stdio::null())

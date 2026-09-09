@@ -1,7 +1,5 @@
 # Wazuh Agent Installer
 
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=ADORSYS-GIS_wazuh-agent-installer&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ADORSYS-GIS_wazuh-agent-installer)
-
 A desktop GUI application that provides a guided interface for installing and configuring a full Wazuh security agent stack on Linux, macOS, and Windows.
 
 ---
