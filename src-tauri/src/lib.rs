@@ -70,6 +70,100 @@ pub struct InstallConfig {
 
 // ---- Helpers ----
 
+fn parse_yara_version(out_str: &str) -> Option<String> {
+    let first_line = out_str.lines().next().unwrap_or(out_str);
+    Some(first_line.trim().to_string())
+}
+
+fn parse_suricata_version(out_str: &str) -> Option<String> {
+    let lower = out_str.to_lowercase();
+    if let Some(idx) = lower.find("version ") {
+        let rest = &out_str[idx + 8..];
+        if let Some(first_word) = rest.split_whitespace().next() {
+            let cleaned = first_word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+            if !cleaned.is_empty() {
+                return Some(cleaned.to_string());
+            }
+        }
+    }
+    if let Some(idx) = lower.find("suricata ") {
+        let rest = &out_str[idx + 9..];
+        if let Some(first_word) = rest.split_whitespace().next() {
+            let cleaned = first_word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+            if !cleaned.is_empty() && cleaned != "version" {
+                return Some(cleaned.to_string());
+            }
+        }
+    }
+    Some(out_str.trim().to_string())
+}
+
+fn parse_trivy_version(out_str: &str) -> Option<String> {
+    if let Some(idx) = out_str.find("Version: ") {
+        let rest = &out_str[idx + 9..];
+        return Some(rest.split_whitespace().next().unwrap_or(out_str).to_string());
+    }
+    Some(out_str.trim().to_string())
+}
+
+fn parse_wazuh_agent_version(out_str: &str) -> Option<String> {
+    if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
+        let rest = &out_str[idx + 15..];
+        if let Some(end) = rest.find('\"') {
+            return Some(rest[..end].to_string());
+        }
+    } else if let Some(idx) = out_str.find("Wazuh v") {
+        let rest = &out_str[idx + 7..];
+        return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+    } else if cfg!(windows) {
+        let trimmed = out_str.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn parse_netbird_version(out_str: &str) -> Option<String> {
+    let trimmed = out_str.trim();
+    if let Some(first) = trimmed.lines().next() {
+        let v = first.trim().to_string();
+        if !v.is_empty() {
+            return Some(v);
+        }
+    }
+    None
+}
+
+fn parse_default_version(out_str: &str) -> Option<String> {
+    for line in out_str.lines() {
+        let trimmed = line.trim();
+        if trimmed.chars().any(|c| c.is_ascii_digit()) {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            for p in parts {
+                let is_date = p.contains('-') && p.split('-').count() == 3;
+                let is_path = p.contains('/') || p.contains('\\');
+                if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') && !is_date && !is_path {
+                    return Some(p.to_string());
+                }
+            }
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn parse_component_version(name: &str, out_str: &str) -> Option<String> {
+    match name {
+        "YARA" => parse_yara_version(out_str),
+        "Suricata" => parse_suricata_version(out_str),
+        "Trivy" => parse_trivy_version(out_str),
+        "Wazuh Agent" => parse_wazuh_agent_version(out_str),
+        "NetBird" => parse_netbird_version(out_str),
+        _ => parse_default_version(out_str),
+    }
+}
+
 async fn get_component_version(name: &str, path: &str) -> Option<String> {
     let mut args = vec![];
     let mut cmd_target = path.to_string();
@@ -112,89 +206,7 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
         {
             let out_str = String::from_utf8_lossy(&output.stdout).to_string()
                 + String::from_utf8_lossy(&output.stderr).as_ref();
-
-            if name == "YARA" {
-                let first_line = out_str.lines().next().unwrap_or(&out_str);
-                return Some(first_line.trim().to_string());
-            } else if name == "Suricata" {
-                let lower = out_str.to_lowercase();
-                // Expected output from `suricata -V`: "This is Suricata version 7.0.17 RELEASE"
-                if let Some(idx) = lower.find("version ") {
-                    let rest = &out_str[idx + 8..];
-                    if let Some(first_word) = rest.split_whitespace().next() {
-                        let cleaned = first_word
-                            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
-                        if !cleaned.is_empty() {
-                            return Some(cleaned.to_string());
-                        }
-                    }
-                }
-                if let Some(idx) = lower.find("suricata ") {
-                    let rest = &out_str[idx + 9..];
-                    if let Some(first_word) = rest.split_whitespace().next() {
-                        let cleaned = first_word
-                            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
-                        if !cleaned.is_empty() && cleaned != "version" {
-                            return Some(cleaned.to_string());
-                        }
-                    }
-                }
-                return Some(out_str.trim().to_string());
-            } else if name == "Trivy" {
-                if let Some(idx) = out_str.find("Version: ") {
-                    let rest = &out_str[idx + 9..];
-                    return Some(
-                        rest.split_whitespace()
-                            .next()
-                            .unwrap_or(&out_str)
-                            .to_string(),
-                    );
-                }
-                return Some(out_str.trim().to_string());
-            } else if name == "Wazuh Agent" {
-                if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
-                    let rest = &out_str[idx + 15..];
-                    if let Some(end) = rest.find("\"") {
-                        return Some(rest[..end].to_string());
-                    }
-                } else if let Some(idx) = out_str.find("Wazuh v") {
-                    let rest = &out_str[idx + 7..];
-                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
-                } else if cfg!(windows) {
-                    let trimmed = out_str.trim();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed.to_string());
-                    }
-                }
-            } else if name == "NetBird" {
-                // `netbird version` outputs just the version on a single line
-                let trimmed = out_str.trim();
-                if let Some(first) = trimmed.lines().next() {
-                    let v = first.trim().to_string();
-                    if !v.is_empty() {
-                        return Some(v);
-                    }
-                }
-            } else {
-                for line in out_str.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.chars().any(|c| c.is_ascii_digit()) {
-                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                        for p in parts {
-                            let is_date = p.contains('-') && p.split('-').count() == 3;
-                            let is_path = p.contains('/') || p.contains('\\');
-                            if p.chars().any(|c| c.is_ascii_digit())
-                                && p.contains('.')
-                                && !is_date
-                                && !is_path
-                            {
-                                return Some(p.to_string());
-                            }
-                        }
-                        return Some(trimmed.to_string());
-                    }
-                }
-            }
+            return parse_component_version(name, &out_str);
         }
     }
     None
@@ -296,12 +308,7 @@ fn is_root() -> bool {
         true
     }
 }
-#[tauri::command]
-async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
-    let resolved_path = resolve_script(&app)?;
-
-    // The process is already running as root (elevated at launch), so we can
-    // invoke bash directly — no sudo or pkexec wrapper needed.
+fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command {
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut c = create_command("powershell");
@@ -310,7 +317,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            &resolved_path,
+            resolved_path,
         ]);
         if config.install_netbird {
             c.arg("-InstallNetBird");
@@ -321,14 +328,13 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     #[cfg(not(target_os = "windows"))]
     let mut command = {
         let mut c = create_command("bash");
-        c.arg(&resolved_path);
+        c.arg(resolved_path);
         if config.install_trivy {
             c.arg("-t");
         }
         if config.install_netbird {
             c.arg("-b");
         }
-        // Inject env vars — we are already root so no env-stripping occurs
         c.env("WAZUH_MANAGER", &config.wazuh_manager)
             .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
             .env("IDS_ENGINE", &config.ids_engine)
@@ -357,6 +363,14 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    command
+}
+
+#[tauri::command]
+async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
+    let resolved_path = resolve_script(&app)?;
+    let mut command = build_install_command(&config, &resolved_path);
 
     let mut child = command.spawn().map_err(|e| e.to_string())?;
 
@@ -465,28 +479,20 @@ fn open_browser(url: &str) {
     let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
 #[tauri::command]
-async fn run_enroll(
-    issuer: String,
-    endpoint: String,
-    overwrite: bool,
-    app: AppHandle,
-) -> Result<InstallResult, String> {
+fn build_enroll_command(issuer: &str, endpoint: &str, overwrite: bool) -> Command {
     let mut oauth_args = vec![
         "o-auth2".to_string(),
         "--issuer".to_string(),
-        issuer,
+        issuer.to_string(),
         "--endpoint".to_string(),
-        endpoint,
+        endpoint.to_string(),
     ];
 
-    // Only pass --overwrite when explicitly re-enrolling an already-enrolled agent
     if overwrite {
         oauth_args.push("--overwrite".to_string());
         oauth_args.push("true".to_string());
     }
 
-    // The process is already root at this point.
-    // Call the binary directly — no pkexec or osascript wrapper needed.
     #[cfg(target_os = "windows")]
     let mut command = {
         let exe = "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe";
@@ -518,6 +524,18 @@ async fn run_enroll(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    command
+}
+
+#[tauri::command]
+async fn run_enroll(
+    issuer: String,
+    endpoint: String,
+    overwrite: bool,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    let mut command = build_enroll_command(&issuer, &endpoint, overwrite);
 
     let mut child = command.spawn().map_err(|e| e.to_string())?;
 
@@ -614,17 +632,11 @@ async fn run_enroll(
     }
 }
 
-#[tauri::command]
-async fn run_netbird_up(
-    setup_key: String,
-    management_url: String,
-    app: AppHandle,
-) -> Result<InstallResult, String> {
-    // Management URL defaults to the public NetBird Cloud when not provided.
+fn build_netbird_up_command(setup_key: &str, management_url: &str) -> Command {
     let management_url = if management_url.trim().is_empty() {
         "https://api.netbird.io:443".to_string()
     } else {
-        management_url
+        management_url.to_string()
     };
 
     let mut args = vec![
@@ -634,7 +646,7 @@ async fn run_netbird_up(
     ];
     if !setup_key.trim().is_empty() {
         args.push("--setup-key".to_string());
-        args.push(setup_key);
+        args.push(setup_key.to_string());
     }
 
     #[cfg(unix)]
@@ -654,6 +666,17 @@ async fn run_netbird_up(
     cmd.args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    cmd
+}
+
+#[tauri::command]
+async fn run_netbird_up(
+    setup_key: String,
+    management_url: String,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    let mut cmd = build_netbird_up_command(&setup_key, &management_url);
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
@@ -732,6 +755,142 @@ async fn run_netbird_up(
                 message: "NetBird connected successfully".into(),
             })
         }
+    }
+}
+#[cfg(unix)]
+fn check_component_unix(name: &str, path: &str) -> (bool, String) {
+    if name == "NetBird" {
+        if std::path::Path::new(&path).exists() {
+            (true, path.to_string())
+        } else if std::path::Path::new("/usr/bin/netbird").exists() {
+            (true, "/usr/bin/netbird".to_string())
+        } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+            (true, "/usr/local/bin/netbird".to_string())
+        } else {
+            (false, path.to_string())
+        }
+    } else if name == "Suricata" {
+        if std::path::Path::new(&path).exists() {
+            (true, path.to_string())
+        } else if std::path::Path::new("/usr/bin/suricata").exists() {
+            (true, "/usr/bin/suricata".to_string())
+        } else if std::path::Path::new("/usr/local/bin/suricata").exists() {
+            (true, "/usr/local/bin/suricata".to_string())
+        } else if std::path::Path::new("/opt/homebrew/bin/suricata").exists() {
+            (true, "/opt/homebrew/bin/suricata".to_string())
+        } else {
+            (false, path.to_string())
+        }
+    } else if name == "Trivy" {
+        if std::path::Path::new(&path).exists() {
+            (true, path.to_string())
+        } else if std::path::Path::new("/usr/bin/trivy").exists() {
+            (true, "/usr/bin/trivy".to_string())
+        } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
+            (true, "/usr/local/bin/trivy".to_string())
+        } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
+            (true, "/opt/homebrew/bin/trivy".to_string())
+        } else {
+            (false, path.to_string())
+        }
+    } else {
+        (std::path::Path::new(&path).exists(), path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_component_windows(name: &str, path: &str) -> (bool, String) {
+    if name == "NetBird" {
+        let default_p1 = r"C:\Program Files\Netbird\netbird.exe";
+        let default_p2 = r"C:\Program Files (x86)\Netbird\netbird.exe";
+        if std::path::Path::new(default_p1).exists() {
+            (true, default_p1.to_string())
+        } else if std::path::Path::new(default_p2).exists() {
+            (true, default_p2.to_string())
+        } else {
+            let ok = create_command(path)
+                .arg("--help")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await
+                .map_or(false, |s| s.success());
+            (ok, path.to_string())
+        }
+    } else if name == "Suricata" {
+        let p1 = r"C:\Program Files\Suricata\suricata.exe";
+        let p2 = r"C:\Program Files (x86)\Suricata\suricata.exe";
+        let p3 = r"C:\Suricata\suricata.exe";
+        if std::path::Path::new(p1).exists() {
+            (true, p1.to_string())
+        } else if std::path::Path::new(p2).exists() {
+            (true, p2.to_string())
+        } else if std::path::Path::new(p3).exists() {
+            (true, p3.to_string())
+        } else {
+            let ok = create_command(path)
+                .arg("--help")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await
+                .map_or(false, |s| s.success());
+            (ok, path.to_string())
+        }
+    } else if name == "Trivy" {
+        let p1 = r"C:\Program Files\Trivy\trivy.exe";
+        let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
+        let p3 = r"C:\Trivy\trivy.exe";
+        if std::path::Path::new(p1).exists() {
+            (true, p1.to_string())
+        } else if std::path::Path::new(p2).exists() {
+            (true, p2.to_string())
+        } else if std::path::Path::new(p3).exists() {
+            (true, p3.to_string())
+        } else {
+            let ok = create_command(path)
+                .arg("--help")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await
+                .map_or(false, |s| s.success());
+            (ok, path.to_string())
+        }
+    } else if name == "YARA" {
+        let p1 = r"C:\Program Files\YARA\yara64.exe";
+        let p2 = r"C:\Program Files (x86)\YARA\yara64.exe";
+        let p3 = r"C:\YARA\yara64.exe";
+        if std::path::Path::new(p1).exists() {
+            (true, p1.to_string())
+        } else if std::path::Path::new(p2).exists() {
+            (true, p2.to_string())
+        } else if std::path::Path::new(p3).exists() {
+            (true, p3.to_string())
+        } else {
+            let ok = create_command(path)
+                .arg("--help")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await
+                .map_or(false, |s| s.success());
+            (ok, path.to_string())
+        }
+    } else if path.ends_with("wazuh-agent.exe") {
+        let ok = std::path::Path::new(path).exists()
+            || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
+                .exists()
+            || create_command("sc")
+                .args(["query", "WazuhSvc"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await
+                .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    } else {
+        (std::path::Path::new(path).exists(), path.to_string())
     }
 }
 
@@ -813,141 +972,10 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
 
     for (name, path) in components {
         #[cfg(unix)]
-        let (installed, effective_path) = {
-            if name == "NetBird" {
-                if std::path::Path::new(&path).exists() {
-                    (true, path.clone())
-                } else if std::path::Path::new("/usr/bin/netbird").exists() {
-                    (true, "/usr/bin/netbird".to_string())
-                } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
-                    (true, "/usr/local/bin/netbird".to_string())
-                } else {
-                    (false, path.clone())
-                }
-            } else if name == "Suricata" {
-                if std::path::Path::new(&path).exists() {
-                    (true, path.clone())
-                } else if std::path::Path::new("/usr/bin/suricata").exists() {
-                    (true, "/usr/bin/suricata".to_string())
-                } else if std::path::Path::new("/usr/local/bin/suricata").exists() {
-                    (true, "/usr/local/bin/suricata".to_string())
-                } else if std::path::Path::new("/opt/homebrew/bin/suricata").exists() {
-                    (true, "/opt/homebrew/bin/suricata".to_string())
-                } else {
-                    (false, path.clone())
-                }
-            } else if name == "Trivy" {
-                if std::path::Path::new(&path).exists() {
-                    (true, path.clone())
-                } else if std::path::Path::new("/usr/bin/trivy").exists() {
-                    (true, "/usr/bin/trivy".to_string())
-                } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
-                    (true, "/usr/local/bin/trivy".to_string())
-                } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
-                    (true, "/opt/homebrew/bin/trivy".to_string())
-                } else {
-                    (false, path.clone())
-                }
-            } else {
-                (std::path::Path::new(&path).exists(), path.clone())
-            }
-        };
+        let (installed, effective_path) = check_component_unix(&name, &path);
 
         #[cfg(windows)]
-        let (installed, effective_path) = {
-            if name == "NetBird" {
-                let default_p1 = r"C:\Program Files\Netbird\netbird.exe";
-                let default_p2 = r"C:\Program Files (x86)\Netbird\netbird.exe";
-                if std::path::Path::new(default_p1).exists() {
-                    (true, default_p1.to_string())
-                } else if std::path::Path::new(default_p2).exists() {
-                    (true, default_p2.to_string())
-                } else {
-                    let ok = create_command(&path)
-                        .arg("--help")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                    (ok, path.clone())
-                }
-            } else if name == "Suricata" {
-                let p1 = r"C:\Program Files\Suricata\suricata.exe";
-                let p2 = r"C:\Program Files (x86)\Suricata\suricata.exe";
-                let p3 = r"C:\Suricata\suricata.exe";
-                if std::path::Path::new(p1).exists() {
-                    (true, p1.to_string())
-                } else if std::path::Path::new(p2).exists() {
-                    (true, p2.to_string())
-                } else if std::path::Path::new(p3).exists() {
-                    (true, p3.to_string())
-                } else {
-                    let ok = create_command(&path)
-                        .arg("--help")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                    (ok, path.clone())
-                }
-            } else if name == "Trivy" {
-                let p1 = r"C:\Program Files\Trivy\trivy.exe";
-                let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
-                let p3 = r"C:\Trivy\trivy.exe";
-                if std::path::Path::new(p1).exists() {
-                    (true, p1.to_string())
-                } else if std::path::Path::new(p2).exists() {
-                    (true, p2.to_string())
-                } else if std::path::Path::new(p3).exists() {
-                    (true, p3.to_string())
-                } else {
-                    let ok = create_command(&path)
-                        .arg("--help")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                    (ok, path.clone())
-                }
-            } else if name == "YARA" {
-                let p1 = r"C:\Program Files\YARA\yara64.exe";
-                let p2 = r"C:\Program Files (x86)\YARA\yara64.exe";
-                let p3 = r"C:\YARA\yara64.exe";
-                if std::path::Path::new(p1).exists() {
-                    (true, p1.to_string())
-                } else if std::path::Path::new(p2).exists() {
-                    (true, p2.to_string())
-                } else if std::path::Path::new(p3).exists() {
-                    (true, p3.to_string())
-                } else {
-                    let ok = create_command(&path)
-                        .arg("--help")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                    (ok, path.clone())
-                }
-            } else if path.ends_with("wazuh-agent.exe") {
-                let ok = std::path::Path::new(&path).exists()
-                    || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
-                        .exists()
-                    || create_command("sc")
-                        .args(["query", "WazuhSvc"])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                (ok, path.clone())
-            } else {
-                (std::path::Path::new(&path).exists(), path.clone())
-            }
-        };
+        let (installed, effective_path) = check_component_windows(&name, &path).await;
 
         let version = if installed {
             get_component_version(&name, &effective_path).await

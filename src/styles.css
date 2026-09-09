@@ -714,7 +714,6 @@ input:checked + .slider:before {
   color: var(--brand-status-warn);
 }
 
-
 /* ---- Danger / Advanced Section ---- */
 .danger-section {
   border: 1px solid rgba(251, 191, 36, 0.2);
@@ -756,7 +755,6 @@ input:checked + .slider:before {
   line-height: 1.6;
   padding: 14px 0 4px;
 }
-
 
 /* ---- Danger Button ---- */
 .btn-danger {
