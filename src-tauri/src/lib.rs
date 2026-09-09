@@ -373,19 +373,13 @@ fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command
     command
 }
 
-#[tauri::command]
-async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
-    let resolved_path = resolve_script(&app)?;
-    let mut command = build_install_command(&config, &resolved_path);
-
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-
-    let (tx_done, mut rx_done) = tokio::sync::mpsc::channel(1);
+fn spawn_install_readers(
+    stdout: tokio::process::ChildStdout,
+    stderr: tokio::process::ChildStderr,
+    app: AppHandle,
+    tx_done: tokio::sync::mpsc::Sender<bool>,
+) {
     let tx_done_clone = tx_done.clone();
-
     let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
@@ -408,7 +402,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         }
     });
 
-    let app_clone2 = app.clone();
+    let app_clone2 = app;
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -425,6 +419,20 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
             );
         }
     });
+}
+
+#[tauri::command]
+async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
+    let resolved_path = resolve_script(&app)?;
+    let mut command = build_install_command(&config, &resolved_path);
+
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let (tx_done, mut rx_done) = tokio::sync::mpsc::channel(1);
+    spawn_install_readers(stdout, stderr, app, tx_done);
 
     let status_future = child.wait();
 
@@ -534,29 +542,13 @@ fn build_enroll_command(issuer: &str, endpoint: &str, overwrite: bool) -> Comman
     command
 }
 
-#[tauri::command]
-async fn run_enroll(
-    issuer: String,
-    endpoint: String,
-    overwrite: bool,
+fn spawn_enroll_readers(
+    stdout: tokio::process::ChildStdout,
+    stderr: tokio::process::ChildStderr,
     app: AppHandle,
-) -> Result<InstallResult, String> {
-    let mut command = build_enroll_command(&issuer, &endpoint, overwrite);
-
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-
-    let stdout = child.stdout.take().expect("Failed to capture stdout");
-    let stderr = child.stderr.take().expect("Failed to capture stderr");
-
-    // Use the same Notify/select! pattern as run_netbird_up.
-    // On macOS the wazuh daemons restarted by the OAuth2 client inherit the
-    // pipe file descriptors and hold them open, so child.wait() would hang
-    // indefinitely even after enrollment has completed. Detecting "] Done!"
-    // lets us return immediately — exactly like NetBird detects "connected".
-    let enrolled = std::sync::Arc::new(tokio::sync::Notify::new());
+    enrolled: std::sync::Arc<tokio::sync::Notify>,
+) {
     let enrolled_clone1 = enrolled.clone();
-    let enrolled_clone2 = enrolled.clone();
-
     let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
@@ -583,16 +575,13 @@ async fn run_enroll(
         }
     });
 
-    let app_clone2 = app.clone();
+    let app_clone2 = app;
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             if line.trim().is_empty() {
                 continue;
             }
-            // The OAuth2 binary cannot open a browser when run under sudo on macOS
-            // (sudo strips the GUI session). We intercept the URL it prints and open
-            // it ourselves from Tauri which runs in the full GUI context.
             if let Some(url_start) = line.find("Opened your default browser to: ") {
                 let url = line[url_start + "Opened your default browser to: ".len()..].trim();
                 if !url.is_empty() {
@@ -602,7 +591,7 @@ async fn run_enroll(
                 open_browser(line.trim());
             }
             if line.contains("] Done!") || line.trim() == "Done!" {
-                enrolled_clone2.notify_one();
+                enrolled.notify_one();
             }
             let level = classify_line(&line);
             let _ = app_clone2.emit(
@@ -614,6 +603,24 @@ async fn run_enroll(
             );
         }
     });
+}
+
+#[tauri::command]
+async fn run_enroll(
+    issuer: String,
+    endpoint: String,
+    overwrite: bool,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    let mut command = build_enroll_command(&issuer, &endpoint, overwrite);
+
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let enrolled = std::sync::Arc::new(tokio::sync::Notify::new());
+    spawn_enroll_readers(stdout, stderr, app, enrolled.clone());
 
     tokio::select! {
         res = child.wait() => {
@@ -764,138 +771,170 @@ async fn run_netbird_up(
     }
 }
 #[cfg(unix)]
-fn check_component_unix(name: &str, path: &str) -> (bool, String) {
-    if name == "NetBird" {
-        if std::path::Path::new(&path).exists() {
-            (true, path.to_string())
-        } else if std::path::Path::new("/usr/bin/netbird").exists() {
-            (true, "/usr/bin/netbird".to_string())
-        } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
-            (true, "/usr/local/bin/netbird".to_string())
-        } else {
-            (false, path.to_string())
-        }
-    } else if name == "Suricata" {
-        if std::path::Path::new(&path).exists() {
-            (true, path.to_string())
-        } else if std::path::Path::new("/usr/bin/suricata").exists() {
-            (true, "/usr/bin/suricata".to_string())
-        } else if std::path::Path::new("/usr/local/bin/suricata").exists() {
-            (true, "/usr/local/bin/suricata".to_string())
-        } else if std::path::Path::new("/opt/homebrew/bin/suricata").exists() {
-            (true, "/opt/homebrew/bin/suricata".to_string())
-        } else {
-            (false, path.to_string())
-        }
-    } else if name == "Trivy" {
-        if std::path::Path::new(&path).exists() {
-            (true, path.to_string())
-        } else if std::path::Path::new("/usr/bin/trivy").exists() {
-            (true, "/usr/bin/trivy".to_string())
-        } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
-            (true, "/usr/local/bin/trivy".to_string())
-        } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
-            (true, "/opt/homebrew/bin/trivy".to_string())
-        } else {
-            (false, path.to_string())
-        }
+fn check_netbird_unix(path: &str) -> (bool, String) {
+    if std::path::Path::new(path).exists() {
+        (true, path.to_string())
+    } else if std::path::Path::new("/usr/bin/netbird").exists() {
+        (true, "/usr/bin/netbird".to_string())
+    } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+        (true, "/usr/local/bin/netbird".to_string())
     } else {
-        (std::path::Path::new(&path).exists(), path.to_string())
+        (false, path.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn check_suricata_unix(path: &str) -> (bool, String) {
+    if std::path::Path::new(path).exists() {
+        (true, path.to_string())
+    } else if std::path::Path::new("/usr/bin/suricata").exists() {
+        (true, "/usr/bin/suricata".to_string())
+    } else if std::path::Path::new("/usr/local/bin/suricata").exists() {
+        (true, "/usr/local/bin/suricata".to_string())
+    } else if std::path::Path::new("/opt/homebrew/bin/suricata").exists() {
+        (true, "/opt/homebrew/bin/suricata".to_string())
+    } else {
+        (false, path.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn check_trivy_unix(path: &str) -> (bool, String) {
+    if std::path::Path::new(path).exists() {
+        (true, path.to_string())
+    } else if std::path::Path::new("/usr/bin/trivy").exists() {
+        (true, "/usr/bin/trivy".to_string())
+    } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
+        (true, "/usr/local/bin/trivy".to_string())
+    } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
+        (true, "/opt/homebrew/bin/trivy".to_string())
+    } else {
+        (false, path.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn check_component_unix(name: &str, path: &str) -> (bool, String) {
+    match name {
+        "NetBird" => check_netbird_unix(path),
+        "Suricata" => check_suricata_unix(path),
+        "Trivy" => check_trivy_unix(path),
+        _ => (std::path::Path::new(path).exists(), path.to_string()),
     }
 }
 
 #[cfg(windows)]
-async fn check_component_windows(name: &str, path: &str) -> (bool, String) {
-    if name == "NetBird" {
-        let default_p1 = r"C:\Program Files\Netbird\netbird.exe";
-        let default_p2 = r"C:\Program Files (x86)\Netbird\netbird.exe";
-        if std::path::Path::new(default_p1).exists() {
-            (true, default_p1.to_string())
-        } else if std::path::Path::new(default_p2).exists() {
-            (true, default_p2.to_string())
-        } else {
-            let ok = create_command(path)
-                .arg("--help")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await
-                .map_or(false, |s| s.success());
-            (ok, path.to_string())
-        }
-    } else if name == "Suricata" {
-        let p1 = r"C:\Program Files\Suricata\suricata.exe";
-        let p2 = r"C:\Program Files (x86)\Suricata\suricata.exe";
-        let p3 = r"C:\Suricata\suricata.exe";
-        if std::path::Path::new(p1).exists() {
-            (true, p1.to_string())
-        } else if std::path::Path::new(p2).exists() {
-            (true, p2.to_string())
-        } else if std::path::Path::new(p3).exists() {
-            (true, p3.to_string())
-        } else {
-            let ok = create_command(path)
-                .arg("--help")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await
-                .map_or(false, |s| s.success());
-            (ok, path.to_string())
-        }
-    } else if name == "Trivy" {
-        let p1 = r"C:\Program Files\Trivy\trivy.exe";
-        let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
-        let p3 = r"C:\Trivy\trivy.exe";
-        if std::path::Path::new(p1).exists() {
-            (true, p1.to_string())
-        } else if std::path::Path::new(p2).exists() {
-            (true, p2.to_string())
-        } else if std::path::Path::new(p3).exists() {
-            (true, p3.to_string())
-        } else {
-            let ok = create_command(path)
-                .arg("--help")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await
-                .map_or(false, |s| s.success());
-            (ok, path.to_string())
-        }
-    } else if name == "YARA" {
-        let p1 = r"C:\Program Files\YARA\yara64.exe";
-        let p2 = r"C:\Program Files (x86)\YARA\yara64.exe";
-        let p3 = r"C:\YARA\yara64.exe";
-        if std::path::Path::new(p1).exists() {
-            (true, p1.to_string())
-        } else if std::path::Path::new(p2).exists() {
-            (true, p2.to_string())
-        } else if std::path::Path::new(p3).exists() {
-            (true, p3.to_string())
-        } else {
-            let ok = create_command(path)
-                .arg("--help")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await
-                .map_or(false, |s| s.success());
-            (ok, path.to_string())
-        }
-    } else if path.ends_with("wazuh-agent.exe") {
-        let ok = std::path::Path::new(path).exists()
-            || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe")).exists()
-            || create_command("sc")
-                .args(["query", "WazuhSvc"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await
-                .map_or(false, |s| s.success());
-        (ok, path.to_string())
+async fn check_netbird_windows(path: &str) -> (bool, String) {
+    let default_p1 = r"C:\Program Files\Netbird\netbird.exe";
+    let default_p2 = r"C:\Program Files (x86)\Netbird\netbird.exe";
+    if std::path::Path::new(default_p1).exists() {
+        (true, default_p1.to_string())
+    } else if std::path::Path::new(default_p2).exists() {
+        (true, default_p2.to_string())
     } else {
-        (std::path::Path::new(path).exists(), path.to_string())
+        let ok = create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_suricata_windows(path: &str) -> (bool, String) {
+    let p1 = r"C:\Program Files\Suricata\suricata.exe";
+    let p2 = r"C:\Program Files (x86)\Suricata\suricata.exe";
+    let p3 = r"C:\Suricata\suricata.exe";
+    if std::path::Path::new(p1).exists() {
+        (true, p1.to_string())
+    } else if std::path::Path::new(p2).exists() {
+        (true, p2.to_string())
+    } else if std::path::Path::new(p3).exists() {
+        (true, p3.to_string())
+    } else {
+        let ok = create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_trivy_windows(path: &str) -> (bool, String) {
+    let p1 = r"C:\Program Files\Trivy\trivy.exe";
+    let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
+    let p3 = r"C:\Trivy\trivy.exe";
+    if std::path::Path::new(p1).exists() {
+        (true, p1.to_string())
+    } else if std::path::Path::new(p2).exists() {
+        (true, p2.to_string())
+    } else if std::path::Path::new(p3).exists() {
+        (true, p3.to_string())
+    } else {
+        let ok = create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_yara_windows(path: &str) -> (bool, String) {
+    let p1 = r"C:\Program Files\YARA\yara64.exe";
+    let p2 = r"C:\Program Files (x86)\YARA\yara64.exe";
+    let p3 = r"C:\YARA\yara64.exe";
+    if std::path::Path::new(p1).exists() {
+        (true, p1.to_string())
+    } else if std::path::Path::new(p2).exists() {
+        (true, p2.to_string())
+    } else if std::path::Path::new(p3).exists() {
+        (true, p3.to_string())
+    } else {
+        let ok = create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_wazuh_agent_windows(path: &str) -> (bool, String) {
+    let ok = std::path::Path::new(path).exists()
+        || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe")).exists()
+        || create_command("sc")
+            .args(["query", "WazuhSvc"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+    (ok, path.to_string())
+}
+
+#[cfg(windows)]
+async fn check_component_windows(name: &str, path: &str) -> (bool, String) {
+    match name {
+        "NetBird" => check_netbird_windows(path).await,
+        "Suricata" => check_suricata_windows(path).await,
+        "Trivy" => check_trivy_windows(path).await,
+        "YARA" => check_yara_windows(path).await,
+        _ if path.ends_with("wazuh-agent.exe") => check_wazuh_agent_windows(path).await,
+        _ => (std::path::Path::new(path).exists(), path.to_string()),
     }
 }
 
