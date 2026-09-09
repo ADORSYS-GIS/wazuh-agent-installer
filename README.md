@@ -1,5 +1,8 @@
 # Wazuh Agent Installer
 
+[![CI](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml)
+[![Release](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/release.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/release.yml)
+
 A desktop GUI application that provides a guided interface for installing and configuring a full Wazuh security agent stack on Linux, macOS, and Windows.
 
 ---
