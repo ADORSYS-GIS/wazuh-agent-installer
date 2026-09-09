@@ -373,26 +373,21 @@ fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command
     command
 }
 
-fn spawn_install_readers(
+fn spawn_install_stdout_reader(
     stdout: tokio::process::ChildStdout,
-    stderr: tokio::process::ChildStderr,
     app: AppHandle,
     tx_done: tokio::sync::mpsc::Sender<bool>,
 ) {
-    let tx_done_clone = tx_done.clone();
-    let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             let level = classify_line(&line);
 
-            // On macOS, daemons started by the script might keep stdout open and cause a hang.
-            // If we see the success message, signal completion.
             if line.contains("Wazuh setup has been completed successfully") {
-                let _ = tx_done_clone.try_send(true);
+                let _ = tx_done.try_send(true);
             }
 
-            let _ = app_clone1.emit(
+            let _ = app.emit(
                 "install-log",
                 LogLine {
                     line,
@@ -401,8 +396,12 @@ fn spawn_install_readers(
             );
         }
     });
+}
 
-    let app_clone2 = app;
+fn spawn_install_stderr_reader(
+    stderr: tokio::process::ChildStderr,
+    app: AppHandle,
+) {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -410,7 +409,7 @@ fn spawn_install_readers(
                 continue;
             }
             let level = classify_line(&line);
-            let _ = app_clone2.emit(
+            let _ = app.emit(
                 "install-log",
                 LogLine {
                     line,
@@ -432,7 +431,8 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     let (tx_done, mut rx_done) = tokio::sync::mpsc::channel(1);
-    spawn_install_readers(stdout, stderr, app, tx_done);
+    spawn_install_stdout_reader(stdout, app.clone(), tx_done);
+    spawn_install_stderr_reader(stderr, app);
 
     let status_future = child.wait();
 
@@ -542,14 +542,11 @@ fn build_enroll_command(issuer: &str, endpoint: &str, overwrite: bool) -> Comman
     command
 }
 
-fn spawn_enroll_readers(
+fn spawn_enroll_stdout_reader(
     stdout: tokio::process::ChildStdout,
-    stderr: tokio::process::ChildStderr,
     app: AppHandle,
     enrolled: std::sync::Arc<tokio::sync::Notify>,
 ) {
-    let enrolled_clone1 = enrolled.clone();
-    let app_clone1 = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -562,10 +559,10 @@ fn spawn_enroll_readers(
                 open_browser(line.trim());
             }
             if line.contains("] Done!") || line.trim() == "Done!" {
-                enrolled_clone1.notify_one();
+                enrolled.notify_one();
             }
             let level = classify_line(&line);
-            let _ = app_clone1.emit(
+            let _ = app.emit(
                 "enroll-log",
                 LogLine {
                     line,
@@ -574,8 +571,13 @@ fn spawn_enroll_readers(
             );
         }
     });
+}
 
-    let app_clone2 = app;
+fn spawn_enroll_stderr_reader(
+    stderr: tokio::process::ChildStderr,
+    app: AppHandle,
+    enrolled: std::sync::Arc<tokio::sync::Notify>,
+) {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -594,7 +596,7 @@ fn spawn_enroll_readers(
                 enrolled.notify_one();
             }
             let level = classify_line(&line);
-            let _ = app_clone2.emit(
+            let _ = app.emit(
                 "enroll-log",
                 LogLine {
                     line,
@@ -620,7 +622,8 @@ async fn run_enroll(
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     let enrolled = std::sync::Arc::new(tokio::sync::Notify::new());
-    spawn_enroll_readers(stdout, stderr, app, enrolled.clone());
+    spawn_enroll_stdout_reader(stdout, app.clone(), enrolled.clone());
+    spawn_enroll_stderr_reader(stderr, app, enrolled.clone());
 
     tokio::select! {
         res = child.wait() => {
@@ -682,6 +685,63 @@ fn build_netbird_up_command(setup_key: &str, management_url: &str) -> Command {
 
     cmd
 }
+fn spawn_netbird_stdout_reader(
+    stdout: tokio::process::ChildStdout,
+    app: AppHandle,
+    connected: std::sync::Arc<tokio::sync::Notify>,
+) {
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
+                open_browser(trimmed);
+            }
+            if trimmed.to_lowercase().contains("connected")
+                && !trimmed.to_lowercase().contains("disconnected")
+            {
+                connected.notify_one();
+            }
+            let level = classify_line(&line);
+            let _ = app.emit(
+                "netbird-log",
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+}
+
+fn spawn_netbird_stderr_reader(
+    stderr: tokio::process::ChildStderr,
+    app: AppHandle,
+    connected: std::sync::Arc<tokio::sync::Notify>,
+) {
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
+                open_browser(trimmed);
+            }
+            if trimmed.to_lowercase().contains("connected")
+                && !trimmed.to_lowercase().contains("disconnected")
+            {
+                connected.notify_one();
+            }
+            let level = classify_line(&line);
+            let _ = app.emit(
+                "netbird-log",
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+}
 
 #[tauri::command]
 async fn run_netbird_up(
@@ -697,56 +757,8 @@ async fn run_netbird_up(
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     let connected = std::sync::Arc::new(tokio::sync::Notify::new());
-    let connected_clone1 = connected.clone();
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let trimmed = line.trim();
-            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
-                open_browser(trimmed);
-            }
-            if trimmed.to_lowercase().contains("connected")
-                && !trimmed.to_lowercase().contains("disconnected")
-            {
-                connected_clone1.notify_one();
-            }
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "netbird-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    let connected_clone2 = connected.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let trimmed = line.trim();
-            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
-                open_browser(trimmed);
-            }
-            if trimmed.to_lowercase().contains("connected")
-                && !trimmed.to_lowercase().contains("disconnected")
-            {
-                connected_clone2.notify_one();
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "netbird-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
+    spawn_netbird_stdout_reader(stdout, app.clone(), connected.clone());
+    spawn_netbird_stderr_reader(stderr, app, connected.clone());
 
     tokio::select! {
         res = child.wait() => {
