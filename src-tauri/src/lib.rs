@@ -1293,19 +1293,22 @@ fn elevate_macos(launcher_pid: u32) {
 }
 
 #[cfg(unix)]
-fn spawn_watchdog() {
+fn get_parent_pid_from_args() -> Option<libc::pid_t> {
     let raw_args: Vec<String> = std::env::args().collect();
-    if let Some(pos) = raw_args.iter().position(|a| a == "--parent-pid") {
-        if let Some(pid_str) = raw_args.get(pos + 1) {
-            if let Ok(parent_pid) = pid_str.parse::<libc::pid_t>() {
-                std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    if unsafe { libc::kill(parent_pid, 0) } != 0 {
-                        std::process::exit(0);
-                    }
-                });
+    let pos = raw_args.iter().position(|a| a == "--parent-pid")?;
+    let pid_str = raw_args.get(pos + 1)?;
+    pid_str.parse::<libc::pid_t>().ok()
+}
+
+#[cfg(unix)]
+fn spawn_watchdog() {
+    if let Some(parent_pid) = get_parent_pid_from_args() {
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if unsafe { libc::kill(parent_pid, 0) } != 0 {
+                std::process::exit(0);
             }
-        }
+        });
     }
 }
 
