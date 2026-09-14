@@ -976,37 +976,52 @@ struct NetbirdState {
 }
 
 #[tauri::command]
+#[cfg(target_os = "windows")]
+fn fallback_netbird_cmd_windows() -> Option<Command> {
+    if std::process::Command::new("netbird")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        if std::path::Path::new(r"C:\Program Files\Netbird\netbird.exe").exists() {
+            return Some(create_command(r"C:\Program Files\Netbird\netbird.exe"));
+        } else if std::path::Path::new(r"C:\Program Files (x86)\Netbird\netbird.exe").exists() {
+            return Some(create_command(
+                r"C:\Program Files (x86)\Netbird\netbird.exe",
+            ));
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn fallback_netbird_cmd_unix() -> Option<Command> {
+    if std::process::Command::new("netbird")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        if std::path::Path::new("/usr/bin/netbird").exists() {
+            return Some(create_command("/usr/bin/netbird"));
+        } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+            return Some(create_command("/usr/local/bin/netbird"));
+        }
+    }
+    None
+}
+
+#[tauri::command]
 async fn check_netbird() -> Result<NetbirdState, String> {
     let mut cmd = create_command("netbird");
 
-    // Fallback to absolute paths if "netbird" is not in PATH
     #[cfg(target_os = "windows")]
-    {
-        if std::process::Command::new("netbird")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            if std::path::Path::new(r"C:\Program Files\Netbird\netbird.exe").exists() {
-                cmd = create_command(r"C:\Program Files\Netbird\netbird.exe");
-            } else if std::path::Path::new(r"C:\Program Files (x86)\Netbird\netbird.exe").exists() {
-                cmd = create_command(r"C:\Program Files (x86)\Netbird\netbird.exe");
-            }
-        }
+    if let Some(fallback_cmd) = fallback_netbird_cmd_windows() {
+        cmd = fallback_cmd;
     }
+
     #[cfg(not(target_os = "windows"))]
-    {
-        if std::process::Command::new("netbird")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            if std::path::Path::new("/usr/bin/netbird").exists() {
-                cmd = create_command("/usr/bin/netbird");
-            } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
-                cmd = create_command("/usr/local/bin/netbird");
-            }
-        }
+    if let Some(fallback_cmd) = fallback_netbird_cmd_unix() {
+        cmd = fallback_cmd;
     }
 
     cmd.args(["status", "-j"]);
@@ -1048,6 +1063,27 @@ struct EnrollmentState {
 }
 
 #[tauri::command]
+fn parse_enrollment_agent_name(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .and_then(|line| line.split_whitespace().nth(1))
+        .map(|s| s.to_string())
+}
+
+fn parse_enrollment_manager(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find(|l| l.trim().starts_with("<address>"))
+        .and_then(|line| {
+            line.trim()
+                .strip_prefix("<address>")
+                .and_then(|s| s.strip_suffix("</address>"))
+                .map(|s| s.trim().to_string())
+        })
+}
+
+#[tauri::command]
 async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(target_os = "windows")]
     let keys_path = r"C:\Program Files (x86)\ossec-agent\client.keys";
@@ -1057,11 +1093,9 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
     let keys_path = "/var/ossec/etc/client.keys";
 
     let keys_content = std::fs::read_to_string(keys_path).unwrap_or_default();
+    let agent_name = parse_enrollment_agent_name(&keys_content);
 
-    // Check if the file has at least one non-empty line (a real key)
-    let first_key_line = keys_content.lines().find(|l| !l.trim().is_empty());
-
-    if first_key_line.is_none() {
+    if agent_name.is_none() {
         return Ok(EnrollmentState {
             enrolled: false,
             agent_name: None,
@@ -1069,12 +1103,6 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
         });
     }
 
-    // Parse agent name from first line of client.keys: "<id> <name> <ip> <key>"
-    let agent_name = first_key_line
-        .and_then(|line| line.split_whitespace().nth(1))
-        .map(|s| s.to_string());
-
-    // Parse manager address from ossec.conf <address> element
     #[cfg(target_os = "windows")]
     let conf_path = r"C:\Program Files (x86)\ossec-agent\ossec.conf";
     #[cfg(target_os = "macos")]
@@ -1082,17 +1110,9 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let conf_path = "/var/ossec/etc/ossec.conf";
 
-    let manager = std::fs::read_to_string(conf_path).ok().and_then(|content| {
-        content
-            .lines()
-            .find(|l| l.trim().starts_with("<address>"))
-            .and_then(|line| {
-                line.trim()
-                    .strip_prefix("<address>")
-                    .and_then(|s| s.strip_suffix("</address>"))
-                    .map(|s| s.trim().to_string())
-            })
-    });
+    let manager = std::fs::read_to_string(conf_path)
+        .ok()
+        .and_then(|content| parse_enrollment_manager(&content));
 
     Ok(EnrollmentState {
         enrolled: true,
