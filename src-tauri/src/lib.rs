@@ -1146,11 +1146,12 @@ pub fn run() {
             } else {
                 std::path::PathBuf::from(&home).join(".config/com.adorsys.wazuh-agent-installer")
             };
-            if !config_dir.exists() {
-                let _ = std::fs::create_dir_all(&config_dir);
+            let _ = std::fs::create_dir_all(&config_dir);
+            let config_file = config_dir.join("config.json");
+            if !config_file.exists() {
                 let default_config = AppConfig::default();
                 if let Ok(json) = serde_json::to_string_pretty(&default_config) {
-                    let _ = std::fs::write(config_dir.join("config.json"), json);
+                    let _ = std::fs::write(config_file, json);
                 }
             }
         }
