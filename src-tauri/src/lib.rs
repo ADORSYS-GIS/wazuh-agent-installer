@@ -1132,11 +1132,8 @@ fn get_app_config(app: AppHandle) -> Result<AppConfig, String> {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // Pre-create the config file as the normal user before elevating to root
-    // to prevent the config file and directory from being root-owned.
-    #[cfg(unix)]
+#[cfg(unix)]
+fn pre_create_config() {
     if unsafe { libc::geteuid() } != 0 {
         let home = std::env::var("HOME").unwrap_or_default();
         if !home.is_empty() {
@@ -1156,57 +1153,54 @@ pub fn run() {
             }
         }
     }
+}
 
-    // Capture our PID before elevation so the elevated child can watch us.
-    // Only needed on Unix — the watchdog that consumes it is #[cfg(unix)].
-    #[cfg(unix)]
-    let launcher_pid = std::process::id();
+#[cfg(unix)]
+fn get_launcher_args() -> Vec<String> {
+    let mut raw = std::env::args().skip(1).peekable();
+    let mut out = Vec::new();
+    while let Some(a) = raw.next() {
+        if a == "--parent-pid" {
+            raw.next();
+        } else {
+            out.push(a);
+        }
+    }
+    out
+}
 
-    #[cfg(target_os = "linux")]
-    if unsafe { libc::geteuid() } != 0 {
-        let exe = std::env::current_exe().expect("cannot get executable path");
-        let args: Vec<String> = {
-            let mut raw = std::env::args().skip(1).peekable();
-            let mut out = Vec::new();
-            while let Some(a) = raw.next() {
-                if a == "--parent-pid" {
-                    // Skip the flag and its PID value
-                    raw.next();
-                } else {
-                    out.push(a);
+#[cfg(target_os = "linux")]
+fn get_gtk_theme() -> Option<String> {
+    std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                let theme = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .trim_matches('\'')
+                    .to_string();
+                if !theme.is_empty() {
+                    return Some(theme);
                 }
             }
-            out
-        };
+            None
+        })
+}
 
-        // pkexec strips environment variables for security, including the
-        // display-related ones GTK needs. Pass them explicitly via
-        //   pkexec env DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... <exe>
-        // This is exactly what gparted's .desktop Exec line does.
+#[cfg(target_os = "linux")]
+fn elevate_linux(launcher_pid: u32) {
+    if unsafe { libc::geteuid() } != 0 {
+        let exe = std::env::current_exe().expect("cannot get executable path");
+        let args = get_launcher_args();
+
         let display = std::env::var("DISPLAY").unwrap_or_default();
         let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
         let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
         let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
         let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
-
-        // Query user's current GTK theme to preserve desktop environment styles
-        let gtk_theme = std::process::Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
-            .output()
-            .ok()
-            .and_then(|output| {
-                if output.status.success() {
-                    let theme = String::from_utf8_lossy(&output.stdout)
-                        .trim()
-                        .trim_matches('\'')
-                        .to_string();
-                    if !theme.is_empty() {
-                        return Some(theme);
-                    }
-                }
-                None
-            });
 
         let mut cmd = std::process::Command::new("pkexec");
         cmd.arg("env")
@@ -1217,11 +1211,10 @@ pub fn run() {
             .arg(format!("HOME={home}"))
             .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"));
 
-        if let Some(theme) = gtk_theme {
+        if let Some(theme) = get_gtk_theme() {
             cmd.arg(format!("GTK_THEME={theme}"));
         }
 
-        // Pass our PID so the elevated child can exit when we (the launcher) die
         let status = cmd
             .arg(&exe)
             .arg("--parent-pid")
@@ -1237,30 +1230,17 @@ pub fn run() {
         };
         std::process::exit(code);
     }
+}
 
-    #[cfg(target_os = "macos")]
+#[cfg(target_os = "macos")]
+fn elevate_macos(launcher_pid: u32) {
     if unsafe { libc::geteuid() } != 0 {
         let exe = std::env::current_exe()
             .expect("cannot get executable path")
             .to_string_lossy()
             .to_string();
-        let args: Vec<String> = {
-            let mut raw = std::env::args().skip(1).peekable();
-            let mut out = Vec::new();
-            while let Some(a) = raw.next() {
-                if a == "--parent-pid" {
-                    // Skip the flag and its PID value
-                    raw.next();
-                } else {
-                    out.push(a);
-                }
-            }
-            out
-        };
+        let args = get_launcher_args();
 
-        // Build a single-quoted sh -c argument so that special characters in
-        // the exe path or arguments cannot break out of the shell context.
-        // Single-quote escaping: replace every ' with '\'' inside the value.
         let sq = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
         let mut parts = vec![sq(&exe), sq(&format!("--parent-pid {launcher_pid}"))];
         for a in &args {
@@ -1270,8 +1250,6 @@ pub fn run() {
         let env_setup = format!("export HOME={};", sq(&home));
         let shell_cmd = format!("{} sh -c {}", env_setup, sq(&parts.join(" ")));
 
-        // The shell_cmd will be embedded inside a double-quoted AppleScript string.
-        // We must escape any backslashes or double-quotes so they don't break the outer AppleScript layer.
         let apple_script_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
 
         let result = std::process::Command::new("osascript")
@@ -1292,28 +1270,115 @@ pub fn run() {
         };
         std::process::exit(code);
     }
-    // ---- End privilege elevation ----
+}
 
-    // Watchdog: if we were launched with --parent-pid, watch that process.
-    // When tauri-dev kills the unprivileged launcher on hot-reload, we exit too
-    // so only one elevated instance is ever alive at a time.
-    #[cfg(unix)]
-    {
-        let raw_args: Vec<String> = std::env::args().collect();
-        if let Some(pos) = raw_args.iter().position(|a| a == "--parent-pid") {
-            if let Some(pid_str) = raw_args.get(pos + 1) {
-                if let Ok(parent_pid) = pid_str.parse::<libc::pid_t>() {
-                    std::thread::spawn(move || loop {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        // kill(pid, 0) just checks if the process exists
-                        if unsafe { libc::kill(parent_pid, 0) } != 0 {
-                            std::process::exit(0);
-                        }
-                    });
-                }
+#[cfg(unix)]
+fn spawn_watchdog() {
+    let raw_args: Vec<String> = std::env::args().collect();
+    if let Some(pos) = raw_args.iter().position(|a| a == "--parent-pid") {
+        if let Some(pid_str) = raw_args.get(pos + 1) {
+            if let Ok(parent_pid) = pid_str.parse::<libc::pid_t>() {
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if unsafe { libc::kill(parent_pid, 0) } != 0 {
+                        std::process::exit(0);
+                    }
+                });
             }
         }
     }
+}
+
+fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    match event.id.as_ref() {
+        "show" => {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
+        "quit" => {
+            app.exit(0);
+        }
+        _ => {}
+    }
+}
+
+fn handle_tray_icon_event(tray: &tauri::tray::TrayIcon, event: tauri::tray::TrayIconEvent) {
+    if let TrayIconEvent::Click {
+        button: MouseButton::Left,
+        button_state: MouseButtonState::Up,
+        ..
+    } = event
+    {
+        let app = tray.app_handle();
+        if let Some(window) = app.get_webview_window("main") {
+            if window.is_visible().unwrap_or(false) {
+                let _ = window.hide();
+            } else {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
+    }
+}
+
+fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(unix)]
+        if let Some(icon) = app.default_window_icon().cloned() {
+            let _ = window.set_icon(icon);
+        }
+    }
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        TrayIconBuilder::new()
+            .icon(icon)
+            .tooltip("Wazuh Agent Installer")
+            .menu(&menu)
+            .show_menu_on_left_click(false)
+            .on_menu_event(handle_tray_menu_event)
+            .on_tray_icon_event(handle_tray_icon_event)
+            .build(app)?;
+    }
+    Ok(())
+}
+
+fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let _ = std::fs::create_dir_all(&config_dir);
+        let config_path = config_dir.join("config.json");
+        if !config_path.exists() {
+            let default_config = AppConfig::default();
+            if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+                let _ = std::fs::write(config_path, json);
+            }
+        }
+    }
+    setup_tray(app)?;
+    Ok(())
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    #[cfg(unix)]
+    pre_create_config();
+
+    #[cfg(unix)]
+    let launcher_pid = std::process::id();
+
+    #[cfg(target_os = "linux")]
+    elevate_linux(launcher_pid);
+
+    #[cfg(target_os = "macos")]
+    elevate_macos(launcher_pid);
+
+    #[cfg(unix)]
+    spawn_watchdog();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -1337,73 +1402,7 @@ pub fn run() {
             save_logs,
             get_app_config
         ])
-        .setup(|app| {
-            // Generate default config file if it doesn't exist
-            if let Ok(config_dir) = app.path().app_config_dir() {
-                if !config_dir.exists() {
-                    let _ = std::fs::create_dir_all(&config_dir);
-                }
-                let config_path = config_dir.join("config.json");
-                if !config_path.exists() {
-                    let default_config = AppConfig::default();
-                    if let Ok(json) = serde_json::to_string_pretty(&default_config) {
-                        let _ = std::fs::write(config_path, json);
-                    }
-                }
-            }
-
-            let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
-
-            if let Some(window) = app.get_webview_window("main") {
-                #[cfg(unix)]
-                if let Some(icon) = app.default_window_icon().cloned() {
-                    let _ = window.set_icon(icon);
-                }
-            }
-
-            if let Some(icon) = app.default_window_icon().cloned() {
-                TrayIconBuilder::new()
-                    .icon(icon)
-                    .tooltip("Wazuh Agent Installer")
-                    .menu(&menu)
-                    .show_menu_on_left_click(false)
-                    .on_menu_event(|app, event| match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
-                    })
-                    .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = event
-                        {
-                            let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                        }
-                    })
-                    .build(app)?;
-            }
-
-            Ok(())
-        })
+        .setup(setup_app)
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
