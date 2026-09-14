@@ -6,13 +6,13 @@ VERSION="${1:-latest}"
 
 echo "📥 Downloading Wazuh Agent Installer for macOS..."
 
-if [ "$VERSION" = "latest" ]; then
+if [[ "$VERSION" = "latest" ]]; then
   TAG=$(curl -sI "https://github.com/$REPO/releases/latest" | grep -i '^location:' | awk -F'/' '{print $NF}' | tr -d '\r')
 else
   TAG="$VERSION"
 fi
 
-if [ -z "$TAG" ]; then
+if [[ -z "$TAG" ]]; then
   echo "❌ Could not determine version tag."
   exit 1
 fi
@@ -38,7 +38,7 @@ curl -fsSL "$DL_URL" -o "$TMP/Installer.dmg"
 echo "📦 Installing..."
 hdiutil attach "$TMP/Installer.dmg" -mountpoint "$TMP/mount" -quiet
 APP_PATH=$(find "$TMP/mount" -maxdepth 1 -name "*.app" -print -quit)
-if [ -z "$APP_PATH" ]; then
+if [[ -z "$APP_PATH" ]]; then
   echo "❌ Could not find any .app bundle inside the mounted DMG"
   hdiutil detach "$TMP/mount" -quiet
   exit 1

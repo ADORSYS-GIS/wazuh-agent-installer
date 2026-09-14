@@ -6,7 +6,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
 #[cfg(windows)]
@@ -70,6 +70,106 @@ pub struct InstallConfig {
 
 // ---- Helpers ----
 
+fn parse_yara_version(out_str: &str) -> Option<String> {
+    let first_line = out_str.lines().next().unwrap_or(out_str);
+    Some(first_line.trim().to_string())
+}
+
+fn parse_suricata_version(out_str: &str) -> Option<String> {
+    let lower = out_str.to_lowercase();
+    if let Some(idx) = lower.find("version ") {
+        let rest = &out_str[idx + 8..];
+        if let Some(first_word) = rest.split_whitespace().next() {
+            let cleaned = first_word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+            if !cleaned.is_empty() {
+                return Some(cleaned.to_string());
+            }
+        }
+    }
+    if let Some(idx) = lower.find("suricata ") {
+        let rest = &out_str[idx + 9..];
+        if let Some(first_word) = rest.split_whitespace().next() {
+            let cleaned = first_word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+            if !cleaned.is_empty() && cleaned != "version" {
+                return Some(cleaned.to_string());
+            }
+        }
+    }
+    Some(out_str.trim().to_string())
+}
+
+fn parse_trivy_version(out_str: &str) -> Option<String> {
+    if let Some(idx) = out_str.find("Version: ") {
+        let rest = &out_str[idx + 9..];
+        return Some(
+            rest.split_whitespace()
+                .next()
+                .unwrap_or(out_str)
+                .to_string(),
+        );
+    }
+    Some(out_str.trim().to_string())
+}
+
+fn parse_wazuh_agent_version(out_str: &str) -> Option<String> {
+    if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
+        let rest = &out_str[idx + 15..];
+        if let Some(end) = rest.find('\"') {
+            return Some(rest[..end].to_string());
+        }
+    } else if let Some(idx) = out_str.find("Wazuh v") {
+        let rest = &out_str[idx + 7..];
+        return Some(rest.split_whitespace().next().unwrap_or("").to_string());
+    } else if cfg!(windows) {
+        let trimmed = out_str.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn parse_netbird_version(out_str: &str) -> Option<String> {
+    let trimmed = out_str.trim();
+    if let Some(first) = trimmed.lines().next() {
+        let v = first.trim().to_string();
+        if !v.is_empty() {
+            return Some(v);
+        }
+    }
+    None
+}
+
+fn parse_default_version(out_str: &str) -> Option<String> {
+    for line in out_str.lines() {
+        let trimmed = line.trim();
+        if trimmed.chars().any(|c| c.is_ascii_digit()) {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            for p in parts {
+                let is_date = p.contains('-') && p.split('-').count() == 3;
+                let is_path = p.contains('/') || p.contains('\\');
+                if p.chars().any(|c| c.is_ascii_digit()) && p.contains('.') && !is_date && !is_path
+                {
+                    return Some(p.to_string());
+                }
+            }
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn parse_component_version(name: &str, out_str: &str) -> Option<String> {
+    match name {
+        "YARA" => parse_yara_version(out_str),
+        "Suricata" => parse_suricata_version(out_str),
+        "Trivy" => parse_trivy_version(out_str),
+        "Wazuh Agent" => parse_wazuh_agent_version(out_str),
+        "NetBird" => parse_netbird_version(out_str),
+        _ => parse_default_version(out_str),
+    }
+}
+
 async fn get_component_version(name: &str, path: &str) -> Option<String> {
     let mut args = vec![];
     let mut cmd_target = path.to_string();
@@ -112,89 +212,7 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
         {
             let out_str = String::from_utf8_lossy(&output.stdout).to_string()
                 + String::from_utf8_lossy(&output.stderr).as_ref();
-
-            if name == "YARA" {
-                let first_line = out_str.lines().next().unwrap_or(&out_str);
-                return Some(first_line.trim().to_string());
-            } else if name == "Suricata" {
-                let lower = out_str.to_lowercase();
-                // Expected output from `suricata -V`: "This is Suricata version 7.0.17 RELEASE"
-                if let Some(idx) = lower.find("version ") {
-                    let rest = &out_str[idx + 8..];
-                    if let Some(first_word) = rest.split_whitespace().next() {
-                        let cleaned = first_word
-                            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
-                        if !cleaned.is_empty() {
-                            return Some(cleaned.to_string());
-                        }
-                    }
-                }
-                if let Some(idx) = lower.find("suricata ") {
-                    let rest = &out_str[idx + 9..];
-                    if let Some(first_word) = rest.split_whitespace().next() {
-                        let cleaned = first_word
-                            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
-                        if !cleaned.is_empty() && cleaned != "version" {
-                            return Some(cleaned.to_string());
-                        }
-                    }
-                }
-                return Some(out_str.trim().to_string());
-            } else if name == "Trivy" {
-                if let Some(idx) = out_str.find("Version: ") {
-                    let rest = &out_str[idx + 9..];
-                    return Some(
-                        rest.split_whitespace()
-                            .next()
-                            .unwrap_or(&out_str)
-                            .to_string(),
-                    );
-                }
-                return Some(out_str.trim().to_string());
-            } else if name == "Wazuh Agent" {
-                if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
-                    let rest = &out_str[idx + 15..];
-                    if let Some(end) = rest.find("\"") {
-                        return Some(rest[..end].to_string());
-                    }
-                } else if let Some(idx) = out_str.find("Wazuh v") {
-                    let rest = &out_str[idx + 7..];
-                    return Some(rest.split_whitespace().next().unwrap_or("").to_string());
-                } else if cfg!(windows) {
-                    let trimmed = out_str.trim();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed.to_string());
-                    }
-                }
-            } else if name == "NetBird" {
-                // `netbird version` outputs just the version on a single line
-                let trimmed = out_str.trim();
-                if let Some(first) = trimmed.lines().next() {
-                    let v = first.trim().to_string();
-                    if !v.is_empty() {
-                        return Some(v);
-                    }
-                }
-            } else {
-                for line in out_str.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.chars().any(|c| c.is_ascii_digit()) {
-                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                        for p in parts {
-                            let is_date = p.contains('-') && p.split('-').count() == 3;
-                            let is_path = p.contains('/') || p.contains('\\');
-                            if p.chars().any(|c| c.is_ascii_digit())
-                                && p.contains('.')
-                                && !is_date
-                                && !is_path
-                            {
-                                return Some(p.to_string());
-                            }
-                        }
-                        return Some(trimmed.to_string());
-                    }
-                }
-            }
+            return parse_component_version(name, &out_str);
         }
     }
     None
@@ -296,12 +314,7 @@ fn is_root() -> bool {
         true
     }
 }
-#[tauri::command]
-async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
-    let resolved_path = resolve_script(&app)?;
-
-    // The process is already running as root (elevated at launch), so we can
-    // invoke bash directly — no sudo or pkexec wrapper needed.
+fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command {
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut c = create_command("powershell");
@@ -310,7 +323,7 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            &resolved_path,
+            resolved_path,
         ]);
         if config.install_netbird {
             c.arg("-InstallNetBird");
@@ -321,14 +334,13 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     #[cfg(not(target_os = "windows"))]
     let mut command = {
         let mut c = create_command("bash");
-        c.arg(&resolved_path);
+        c.arg(resolved_path);
         if config.install_trivy {
             c.arg("-t");
         }
         if config.install_netbird {
             c.arg("-b");
         }
-        // Inject env vars — we are already root so no env-stripping occurs
         c.env("WAZUH_MANAGER", &config.wazuh_manager)
             .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
             .env("IDS_ENGINE", &config.ids_engine)
@@ -358,6 +370,41 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    command
+}
+
+fn spawn_log_reader<T>(
+    stream: T,
+    app: AppHandle,
+    event_name: &'static str,
+    mut process_line: impl FnMut(&str) + Send + 'static,
+) where
+    T: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut reader = tokio::io::BufReader::new(stream).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if line.trim().is_empty() {
+                continue;
+            }
+            process_line(&line);
+            let level = classify_line(&line);
+            let _ = app.emit(
+                event_name,
+                LogLine {
+                    line,
+                    level: level.into(),
+                },
+            );
+        }
+    });
+}
+
+#[tauri::command]
+async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallResult, String> {
+    let resolved_path = resolve_script(&app)?;
+    let mut command = build_install_command(&config, &resolved_path);
+
     let mut child = command.spawn().map_err(|e| e.to_string())?;
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
@@ -365,46 +412,12 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
 
     let (tx_done, mut rx_done) = tokio::sync::mpsc::channel(1);
     let tx_done_clone = tx_done.clone();
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let level = classify_line(&line);
-
-            // On macOS, daemons started by the script might keep stdout open and cause a hang.
-            // If we see the success message, signal completion.
-            if line.contains("Wazuh setup has been completed successfully") {
-                let _ = tx_done_clone.try_send(true);
-            }
-
-            let _ = app_clone1.emit(
-                "install-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
+    spawn_log_reader(stdout, app.clone(), "install-log", move |line| {
+        if line.contains("Wazuh setup has been completed successfully") {
+            let _ = tx_done_clone.try_send(true);
         }
     });
-
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "install-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
+    spawn_log_reader(stderr, app, "install-log", move |_| {});
 
     let status_future = child.wait();
 
@@ -465,28 +478,20 @@ fn open_browser(url: &str) {
     let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
 #[tauri::command]
-async fn run_enroll(
-    issuer: String,
-    endpoint: String,
-    overwrite: bool,
-    app: AppHandle,
-) -> Result<InstallResult, String> {
+fn build_enroll_command(issuer: &str, endpoint: &str, overwrite: bool) -> Command {
     let mut oauth_args = vec![
         "o-auth2".to_string(),
         "--issuer".to_string(),
-        issuer,
+        issuer.to_string(),
         "--endpoint".to_string(),
-        endpoint,
+        endpoint.to_string(),
     ];
 
-    // Only pass --overwrite when explicitly re-enrolling an already-enrolled agent
     if overwrite {
         oauth_args.push("--overwrite".to_string());
         oauth_args.push("true".to_string());
     }
 
-    // The process is already root at this point.
-    // Call the binary directly — no pkexec or osascript wrapper needed.
     #[cfg(target_os = "windows")]
     let mut command = {
         let exe = "C:\\Program Files (x86)\\ossec-agent\\wazuh-cert-oauth2-client.exe";
@@ -519,77 +524,54 @@ async fn run_enroll(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    command
+}
+
+fn get_enroll_line_processor(
+    enrolled: std::sync::Arc<tokio::sync::Notify>,
+) -> impl FnMut(&str) + Send + 'static {
+    move |line: &str| {
+        if let Some(url_start) = line.find("Opened your default browser to: ") {
+            let url = line[url_start + "Opened your default browser to: ".len()..].trim();
+            if !url.is_empty() {
+                open_browser(url);
+            }
+        } else if line.trim().starts_with("https://") && line.contains("/realms/") {
+            open_browser(line.trim());
+        }
+        if line.contains("] Done!") || line.trim() == "Done!" {
+            enrolled.notify_one();
+        }
+    }
+}
+
+#[tauri::command]
+async fn run_enroll(
+    issuer: String,
+    endpoint: String,
+    overwrite: bool,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    let mut command = build_enroll_command(&issuer, &endpoint, overwrite);
+
     let mut child = command.spawn().map_err(|e| e.to_string())?;
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-    // Use the same Notify/select! pattern as run_netbird_up.
-    // On macOS the wazuh daemons restarted by the OAuth2 client inherit the
-    // pipe file descriptors and hold them open, so child.wait() would hang
-    // indefinitely even after enrollment has completed. Detecting "] Done!"
-    // lets us return immediately — exactly like NetBird detects "connected".
     let enrolled = std::sync::Arc::new(tokio::sync::Notify::new());
-    let enrolled_clone1 = enrolled.clone();
-    let enrolled_clone2 = enrolled.clone();
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if let Some(url_start) = line.find("Opened your default browser to: ") {
-                let url = line[url_start + "Opened your default browser to: ".len()..].trim();
-                if !url.is_empty() {
-                    open_browser(url);
-                }
-            } else if line.trim().starts_with("https://") && line.contains("/realms/") {
-                open_browser(line.trim());
-            }
-            if line.contains("] Done!") || line.trim() == "Done!" {
-                enrolled_clone1.notify_one();
-            }
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "enroll-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            if line.trim().is_empty() {
-                continue;
-            }
-            // The OAuth2 binary cannot open a browser when run under sudo on macOS
-            // (sudo strips the GUI session). We intercept the URL it prints and open
-            // it ourselves from Tauri which runs in the full GUI context.
-            if let Some(url_start) = line.find("Opened your default browser to: ") {
-                let url = line[url_start + "Opened your default browser to: ".len()..].trim();
-                if !url.is_empty() {
-                    open_browser(url);
-                }
-            } else if line.trim().starts_with("https://") && line.contains("/realms/") {
-                open_browser(line.trim());
-            }
-            if line.contains("] Done!") || line.trim() == "Done!" {
-                enrolled_clone2.notify_one();
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "enroll-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
+    spawn_log_reader(
+        stdout,
+        app.clone(),
+        "enroll-log",
+        get_enroll_line_processor(enrolled.clone()),
+    );
+    spawn_log_reader(
+        stderr,
+        app,
+        "enroll-log",
+        get_enroll_line_processor(enrolled.clone()),
+    );
 
     tokio::select! {
         res = child.wait() => {
@@ -614,17 +596,11 @@ async fn run_enroll(
     }
 }
 
-#[tauri::command]
-async fn run_netbird_up(
-    setup_key: String,
-    management_url: String,
-    app: AppHandle,
-) -> Result<InstallResult, String> {
-    // Management URL defaults to the public NetBird Cloud when not provided.
+fn build_netbird_up_command(setup_key: &str, management_url: &str) -> Command {
     let management_url = if management_url.trim().is_empty() {
         "https://api.netbird.io:443".to_string()
     } else {
-        management_url
+        management_url.to_string()
     };
 
     let mut args = vec![
@@ -634,7 +610,7 @@ async fn run_netbird_up(
     ];
     if !setup_key.trim().is_empty() {
         args.push("--setup-key".to_string());
-        args.push(setup_key);
+        args.push(setup_key.to_string());
     }
 
     #[cfg(unix)]
@@ -655,62 +631,50 @@ async fn run_netbird_up(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    cmd
+}
+fn get_netbird_line_processor(
+    connected: std::sync::Arc<tokio::sync::Notify>,
+) -> impl FnMut(&str) + Send + 'static {
+    move |line: &str| {
+        let trimmed = line.trim();
+        if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
+            open_browser(trimmed);
+        }
+        if trimmed.to_lowercase().contains("connected")
+            && !trimmed.to_lowercase().contains("disconnected")
+        {
+            connected.notify_one();
+        }
+    }
+}
+
+#[tauri::command]
+async fn run_netbird_up(
+    setup_key: String,
+    management_url: String,
+    app: AppHandle,
+) -> Result<InstallResult, String> {
+    let mut cmd = build_netbird_up_command(&setup_key, &management_url);
+
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     let connected = std::sync::Arc::new(tokio::sync::Notify::new());
-    let connected_clone1 = connected.clone();
-
-    let app_clone1 = app.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let trimmed = line.trim();
-            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
-                open_browser(trimmed);
-            }
-            if trimmed.to_lowercase().contains("connected")
-                && !trimmed.to_lowercase().contains("disconnected")
-            {
-                connected_clone1.notify_one();
-            }
-            let level = classify_line(&line);
-            let _ = app_clone1.emit(
-                "netbird-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
-
-    let app_clone2 = app.clone();
-    let connected_clone2 = connected.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let trimmed = line.trim();
-            if trimmed.starts_with("https://") && trimmed.contains("/realms/") {
-                open_browser(trimmed);
-            }
-            if trimmed.to_lowercase().contains("connected")
-                && !trimmed.to_lowercase().contains("disconnected")
-            {
-                connected_clone2.notify_one();
-            }
-            let level = classify_line(&line);
-            let _ = app_clone2.emit(
-                "netbird-log",
-                LogLine {
-                    line,
-                    level: level.into(),
-                },
-            );
-        }
-    });
+    spawn_log_reader(
+        stdout,
+        app.clone(),
+        "netbird-log",
+        get_netbird_line_processor(connected.clone()),
+    );
+    spawn_log_reader(
+        stderr,
+        app,
+        "netbird-log",
+        get_netbird_line_processor(connected.clone()),
+    );
 
     tokio::select! {
         res = child.wait() => {
@@ -732,6 +696,173 @@ async fn run_netbird_up(
                 message: "NetBird connected successfully".into(),
             })
         }
+    }
+}
+#[cfg(unix)]
+fn check_netbird_unix(path: &str) -> (bool, String) {
+    if std::path::Path::new(path).exists() {
+        (true, path.to_string())
+    } else if std::path::Path::new("/usr/bin/netbird").exists() {
+        (true, "/usr/bin/netbird".to_string())
+    } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+        (true, "/usr/local/bin/netbird".to_string())
+    } else {
+        (false, path.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn check_suricata_unix(path: &str) -> (bool, String) {
+    if std::path::Path::new(path).exists() {
+        (true, path.to_string())
+    } else if std::path::Path::new("/usr/bin/suricata").exists() {
+        (true, "/usr/bin/suricata".to_string())
+    } else if std::path::Path::new("/usr/local/bin/suricata").exists() {
+        (true, "/usr/local/bin/suricata".to_string())
+    } else if std::path::Path::new("/opt/homebrew/bin/suricata").exists() {
+        (true, "/opt/homebrew/bin/suricata".to_string())
+    } else {
+        (false, path.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn check_trivy_unix(path: &str) -> (bool, String) {
+    if std::path::Path::new(path).exists() {
+        (true, path.to_string())
+    } else if std::path::Path::new("/usr/bin/trivy").exists() {
+        (true, "/usr/bin/trivy".to_string())
+    } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
+        (true, "/usr/local/bin/trivy".to_string())
+    } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
+        (true, "/opt/homebrew/bin/trivy".to_string())
+    } else {
+        (false, path.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn check_component_unix(name: &str, path: &str) -> (bool, String) {
+    match name {
+        "NetBird" => check_netbird_unix(path),
+        "Suricata" => check_suricata_unix(path),
+        "Trivy" => check_trivy_unix(path),
+        _ => (std::path::Path::new(path).exists(), path.to_string()),
+    }
+}
+
+#[cfg(windows)]
+async fn check_netbird_windows(path: &str) -> (bool, String) {
+    let default_p1 = r"C:\Program Files\Netbird\netbird.exe";
+    let default_p2 = r"C:\Program Files (x86)\Netbird\netbird.exe";
+    if std::path::Path::new(default_p1).exists() {
+        (true, default_p1.to_string())
+    } else if std::path::Path::new(default_p2).exists() {
+        (true, default_p2.to_string())
+    } else {
+        let ok = create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_suricata_windows(path: &str) -> (bool, String) {
+    let p1 = r"C:\Program Files\Suricata\suricata.exe";
+    let p2 = r"C:\Program Files (x86)\Suricata\suricata.exe";
+    let p3 = r"C:\Suricata\suricata.exe";
+    if std::path::Path::new(p1).exists() {
+        (true, p1.to_string())
+    } else if std::path::Path::new(p2).exists() {
+        (true, p2.to_string())
+    } else if std::path::Path::new(p3).exists() {
+        (true, p3.to_string())
+    } else {
+        let ok = create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_trivy_windows(path: &str) -> (bool, String) {
+    let p1 = r"C:\Program Files\Trivy\trivy.exe";
+    let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
+    let p3 = r"C:\Trivy\trivy.exe";
+    if std::path::Path::new(p1).exists() {
+        (true, p1.to_string())
+    } else if std::path::Path::new(p2).exists() {
+        (true, p2.to_string())
+    } else if std::path::Path::new(p3).exists() {
+        (true, p3.to_string())
+    } else {
+        let ok = create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_yara_windows(path: &str) -> (bool, String) {
+    let p1 = r"C:\Program Files\YARA\yara64.exe";
+    let p2 = r"C:\Program Files (x86)\YARA\yara64.exe";
+    let p3 = r"C:\YARA\yara64.exe";
+    if std::path::Path::new(p1).exists() {
+        (true, p1.to_string())
+    } else if std::path::Path::new(p2).exists() {
+        (true, p2.to_string())
+    } else if std::path::Path::new(p3).exists() {
+        (true, p3.to_string())
+    } else {
+        let ok = create_command(path)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+        (ok, path.to_string())
+    }
+}
+
+#[cfg(windows)]
+async fn check_wazuh_agent_windows(path: &str) -> (bool, String) {
+    let ok = std::path::Path::new(path).exists()
+        || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe")).exists()
+        || create_command("sc")
+            .args(["query", "WazuhSvc"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_or(false, |s| s.success());
+    (ok, path.to_string())
+}
+
+#[cfg(windows)]
+async fn check_component_windows(name: &str, path: &str) -> (bool, String) {
+    match name {
+        "NetBird" => check_netbird_windows(path).await,
+        "Suricata" => check_suricata_windows(path).await,
+        "Trivy" => check_trivy_windows(path).await,
+        "YARA" => check_yara_windows(path).await,
+        _ if path.ends_with("wazuh-agent.exe") => check_wazuh_agent_windows(path).await,
+        _ => (std::path::Path::new(path).exists(), path.to_string()),
     }
 }
 
@@ -813,141 +944,10 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
 
     for (name, path) in components {
         #[cfg(unix)]
-        let (installed, effective_path) = {
-            if name == "NetBird" {
-                if std::path::Path::new(&path).exists() {
-                    (true, path.clone())
-                } else if std::path::Path::new("/usr/bin/netbird").exists() {
-                    (true, "/usr/bin/netbird".to_string())
-                } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
-                    (true, "/usr/local/bin/netbird".to_string())
-                } else {
-                    (false, path.clone())
-                }
-            } else if name == "Suricata" {
-                if std::path::Path::new(&path).exists() {
-                    (true, path.clone())
-                } else if std::path::Path::new("/usr/bin/suricata").exists() {
-                    (true, "/usr/bin/suricata".to_string())
-                } else if std::path::Path::new("/usr/local/bin/suricata").exists() {
-                    (true, "/usr/local/bin/suricata".to_string())
-                } else if std::path::Path::new("/opt/homebrew/bin/suricata").exists() {
-                    (true, "/opt/homebrew/bin/suricata".to_string())
-                } else {
-                    (false, path.clone())
-                }
-            } else if name == "Trivy" {
-                if std::path::Path::new(&path).exists() {
-                    (true, path.clone())
-                } else if std::path::Path::new("/usr/bin/trivy").exists() {
-                    (true, "/usr/bin/trivy".to_string())
-                } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
-                    (true, "/usr/local/bin/trivy".to_string())
-                } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
-                    (true, "/opt/homebrew/bin/trivy".to_string())
-                } else {
-                    (false, path.clone())
-                }
-            } else {
-                (std::path::Path::new(&path).exists(), path.clone())
-            }
-        };
+        let (installed, effective_path) = check_component_unix(&name, &path);
 
         #[cfg(windows)]
-        let (installed, effective_path) = {
-            if name == "NetBird" {
-                let default_p1 = r"C:\Program Files\Netbird\netbird.exe";
-                let default_p2 = r"C:\Program Files (x86)\Netbird\netbird.exe";
-                if std::path::Path::new(default_p1).exists() {
-                    (true, default_p1.to_string())
-                } else if std::path::Path::new(default_p2).exists() {
-                    (true, default_p2.to_string())
-                } else {
-                    let ok = create_command(&path)
-                        .arg("--help")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                    (ok, path.clone())
-                }
-            } else if name == "Suricata" {
-                let p1 = r"C:\Program Files\Suricata\suricata.exe";
-                let p2 = r"C:\Program Files (x86)\Suricata\suricata.exe";
-                let p3 = r"C:\Suricata\suricata.exe";
-                if std::path::Path::new(p1).exists() {
-                    (true, p1.to_string())
-                } else if std::path::Path::new(p2).exists() {
-                    (true, p2.to_string())
-                } else if std::path::Path::new(p3).exists() {
-                    (true, p3.to_string())
-                } else {
-                    let ok = create_command(&path)
-                        .arg("--help")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                    (ok, path.clone())
-                }
-            } else if name == "Trivy" {
-                let p1 = r"C:\Program Files\Trivy\trivy.exe";
-                let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
-                let p3 = r"C:\Trivy\trivy.exe";
-                if std::path::Path::new(p1).exists() {
-                    (true, p1.to_string())
-                } else if std::path::Path::new(p2).exists() {
-                    (true, p2.to_string())
-                } else if std::path::Path::new(p3).exists() {
-                    (true, p3.to_string())
-                } else {
-                    let ok = create_command(&path)
-                        .arg("--help")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                    (ok, path.clone())
-                }
-            } else if name == "YARA" {
-                let p1 = r"C:\Program Files\YARA\yara64.exe";
-                let p2 = r"C:\Program Files (x86)\YARA\yara64.exe";
-                let p3 = r"C:\YARA\yara64.exe";
-                if std::path::Path::new(p1).exists() {
-                    (true, p1.to_string())
-                } else if std::path::Path::new(p2).exists() {
-                    (true, p2.to_string())
-                } else if std::path::Path::new(p3).exists() {
-                    (true, p3.to_string())
-                } else {
-                    let ok = create_command(&path)
-                        .arg("--help")
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                    (ok, path.clone())
-                }
-            } else if path.ends_with("wazuh-agent.exe") {
-                let ok = std::path::Path::new(&path).exists()
-                    || std::path::Path::new(&path.replace("wazuh-agent.exe", "ossec-agent.exe"))
-                        .exists()
-                    || create_command("sc")
-                        .args(["query", "WazuhSvc"])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .map_or(false, |s| s.success());
-                (ok, path.clone())
-            } else {
-                (std::path::Path::new(&path).exists(), path.clone())
-            }
-        };
+        let (installed, effective_path) = check_component_windows(&name, &path).await;
 
         let version = if installed {
             get_component_version(&name, &effective_path).await
@@ -976,37 +976,52 @@ struct NetbirdState {
 }
 
 #[tauri::command]
+#[cfg(target_os = "windows")]
+fn fallback_netbird_cmd_windows() -> Option<Command> {
+    if std::process::Command::new("netbird")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        if std::path::Path::new(r"C:\Program Files\Netbird\netbird.exe").exists() {
+            return Some(create_command(r"C:\Program Files\Netbird\netbird.exe"));
+        } else if std::path::Path::new(r"C:\Program Files (x86)\Netbird\netbird.exe").exists() {
+            return Some(create_command(
+                r"C:\Program Files (x86)\Netbird\netbird.exe",
+            ));
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn fallback_netbird_cmd_unix() -> Option<Command> {
+    if std::process::Command::new("netbird")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        if std::path::Path::new("/usr/bin/netbird").exists() {
+            return Some(create_command("/usr/bin/netbird"));
+        } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
+            return Some(create_command("/usr/local/bin/netbird"));
+        }
+    }
+    None
+}
+
+#[tauri::command]
 async fn check_netbird() -> Result<NetbirdState, String> {
     let mut cmd = create_command("netbird");
 
-    // Fallback to absolute paths if "netbird" is not in PATH
     #[cfg(target_os = "windows")]
-    {
-        if std::process::Command::new("netbird")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            if std::path::Path::new(r"C:\Program Files\Netbird\netbird.exe").exists() {
-                cmd = create_command(r"C:\Program Files\Netbird\netbird.exe");
-            } else if std::path::Path::new(r"C:\Program Files (x86)\Netbird\netbird.exe").exists() {
-                cmd = create_command(r"C:\Program Files (x86)\Netbird\netbird.exe");
-            }
-        }
+    if let Some(fallback_cmd) = fallback_netbird_cmd_windows() {
+        cmd = fallback_cmd;
     }
+
     #[cfg(not(target_os = "windows"))]
-    {
-        if std::process::Command::new("netbird")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            if std::path::Path::new("/usr/bin/netbird").exists() {
-                cmd = create_command("/usr/bin/netbird");
-            } else if std::path::Path::new("/usr/local/bin/netbird").exists() {
-                cmd = create_command("/usr/local/bin/netbird");
-            }
-        }
+    if let Some(fallback_cmd) = fallback_netbird_cmd_unix() {
+        cmd = fallback_cmd;
     }
 
     cmd.args(["status", "-j"]);
@@ -1048,6 +1063,27 @@ struct EnrollmentState {
 }
 
 #[tauri::command]
+fn parse_enrollment_agent_name(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .and_then(|line| line.split_whitespace().nth(1))
+        .map(|s| s.to_string())
+}
+
+fn parse_enrollment_manager(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find(|l| l.trim().starts_with("<address>"))
+        .and_then(|line| {
+            line.trim()
+                .strip_prefix("<address>")
+                .and_then(|s| s.strip_suffix("</address>"))
+                .map(|s| s.trim().to_string())
+        })
+}
+
+#[tauri::command]
 async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(target_os = "windows")]
     let keys_path = r"C:\Program Files (x86)\ossec-agent\client.keys";
@@ -1057,11 +1093,9 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
     let keys_path = "/var/ossec/etc/client.keys";
 
     let keys_content = std::fs::read_to_string(keys_path).unwrap_or_default();
+    let agent_name = parse_enrollment_agent_name(&keys_content);
 
-    // Check if the file has at least one non-empty line (a real key)
-    let first_key_line = keys_content.lines().find(|l| !l.trim().is_empty());
-
-    if first_key_line.is_none() {
+    if agent_name.is_none() {
         return Ok(EnrollmentState {
             enrolled: false,
             agent_name: None,
@@ -1069,12 +1103,6 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
         });
     }
 
-    // Parse agent name from first line of client.keys: "<id> <name> <ip> <key>"
-    let agent_name = first_key_line
-        .and_then(|line| line.split_whitespace().nth(1))
-        .map(|s| s.to_string());
-
-    // Parse manager address from ossec.conf <address> element
     #[cfg(target_os = "windows")]
     let conf_path = r"C:\Program Files (x86)\ossec-agent\ossec.conf";
     #[cfg(target_os = "macos")]
@@ -1082,17 +1110,9 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let conf_path = "/var/ossec/etc/ossec.conf";
 
-    let manager = std::fs::read_to_string(conf_path).ok().and_then(|content| {
-        content
-            .lines()
-            .find(|l| l.trim().starts_with("<address>"))
-            .and_then(|line| {
-                line.trim()
-                    .strip_prefix("<address>")
-                    .and_then(|s| s.strip_suffix("</address>"))
-                    .map(|s| s.trim().to_string())
-            })
-    });
+    let manager = std::fs::read_to_string(conf_path)
+        .ok()
+        .and_then(|content| parse_enrollment_manager(&content));
 
     Ok(EnrollmentState {
         enrolled: true,
@@ -1132,11 +1152,8 @@ fn get_app_config(app: AppHandle) -> Result<AppConfig, String> {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // Pre-create the config file as the normal user before elevating to root
-    // to prevent the config file and directory from being root-owned.
-    #[cfg(unix)]
+#[cfg(unix)]
+fn pre_create_config() {
     if unsafe { libc::geteuid() } != 0 {
         let home = std::env::var("HOME").unwrap_or_default();
         if !home.is_empty() {
@@ -1146,66 +1163,64 @@ pub fn run() {
             } else {
                 std::path::PathBuf::from(&home).join(".config/com.adorsys.wazuh-agent-installer")
             };
-            if !config_dir.exists() {
-                let _ = std::fs::create_dir_all(&config_dir);
+            let _ = std::fs::create_dir_all(&config_dir);
+            let config_file = config_dir.join("config.json");
+            if !config_file.exists() {
                 let default_config = AppConfig::default();
                 if let Ok(json) = serde_json::to_string_pretty(&default_config) {
-                    let _ = std::fs::write(config_dir.join("config.json"), json);
+                    let _ = std::fs::write(config_file, json);
                 }
             }
         }
     }
+}
 
-    // Capture our PID before elevation so the elevated child can watch us.
-    // Only needed on Unix — the watchdog that consumes it is #[cfg(unix)].
-    #[cfg(unix)]
-    let launcher_pid = std::process::id();
+#[cfg(unix)]
+fn get_launcher_args() -> Vec<String> {
+    let mut raw = std::env::args().skip(1).peekable();
+    let mut out = Vec::new();
+    while let Some(a) = raw.next() {
+        if a == "--parent-pid" {
+            raw.next();
+        } else {
+            out.push(a);
+        }
+    }
+    out
+}
 
-    #[cfg(target_os = "linux")]
-    if unsafe { libc::geteuid() } != 0 {
-        let exe = std::env::current_exe().expect("cannot get executable path");
-        let args: Vec<String> = {
-            let mut raw = std::env::args().skip(1).peekable();
-            let mut out = Vec::new();
-            while let Some(a) = raw.next() {
-                if a == "--parent-pid" {
-                    // Skip the flag and its PID value
-                    raw.next();
-                } else {
-                    out.push(a);
+#[cfg(target_os = "linux")]
+fn get_gtk_theme() -> Option<String> {
+    std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                let theme = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .trim_matches('\'')
+                    .to_string();
+                if !theme.is_empty() {
+                    return Some(theme);
                 }
             }
-            out
-        };
+            None
+        })
+}
 
-        // pkexec strips environment variables for security, including the
-        // display-related ones GTK needs. Pass them explicitly via
-        //   pkexec env DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... <exe>
-        // This is exactly what gparted's .desktop Exec line does.
+#[cfg(target_os = "linux")]
+fn elevate_linux(launcher_pid: u32) {
+    if unsafe { libc::geteuid() } != 0 {
+        let exe = std::env::current_exe().expect("cannot get executable path");
+        let args = get_launcher_args();
+
         let display = std::env::var("DISPLAY").unwrap_or_default();
         let xauthority = std::env::var("XAUTHORITY").unwrap_or_default();
         let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
         let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
         let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
-
-        // Query user's current GTK theme to preserve desktop environment styles
-        let gtk_theme = std::process::Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
-            .output()
-            .ok()
-            .and_then(|output| {
-                if output.status.success() {
-                    let theme = String::from_utf8_lossy(&output.stdout)
-                        .trim()
-                        .trim_matches('\'')
-                        .to_string();
-                    if !theme.is_empty() {
-                        return Some(theme);
-                    }
-                }
-                None
-            });
 
         let mut cmd = std::process::Command::new("pkexec");
         cmd.arg("env")
@@ -1216,11 +1231,10 @@ pub fn run() {
             .arg(format!("HOME={home}"))
             .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"));
 
-        if let Some(theme) = gtk_theme {
+        if let Some(theme) = get_gtk_theme() {
             cmd.arg(format!("GTK_THEME={theme}"));
         }
 
-        // Pass our PID so the elevated child can exit when we (the launcher) die
         let status = cmd
             .arg(&exe)
             .arg("--parent-pid")
@@ -1236,30 +1250,17 @@ pub fn run() {
         };
         std::process::exit(code);
     }
+}
 
-    #[cfg(target_os = "macos")]
+#[cfg(target_os = "macos")]
+fn elevate_macos(launcher_pid: u32) {
     if unsafe { libc::geteuid() } != 0 {
         let exe = std::env::current_exe()
             .expect("cannot get executable path")
             .to_string_lossy()
             .to_string();
-        let args: Vec<String> = {
-            let mut raw = std::env::args().skip(1).peekable();
-            let mut out = Vec::new();
-            while let Some(a) = raw.next() {
-                if a == "--parent-pid" {
-                    // Skip the flag and its PID value
-                    raw.next();
-                } else {
-                    out.push(a);
-                }
-            }
-            out
-        };
+        let args = get_launcher_args();
 
-        // Build a single-quoted sh -c argument so that special characters in
-        // the exe path or arguments cannot break out of the shell context.
-        // Single-quote escaping: replace every ' with '\'' inside the value.
         let sq = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
         let mut parts = vec![sq(&exe), sq(&format!("--parent-pid {launcher_pid}"))];
         for a in &args {
@@ -1269,8 +1270,6 @@ pub fn run() {
         let env_setup = format!("export HOME={};", sq(&home));
         let shell_cmd = format!("{} sh -c {}", env_setup, sq(&parts.join(" ")));
 
-        // The shell_cmd will be embedded inside a double-quoted AppleScript string.
-        // We must escape any backslashes or double-quotes so they don't break the outer AppleScript layer.
         let apple_script_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
 
         let result = std::process::Command::new("osascript")
@@ -1291,28 +1290,118 @@ pub fn run() {
         };
         std::process::exit(code);
     }
-    // ---- End privilege elevation ----
+}
 
-    // Watchdog: if we were launched with --parent-pid, watch that process.
-    // When tauri-dev kills the unprivileged launcher on hot-reload, we exit too
-    // so only one elevated instance is ever alive at a time.
-    #[cfg(unix)]
+#[cfg(unix)]
+fn get_parent_pid_from_args() -> Option<libc::pid_t> {
+    let raw_args: Vec<String> = std::env::args().collect();
+    let pos = raw_args.iter().position(|a| a == "--parent-pid")?;
+    let pid_str = raw_args.get(pos + 1)?;
+    pid_str.parse::<libc::pid_t>().ok()
+}
+
+#[cfg(unix)]
+fn spawn_watchdog() {
+    if let Some(parent_pid) = get_parent_pid_from_args() {
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if unsafe { libc::kill(parent_pid, 0) } != 0 {
+                std::process::exit(0);
+            }
+        });
+    }
+}
+
+fn handle_tray_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    match event.id.as_ref() {
+        "show" => {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
+        "quit" => {
+            app.exit(0);
+        }
+        _ => {}
+    }
+}
+
+fn handle_tray_icon_event(tray: &tauri::tray::TrayIcon, event: tauri::tray::TrayIconEvent) {
+    if let TrayIconEvent::Click {
+        button: MouseButton::Left,
+        button_state: MouseButtonState::Up,
+        ..
+    } = event
     {
-        let raw_args: Vec<String> = std::env::args().collect();
-        if let Some(pos) = raw_args.iter().position(|a| a == "--parent-pid") {
-            if let Some(pid_str) = raw_args.get(pos + 1) {
-                if let Ok(parent_pid) = pid_str.parse::<libc::pid_t>() {
-                    std::thread::spawn(move || loop {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        // kill(pid, 0) just checks if the process exists
-                        if unsafe { libc::kill(parent_pid, 0) } != 0 {
-                            std::process::exit(0);
-                        }
-                    });
-                }
+        let app = tray.app_handle();
+        if let Some(window) = app.get_webview_window("main") {
+            if window.is_visible().unwrap_or(false) {
+                let _ = window.hide();
+            } else {
+                let _ = window.show();
+                let _ = window.set_focus();
             }
         }
     }
+}
+
+fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(unix)]
+        if let Some(icon) = app.default_window_icon().cloned() {
+            let _ = window.set_icon(icon);
+        }
+    }
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        TrayIconBuilder::new()
+            .icon(icon)
+            .tooltip("Wazuh Agent Installer")
+            .menu(&menu)
+            .show_menu_on_left_click(false)
+            .on_menu_event(handle_tray_menu_event)
+            .on_tray_icon_event(handle_tray_icon_event)
+            .build(app)?;
+    }
+    Ok(())
+}
+
+fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let _ = std::fs::create_dir_all(&config_dir);
+        let config_path = config_dir.join("config.json");
+        if !config_path.exists() {
+            let default_config = AppConfig::default();
+            if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+                let _ = std::fs::write(config_path, json);
+            }
+        }
+    }
+    setup_tray(app)?;
+    Ok(())
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    #[cfg(unix)]
+    pre_create_config();
+
+    #[cfg(unix)]
+    let launcher_pid = std::process::id();
+
+    #[cfg(target_os = "linux")]
+    elevate_linux(launcher_pid);
+
+    #[cfg(target_os = "macos")]
+    elevate_macos(launcher_pid);
+
+    #[cfg(unix)]
+    spawn_watchdog();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -1336,73 +1425,7 @@ pub fn run() {
             save_logs,
             get_app_config
         ])
-        .setup(|app| {
-            // Generate default config file if it doesn't exist
-            if let Ok(config_dir) = app.path().app_config_dir() {
-                if !config_dir.exists() {
-                    let _ = std::fs::create_dir_all(&config_dir);
-                }
-                let config_path = config_dir.join("config.json");
-                if !config_path.exists() {
-                    let default_config = AppConfig::default();
-                    if let Ok(json) = serde_json::to_string_pretty(&default_config) {
-                        let _ = std::fs::write(config_path, json);
-                    }
-                }
-            }
-
-            let show_item = MenuItem::with_id(app, "show", "Show Installer", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
-
-            if let Some(window) = app.get_webview_window("main") {
-                #[cfg(unix)]
-                if let Some(icon) = app.default_window_icon().cloned() {
-                    let _ = window.set_icon(icon);
-                }
-            }
-
-            if let Some(icon) = app.default_window_icon().cloned() {
-                TrayIconBuilder::new()
-                    .icon(icon)
-                    .tooltip("Wazuh Agent Installer")
-                    .menu(&menu)
-                    .show_menu_on_left_click(false)
-                    .on_menu_event(|app, event| match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
-                    })
-                    .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = event
-                        {
-                            let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                        }
-                    })
-                    .build(app)?;
-            }
-
-            Ok(())
-        })
+        .setup(setup_app)
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
