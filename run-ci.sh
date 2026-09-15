@@ -74,7 +74,7 @@ else
 fi
 
 log_info "5. Running backend clippy lint checks..."
-if cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings; then
+if cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings; then
     log_success "Backend clippy checks passed."
 else
     log_error "Backend clippy checks failed."

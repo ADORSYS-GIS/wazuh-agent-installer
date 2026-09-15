@@ -1,13 +1,14 @@
 // ============================================================
 // Wazuh Agent Installer — Brand & Dynamic Configuration
 // ============================================================
+import logoUrl from "./assets/adorsys-logo.png";
 
 export const BRAND_CONFIG = {
   // Brand Metadata
   companyName: "Adorsys",
   appTitle: "Wazuh Agent Installer",
-  appVersion: "v1.0.0",
-  logo: "assets/adorsys-logo.png", // Path relative to public/build folder
+  appVersion: "v1.1.1",
+  logo: logoUrl,
 
   // Brand Theme Palette (dynamically injected into :root variables)
   colors: {
@@ -40,26 +41,17 @@ export const BRAND_CONFIG = {
     statusWarn: "#fbbf24",
     statusWarnDim: "rgba(251, 191, 36, 0.12)",
   },
+};
 
-  // Wazuh Agent default configuration
-  wazuhAgentVersion: "4.14.1-1",
-
-  // Dropdown option selections
-  managers: [
-    { value: "wazuh.adorsys.com", label: "wazuh.adorsys.com" },
-    { value: "wazuh.adorsys.de", label: "wazuh.adorsys.de" },
-  ],
-
-  oauthIssuers: [
-    { value: "https://login.wazuh.adorsys.team/realms/adorsys", label: "login.wazuh.adorsys.team / adorsys" },
-    {
-      value: "https://login.dev.wazuh.adorsys.team/realms/test-adorsys",
-      label: "login.dev.wazuh.adorsys.team / test-adorsys (dev)",
-    },
-  ],
-
-  certEndpoints: [
-    { value: "https://cert.wazuh.adorsys.team/api/register-agent", label: "cert.wazuh.adorsys.team (production)" },
-    { value: "https://cert.dev.wazuh.adorsys.team/api/register-agent", label: "cert.dev.wazuh.adorsys.team (dev)" },
-  ],
+// Human-readable descriptions for each component, shown in the Overview tab.
+export const COMPONENT_DESCRIPTIONS: Record<string, string> = {
+  "Wazuh Agent": "Core security agent responsible for system monitoring, log collection, and threat detection.",
+  "OAuth2 Client":
+    "Custom client that automatically negotiates certificates and authenticates the agent with the central cluster.",
+  "Agent Status Monitor":
+    "Background service ensuring the Wazuh agent remains healthy and restarts automatically if it crashes.",
+  YARA: "Malware identification engine used to perform file content pattern matching for advanced threats.",
+  Suricata: "High performance Network IDS, IPS and Network Security Monitoring engine.",
+  Trivy: "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.",
+  NetBird: "WireGuard-based overlay VPN client providing secure mesh networking between agents.",
 };
