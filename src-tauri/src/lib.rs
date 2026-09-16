@@ -97,8 +97,6 @@ fn parse_suricata_version(out_str: &str) -> Option<String> {
     Some(out_str.trim().to_string())
 }
 
-
-
 fn parse_wazuh_agent_version(out_str: &str) -> Option<String> {
     if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
         let rest = &out_str[idx + 15..];
@@ -702,8 +700,6 @@ fn check_suricata_unix(path: &str) -> (bool, String) {
     }
 }
 
-
-
 #[cfg(unix)]
 fn check_component_unix(name: &str, path: &str) -> (bool, String) {
     match name {
@@ -755,8 +751,6 @@ async fn check_suricata_windows(path: &str) -> (bool, String) {
         (ok, path.to_string())
     }
 }
-
-
 
 #[cfg(windows)]
 async fn check_yara_windows(path: &str) -> (bool, String) {
