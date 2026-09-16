@@ -62,7 +62,6 @@ pub struct InstallConfig {
     // TODO: ids_engine is reserved for future Snort support; currently always "suricata"
     pub ids_engine: String,
     pub suricata_mode: String,
-    pub install_trivy: bool,
     pub install_netbird: bool,
     pub oauth_issuer: String,
     pub cert_endpoint: String,
@@ -98,18 +97,7 @@ fn parse_suricata_version(out_str: &str) -> Option<String> {
     Some(out_str.trim().to_string())
 }
 
-fn parse_trivy_version(out_str: &str) -> Option<String> {
-    if let Some(idx) = out_str.find("Version: ") {
-        let rest = &out_str[idx + 9..];
-        return Some(
-            rest.split_whitespace()
-                .next()
-                .unwrap_or(out_str)
-                .to_string(),
-        );
-    }
-    Some(out_str.trim().to_string())
-}
+
 
 fn parse_wazuh_agent_version(out_str: &str) -> Option<String> {
     if let Some(idx) = out_str.find("WAZUH_VERSION=\"") {
@@ -163,7 +151,6 @@ fn parse_component_version(name: &str, out_str: &str) -> Option<String> {
     match name {
         "YARA" => parse_yara_version(out_str),
         "Suricata" => parse_suricata_version(out_str),
-        "Trivy" => parse_trivy_version(out_str),
         "Wazuh Agent" => parse_wazuh_agent_version(out_str),
         "NetBird" => parse_netbird_version(out_str),
         _ => parse_default_version(out_str),
@@ -335,24 +322,13 @@ fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command
     let mut command = {
         let mut c = create_command("bash");
         c.arg(resolved_path);
-        if config.install_trivy {
-            c.arg("-t");
-        }
         if config.install_netbird {
             c.arg("-b");
         }
         c.env("WAZUH_MANAGER", &config.wazuh_manager)
             .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
             .env("IDS_ENGINE", &config.ids_engine)
-            .env("SURICATA_MODE", &config.suricata_mode)
-            .env(
-                "INSTALL_TRIVY",
-                if config.install_trivy {
-                    "true"
-                } else {
-                    "false"
-                },
-            );
+            .env("SURICATA_MODE", &config.suricata_mode);
         #[cfg(target_os = "macos")]
         {
             let current_path = std::env::var("PATH")
@@ -726,27 +702,13 @@ fn check_suricata_unix(path: &str) -> (bool, String) {
     }
 }
 
-#[cfg(unix)]
-fn check_trivy_unix(path: &str) -> (bool, String) {
-    if std::path::Path::new(path).exists() {
-        (true, path.to_string())
-    } else if std::path::Path::new("/usr/bin/trivy").exists() {
-        (true, "/usr/bin/trivy".to_string())
-    } else if std::path::Path::new("/usr/local/bin/trivy").exists() {
-        (true, "/usr/local/bin/trivy".to_string())
-    } else if std::path::Path::new("/opt/homebrew/bin/trivy").exists() {
-        (true, "/opt/homebrew/bin/trivy".to_string())
-    } else {
-        (false, path.to_string())
-    }
-}
+
 
 #[cfg(unix)]
 fn check_component_unix(name: &str, path: &str) -> (bool, String) {
     match name {
         "NetBird" => check_netbird_unix(path),
         "Suricata" => check_suricata_unix(path),
-        "Trivy" => check_trivy_unix(path),
         _ => (std::path::Path::new(path).exists(), path.to_string()),
     }
 }
@@ -794,28 +756,7 @@ async fn check_suricata_windows(path: &str) -> (bool, String) {
     }
 }
 
-#[cfg(windows)]
-async fn check_trivy_windows(path: &str) -> (bool, String) {
-    let p1 = r"C:\Program Files\Trivy\trivy.exe";
-    let p2 = r"C:\Program Files (x86)\Trivy\trivy.exe";
-    let p3 = r"C:\Trivy\trivy.exe";
-    if std::path::Path::new(p1).exists() {
-        (true, p1.to_string())
-    } else if std::path::Path::new(p2).exists() {
-        (true, p2.to_string())
-    } else if std::path::Path::new(p3).exists() {
-        (true, p3.to_string())
-    } else {
-        let ok = create_command(path)
-            .arg("--help")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .map_or(false, |s| s.success());
-        (ok, path.to_string())
-    }
-}
+
 
 #[cfg(windows)]
 async fn check_yara_windows(path: &str) -> (bool, String) {
@@ -859,7 +800,6 @@ async fn check_component_windows(name: &str, path: &str) -> (bool, String) {
     match name {
         "NetBird" => check_netbird_windows(path).await,
         "Suricata" => check_suricata_windows(path).await,
-        "Trivy" => check_trivy_windows(path).await,
         "YARA" => check_yara_windows(path).await,
         _ if path.ends_with("wazuh-agent.exe") => check_wazuh_agent_windows(path).await,
         _ => (std::path::Path::new(path).exists(), path.to_string()),
@@ -893,7 +833,6 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ),
         ("YARA".to_string(), "yara64.exe".to_string()),
         ("Suricata".to_string(), "suricata.exe".to_string()),
-        ("Trivy".to_string(), "trivy.exe".to_string()),
         ("NetBird".to_string(), "netbird.exe".to_string()),
     ];
 
@@ -916,7 +855,6 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
             "Suricata".to_string(),
             "/usr/local/bin/suricata".to_string(),
         ),
-        ("Trivy".to_string(), "/usr/local/bin/trivy".to_string()),
         ("NetBird".to_string(), "/usr/local/bin/netbird".to_string()),
     ];
 
@@ -936,7 +874,6 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
         ),
         ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
         ("Suricata".to_string(), "/usr/bin/suricata".to_string()),
-        ("Trivy".to_string(), "/usr/bin/trivy".to_string()),
         ("NetBird".to_string(), "/usr/bin/netbird".to_string()),
     ];
 

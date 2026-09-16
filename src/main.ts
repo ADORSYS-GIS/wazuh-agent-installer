@@ -105,7 +105,6 @@ const navItems = document.querySelectorAll<HTMLElement>(".nav-item");
 const tabPanels = document.querySelectorAll<HTMLElement>(".tab-panel");
 
 // Config inputs
-const elTrivy = document.getElementById("install-trivy") as HTMLInputElement | null;
 const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInputElement | null;
 
 // IDS mode pills
@@ -273,7 +272,6 @@ function getConfig() {
     log_level: "INFO",
     ids_engine: "suricata",
     suricata_mode: selectedModePill ? (selectedModePill.dataset.mode ?? "ids") : "ids",
-    install_trivy: elTrivy ? elTrivy.checked : false,
     install_netbird: elNetbirdInstall ? elNetbirdInstall.checked : false,
     oauth_issuer: getIssuerValue(),
     cert_endpoint: getEndpointValue(),
@@ -736,8 +734,7 @@ function getComponentDescription(name: string): string {
       return "Malware identification engine used to perform file content pattern matching for advanced threats.";
     case "Suricata":
       return "High performance Network IDS, IPS and Network Security Monitoring engine.";
-    case "Trivy":
-      return "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.";
+
     case "USB DLP Scripts":
       return "Active response scripts to monitor, block, and manage unauthorized USB storage devices.";
     default:
