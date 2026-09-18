@@ -20,7 +20,10 @@ fi
 VER="${TAG#v}"
 TAG="v${VER}"
 
-DL_URL="https://github.com/$REPO/releases/download/${TAG}/Wazuh.Agent.Installer_${VER}_universal.dmg"
+# Tauri builds the artifact using the base version from tauri.conf.json
+PKG_VER="${VER%%-rc.*}"
+
+DL_URL="https://github.com/$REPO/releases/download/${TAG}/Wazuh.Agent.Installer_${PKG_VER}_universal.dmg"
 
 # Verify URL exists before downloading
 if ! curl -sI -f "$DL_URL" > /dev/null; then

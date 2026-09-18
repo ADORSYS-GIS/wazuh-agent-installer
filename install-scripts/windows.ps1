@@ -22,10 +22,13 @@ if (-not $Tag) {
     exit 1
 }
 
-$Ver = $Tag.TrimStart('v')
-$Tag = "v$Ver"
+$Version = $Tag.TrimStart("v")
+$Tag = "v$Version"
 
-$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/Wazuh.Agent.Installer_${Ver}_x64_en-US.msi"
+# Tauri builds the artifact using the base version from tauri.conf.json
+$PkgVersion = $Version -replace '-rc\.\d+', ''
+
+$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/Wazuh.Agent.Installer_${PkgVersion}_x64_en-US.msi"
 
 try {
     Invoke-WebRequest -Uri $DownloadUrl -Method Head -ErrorAction Stop > $null
