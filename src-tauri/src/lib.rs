@@ -848,10 +848,10 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
             "Agent Status Monitor".to_string(),
             "/usr/local/bin/wazuh-agent-status".to_string(),
         ),
-        ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
+        ("YARA".to_string(), "/opt/wazuh/yara/bin/yara".to_string()),
         (
             "Suricata".to_string(),
-            "/usr/local/bin/suricata".to_string(),
+            "/opt/wazuh/suricata/bin/suricata".to_string(),
         ),
         ("NetBird".to_string(), "/usr/local/bin/netbird".to_string()),
     ];
@@ -870,8 +870,8 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
             "Agent Status Monitor".to_string(),
             "/usr/local/bin/wazuh-agent-status".to_string(),
         ),
-        ("YARA".to_string(), "/usr/local/bin/yara".to_string()),
-        ("Suricata".to_string(), "/usr/bin/suricata".to_string()),
+        ("YARA".to_string(), "/opt/wazuh/yara/bin/yara".to_string()),
+        ("Suricata".to_string(), "/opt/wazuh/suricata/bin/suricata".to_string()),
         ("NetBird".to_string(), "/usr/bin/netbird".to_string()),
     ];
 
