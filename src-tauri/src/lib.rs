@@ -313,6 +313,10 @@ fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command
         if config.install_netbird {
             c.arg("-InstallNetBird");
         }
+        c.env("WAZUH_MANAGER", &config.wazuh_manager)
+            .env("WAZUH_AGENT_NAME", &config.wazuh_agent_name)
+            .env("IDS_ENGINE", &config.ids_engine)
+            .env("SURICATA_MODE", &config.suricata_mode);
         c
     };
 
