@@ -6,7 +6,7 @@ $Repo = "ADORSYS-GIS/wazuh-agent-installer"
 Write-Host "📥 Downloading Wazuh Agent Installer for Windows..." -ForegroundColor Cyan
 
 if ($Version -eq "latest") {
-    $Response = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -MaximumRedirection 0 -ErrorAction Ignore
+    $Response = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -MaximumRedirection 0 -ErrorAction Ignore -UseBasicParsing
     if ($Response.StatusCode -in 301, 302) {
         $Tag = ($Response.Headers.Location -split '/')[-1]
     } else {
@@ -31,7 +31,7 @@ $PkgVersion = $Version -replace '-rc\.\d+', ''
 $DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/Wazuh.Agent.Installer_${PkgVersion}_x64_en-US.msi"
 
 try {
-    Invoke-WebRequest -Uri $DownloadUrl -Method Head -ErrorAction Stop > $null
+    Invoke-WebRequest -Uri $DownloadUrl -Method Head -ErrorAction Stop -UseBasicParsing > $null
 } catch {
     Write-Error "❌ Could not find Windows .msi package ($DownloadUrl) in release"
     Write-Host "   Visit https://github.com/$Repo/releases to check available assets"
@@ -40,7 +40,7 @@ try {
 $TempPath = Join-Path $env:TEMP "WazuhInstaller_$Version.msi"
 
 Write-Host "Downloading from: $DownloadUrl"
-Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath
+Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath -UseBasicParsing
 
 Write-Host "📦 Installing package..." -ForegroundColor Cyan
 $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /passive /norestart" -Wait -NoNewWindow -PassThru
