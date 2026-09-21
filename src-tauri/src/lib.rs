@@ -871,7 +871,10 @@ async fn check_components() -> Result<Vec<ComponentStatus>, String> {
             "/usr/local/bin/wazuh-agent-status".to_string(),
         ),
         ("YARA".to_string(), "/opt/wazuh/yara/bin/yara".to_string()),
-        ("Suricata".to_string(), "/opt/wazuh/suricata/bin/suricata".to_string()),
+        (
+            "Suricata".to_string(),
+            "/opt/wazuh/suricata/bin/suricata".to_string(),
+        ),
         ("NetBird".to_string(), "/usr/bin/netbird".to_string()),
     ];
 
