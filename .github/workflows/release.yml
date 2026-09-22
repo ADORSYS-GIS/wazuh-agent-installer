@@ -127,7 +127,6 @@ jobs:
             - YARA integration
             - Suricata (IDS or IPS mode)
             - USB DLP active response scripts
-            - Trivy (optional)
 
             ### Downloads
             | Platform | File |

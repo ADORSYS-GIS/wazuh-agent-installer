@@ -52,6 +52,5 @@ export const COMPONENT_DESCRIPTIONS: Record<string, string> = {
     "Background service ensuring the Wazuh agent remains healthy and restarts automatically if it crashes.",
   YARA: "Malware identification engine used to perform file content pattern matching for advanced threats.",
   Suricata: "High performance Network IDS, IPS and Network Security Monitoring engine.",
-  Trivy: "Comprehensive vulnerability scanner for OS packages, container images, and file system misconfigurations.",
   NetBird: "WireGuard-based overlay VPN client providing secure mesh networking between agents.",
 };
