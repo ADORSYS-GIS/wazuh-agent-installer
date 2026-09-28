@@ -22,11 +22,13 @@
         "resizable": true,
         "center": true,
         "decorations": true,
-        "closable": true
+        "closable": true,
+        "minimizable": true,
+        "maximizable": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {

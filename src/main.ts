@@ -39,6 +39,13 @@ interface AppConfig {
   netbird_management_url: string;
 }
 
+interface UpdateInfo {
+  update_available: boolean;
+  current_version: string;
+  latest_version: string | null;
+  url: string;
+}
+
 declare global {
   interface Window {
     __TAURI__?: {
@@ -135,6 +142,15 @@ const terminalNetbirdArea = document.getElementById("netbird-terminal-area");
 const terminalNetbird = document.getElementById("netbird-terminal");
 const netbirdStatusBanner = document.getElementById("netbird-status-banner");
 
+// Update notification
+const updateBanner = document.getElementById("update-banner");
+const updateBannerText = document.getElementById("update-banner-text");
+const updateBannerLink = document.getElementById("update-banner-link") as HTMLAnchorElement | null;
+const updateBannerDismiss = document.getElementById("update-banner-dismiss") as HTMLButtonElement | null;
+const updatePill = document.getElementById("update-pill") as HTMLButtonElement | null;
+const btnCheckUpdates = document.getElementById("btn-check-updates") as HTMLButtonElement | null;
+let isUpdateAvailable = false;
+
 // ---- Initialization ----
 
 let appConfig: AppConfig | null = null;
@@ -172,7 +188,112 @@ btnStartNetbird?.addEventListener("click", startNetbirdConnection);
 btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
 btnRefreshComponents?.addEventListener("click", refreshComponents);
 
+updatePill?.addEventListener("click", showUpdateBanner);
+updateBannerDismiss?.addEventListener("click", () => {
+  if (updateBanner) updateBanner.style.display = "none";
+});
+btnCheckUpdates?.addEventListener("click", manualCheckForUpdates);
+
 finishBoot();
+
+async function checkForUpdates() {
+  try {
+    const info = await invoke<UpdateInfo>("check_for_updates");
+    if (!info.update_available) return;
+    isUpdateAvailable = true;
+    const latest = info.latest_version ?? "new version";
+    if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
+    if (updateBannerLink) {
+        updateBannerLink.textContent = "Update Now";
+        updateBannerLink.href = "#";
+        updateBannerLink.onclick = async (e) => {
+            e.preventDefault();
+            await invoke("run_app_update");
+        };
+    }
+    showUpdateBanner();
+    if (btnCheckUpdates) {
+        btnCheckUpdates.textContent = "Update Now";
+        btnCheckUpdates.classList.add("btn-primary");
+        btnCheckUpdates.classList.remove("btn-ghost");
+    }
+  } catch (err) {
+    console.warn("[checkForUpdates] Could not check for updates:", err);
+  }
+}
+
+async function manualCheckForUpdates() {
+  if (isUpdateAvailable) {
+    try {
+      if (btnCheckUpdates) btnCheckUpdates.textContent = "Updating...";
+      
+      if (updateBanner) updateBanner.style.display = "none";
+      if (updatePill) updatePill.style.display = "none";
+      
+      const welcomeCard = document.getElementById("welcome-card");
+      if (welcomeCard) welcomeCard.style.display = "none";
+      if (installLogCard) installLogCard.style.display = "block";
+      
+      const terminalInstall = document.getElementById("terminal");
+      if (terminalInstall) {
+        terminalInstall.innerHTML = "";
+        appendLog(terminalInstall, "Starting auto-update process...", "info");
+      }
+      
+      const unlistenLog = await listen<LogLine>("install-log", (e) => {
+        appendLog(terminalInstall, e.payload.line, e.payload.level);
+      });
+      
+      await invoke("run_app_update");
+      
+      appendLog(terminalInstall, "Update finished. Please restart the application to apply the new version.", "success");
+      unlistenLog();
+    } catch (err) {
+      console.error("Failed to run update:", err);
+      if (btnCheckUpdates) btnCheckUpdates.textContent = "Update Failed";
+      const terminalInstall = document.getElementById("terminal");
+      appendLog(terminalInstall, `ERROR: ${err}`, "error");
+    }
+    return;
+  }
+  
+  if (btnCheckUpdates) btnCheckUpdates.textContent = "Checking...";
+  try {
+    const info = await invoke<UpdateInfo>("check_for_updates");
+    if (!info.update_available) {
+      if (btnCheckUpdates) btnCheckUpdates.textContent = "Up to date";
+      setTimeout(() => {
+        if (btnCheckUpdates) btnCheckUpdates.textContent = "Check Updates";
+      }, 2000);
+      return;
+    }
+    isUpdateAvailable = true;
+    const latest = info.latest_version ?? "new version";
+    if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
+    if (updateBannerLink) {
+        updateBannerLink.textContent = "Update Now";
+        updateBannerLink.href = "#";
+        updateBannerLink.onclick = async (e) => {
+            e.preventDefault();
+            await invoke("run_app_update");
+        };
+    }
+    showUpdateBanner();
+    if (btnCheckUpdates) {
+        btnCheckUpdates.textContent = "Update Now";
+        btnCheckUpdates.classList.add("btn-primary");
+        btnCheckUpdates.classList.remove("btn-ghost");
+    }
+  } catch (err) {
+    console.warn("[manualCheckForUpdates] Could not check for updates:", err);
+    if (btnCheckUpdates) btnCheckUpdates.textContent = "Check Updates";
+  }
+}
+
+function showUpdateBanner() {
+  if (updateBanner) updateBanner.style.display = "flex";
+  if (updatePill) updatePill.style.display = "inline-block";
+}
 
 function finishBoot() {
   if (appContainer) appContainer.style.display = "block";
@@ -182,6 +303,7 @@ function finishBoot() {
   refreshComponents(); // Initial load
   checkEnrollmentState(); // Check if already enrolled on startup
   checkNetbirdState(); // Check if already connected to Netbird on startup
+  checkForUpdates(); // Check for a newer version on startup
 
   // Keep the enrolled card in sync while the app is open
   setInterval(() => checkEnrollmentState(), 15_000);
@@ -323,8 +445,16 @@ function appendLog(term: HTMLElement | null, line: string, level: string): void 
 function showStatusBanner(banner: HTMLElement | null, type: "running" | "success" | "error", message: string) {
   if (!banner) return;
   banner.className = `status-banner visible ${type}`;
-  const icon = type === "running" ? '<span class="spinner"></span>' : type === "success" ? "✓" : "✕";
-  banner.innerHTML = `${icon} ${message}`;
+  banner.textContent = "";
+  if (type === "running") {
+    const spinner = document.createElement("span");
+    spinner.className = "spinner";
+    banner.appendChild(spinner);
+    banner.appendChild(document.createTextNode(" "));
+  } else {
+    banner.appendChild(document.createTextNode(type === "success" ? "✓ " : "✕ "));
+  }
+  banner.appendChild(document.createTextNode(message));
 }
 
 async function startInstall() {
@@ -670,19 +800,39 @@ async function refreshComponents() {
       const card = document.createElement("div");
       card.className = "comp-card";
 
-      const isOk = comp.installed;
-      const badgeClass = isOk ? "installed" : "missing";
-      const badgeText = isOk ? "Installed" : "Missing";
+      const header = document.createElement("div");
+      header.className = "comp-header";
 
-      card.innerHTML = `
-        <div class="comp-header">
-          <div class="comp-name">${comp.name}</div>
-          <div class="comp-badge ${badgeClass}">${badgeText}</div>
-        </div>
-        <div class="comp-desc">${getComponentDescription(comp.name)}</div>
-        ${comp.version ? `<div class="comp-version">📦 ${comp.version}</div>` : ""}
-        <div class="comp-path">${comp.path}</div>
-      `;
+      const name = document.createElement("div");
+      name.className = "comp-name";
+      name.textContent = comp.name;
+
+      const badge = document.createElement("div");
+      badge.className = `comp-badge ${comp.installed ? "installed" : "missing"}`;
+      badge.textContent = comp.installed ? "Installed" : "Missing";
+
+      header.appendChild(name);
+      header.appendChild(badge);
+
+      const desc = document.createElement("div");
+      desc.className = "comp-desc";
+      desc.textContent = getComponentDescription(comp.name);
+
+      card.appendChild(header);
+      card.appendChild(desc);
+
+      if (comp.version) {
+        const version = document.createElement("div");
+        version.className = "comp-version";
+        version.textContent = `📦 ${comp.version}`;
+        card.appendChild(version);
+      }
+
+      const path = document.createElement("div");
+      path.className = "comp-path";
+      path.textContent = comp.path;
+      card.appendChild(path);
+
       grid.appendChild(card);
     });
   } catch (err) {
