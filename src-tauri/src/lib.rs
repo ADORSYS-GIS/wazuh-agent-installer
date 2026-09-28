@@ -13,7 +13,7 @@ use tokio::process::Command;
 
 /// Where the latest published version is read from (kept on the main branch).
 const VERSION_FILE_URL: &str =
-    "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feature/auto-updater-review/version.txt";
+    "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/version.txt";
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -161,7 +161,7 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
         let mut c = tokio::process::Command::new("powershell");
         c.args([
             "-Command",
-            "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','Invoke-WebRequest -Uri https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feature/auto-updater-review/install-scripts/windows.ps1 -UseBasicParsing | Invoke-Expression'"
+            "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','Invoke-WebRequest -Uri https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/windows.ps1 -UseBasicParsing | Invoke-Expression'"
         ]);
         c
     };
@@ -171,7 +171,7 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
         let mut c = tokio::process::Command::new("osascript");
         c.args([
             "-e",
-            "do shell script \"curl -fsSL https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feature/auto-updater-review/install-scripts/macos.sh | bash\" with administrator privileges"
+            "do shell script \"curl -fsSL https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/macos.sh | bash\" with administrator privileges"
         ]);
         c
     };
@@ -182,7 +182,7 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
         c.args([
             "bash",
             "-c",
-            "curl -fsSL https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feature/auto-updater-review/install-scripts/ubuntu.sh | bash"
+            "curl -fsSL https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/ubuntu.sh | bash"
         ]);
         c
     };
