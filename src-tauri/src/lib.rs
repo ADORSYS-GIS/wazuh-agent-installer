@@ -1581,11 +1581,31 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         start_background_checker(app.handle().clone());
     } else {
         setup_tray(app)?;
-        // We will rely on the `.deb` package to place the autostart file in /etc/xdg/autostart
-        // instead of doing it at runtime, which causes GNOME to glitch out the window decorations.
-        // if !app.autolaunch().is_enabled().unwrap_or(false) {
-        //     let _ = app.autolaunch().enable();
-        // }
+        
+        // 1. Periodically check for updates while the app is running in the system tray (every 4 hours)
+        let app_handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 4)).await;
+                let current = get_local_version(&app_handle);
+                if let Some(latest) = fetch_latest_version().await {
+                    let newer = parse_version(&latest)
+                        .map(|l| parse_version(&current).map(|c| l > c).unwrap_or(false))
+                        .unwrap_or(false);
+                    if newer {
+                        notify_update(&app_handle, &latest);
+                    }
+                }
+            }
+        });
+
+        // 2. Register for startup on boot/login. 
+        // We skip this on Linux at runtime because writing to ~/.config/autostart while 
+        // the app is running causes GNOME to glitch out the window decorations.
+        #[cfg(not(target_os = "linux"))]
+        if !app.autolaunch().is_enabled().unwrap_or(false) {
+            let _ = app.autolaunch().enable();
+        }
     }
 
     Ok(())
