@@ -1587,8 +1587,10 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         // 1. Periodically check for updates while the app is running in the system tray (every 4 hours)
         let app_handle = app.handle().clone();
         tauri::async_runtime::spawn(async move {
+            // Wait 10 seconds on startup before the first check
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 4)).await;
                 let current = get_local_version(&app_handle);
                 if let Some(latest) = fetch_latest_version().await {
                     let newer = parse_version(&latest)
@@ -1598,6 +1600,9 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         notify_update(&app_handle, &latest);
                     }
                 }
+                
+                // Then sleep for 4 hours before the next check
+                tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 4)).await;
             }
         });
 
