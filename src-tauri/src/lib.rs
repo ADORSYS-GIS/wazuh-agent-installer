@@ -1613,6 +1613,30 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         if !app.autolaunch().is_enabled().unwrap_or(false) {
             let _ = app.autolaunch().enable();
         }
+
+        #[cfg(target_os = "linux")]
+        {
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let show_file = "/tmp/.wazuh-agent-installer.show";
+                let _ = std::fs::remove_file(show_file);
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    if std::fs::metadata(show_file).is_ok() {
+                        let _ = std::fs::remove_file(show_file);
+                        let app_handle_clone = app_handle.clone();
+                        let _ = app_handle.run_on_main_thread(move || {
+                            use tauri::Manager;
+                            if let Some(window) = app_handle_clone.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        });
+                    }
+                }
+            });
+        }
     }
 
     Ok(())
@@ -1666,10 +1690,15 @@ pub fn run() {
 
         #[cfg(target_os = "linux")]
         {
-            // If already running, DO NOT elevate! 
-            // We want the current non-root process to continue to Tauri setup
-            // so the single-instance plugin can forward the launch arguments and exit.
-            if !is_already_running() {
+            // If already running, the root instance is holding the lock.
+            // We tell it to show its window via a signal file and exit!
+            if is_already_running() {
+                let _ = std::fs::write("/tmp/.wazuh-agent-installer.show", "show");
+                // Ensure anyone can remove it later
+                let c_path = std::ffi::CString::new("/tmp/.wazuh-agent-installer.show").unwrap();
+                unsafe { libc::chmod(c_path.as_ptr(), 0o666) };
+                std::process::exit(0);
+            } else {
                 elevate_linux(launcher_pid);
             }
         }
