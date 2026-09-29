@@ -13,7 +13,7 @@ use tokio::process::Command;
 
 /// Where the latest published version is read from (kept on the main branch).
 const VERSION_FILE_URL: &str =
-    "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/version.txt";
+    "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feature/auto-updater-review/version.txt";
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
