@@ -7,7 +7,7 @@ export const BRAND_CONFIG = {
   // Brand Metadata
   companyName: "Adorsys",
   appTitle: "Wazuh Agent Installer",
-  appVersion: "v1.1.1",
+  appVersion: "v1.2.0",
   logo: logoUrl,
 
   // Brand Theme Palette (dynamically injected into :root variables)
@@ -21,7 +21,7 @@ export const BRAND_CONFIG = {
 
     // Dark theme surface backgrounds
     bgRoot: "#0b0e14",
-    bgCard: "#12161f",
+    bgCard: "#1.2.0f",
     bgCardHover: "#181d28",
     bgInput: "#161b26",
     bgInputFocus: "#1a2030",

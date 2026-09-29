@@ -1618,6 +1618,27 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn is_already_running_on_dbus() -> bool {
+    let status = std::process::Command::new("dbus-send")
+        .arg("--session")
+        .arg("--dest=org.freedesktop.DBus")
+        .arg("--type=method_call")
+        .arg("--print-reply")
+        .arg("/org/freedesktop/DBus")
+        .arg("org.freedesktop.DBus.NameHasOwner")
+        .arg("string:com.adorsys.wazuh-agent-installer")
+        .output();
+    
+    if let Ok(output) = status {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains("boolean true") {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(unix)]
@@ -1630,7 +1651,14 @@ pub fn run() {
         let launcher_pid = std::process::id();
 
         #[cfg(target_os = "linux")]
-        elevate_linux(launcher_pid);
+        {
+            // If already running on DBus, DO NOT elevate! 
+            // We want the current non-root process to continue to Tauri setup
+            // so the single-instance plugin can forward the launch arguments and exit.
+            if !is_already_running_on_dbus() {
+                elevate_linux(launcher_pid);
+            }
+        }
 
         #[cfg(target_os = "macos")]
         elevate_macos(launcher_pid);
