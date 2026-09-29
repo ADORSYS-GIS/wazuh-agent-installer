@@ -1619,23 +1619,37 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "linux")]
-fn is_already_running_on_dbus() -> bool {
-    let status = std::process::Command::new("dbus-send")
-        .arg("--session")
-        .arg("--dest=org.freedesktop.DBus")
-        .arg("--type=method_call")
-        .arg("--print-reply")
-        .arg("/org/freedesktop/DBus")
-        .arg("org.freedesktop.DBus.NameHasOwner")
-        .arg("string:com.adorsys.wazuh-agent-installer")
-        .output();
+fn is_already_running() -> bool {
+    let lock_path = "/tmp/.wazuh-agent-installer.lock";
+    let c_path = std::ffi::CString::new(lock_path).unwrap();
     
-    if let Ok(output) = status {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.contains("boolean true") {
-            return true;
-        }
+    // Open the file. Use 0o666 so any user can open it.
+    let fd = unsafe {
+        libc::open(
+            c_path.as_ptr(),
+            libc::O_RDWR | libc::O_CREAT,
+            0o666,
+        )
+    };
+    
+    if fd < 0 {
+        // Can't even open the file, fallback to false
+        return false;
     }
+    
+    // Ensure the file is actually world-writable so root doesn't lock out the user from opening it next time
+    unsafe { libc::chmod(c_path.as_ptr(), 0o666) };
+    
+    // Try to get an exclusive lock without blocking
+    let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+    if ret < 0 {
+        // If we can't get the lock, another instance is already holding it!
+        return true;
+    }
+    
+    // We intentionally LEAVE the file descriptor open and DO NOT close it.
+    // The OS will automatically release the lock when this process exits.
+    // When the user process exits to spawn pkexec, the lock drops, and the pkexec root process grabs it.
     false
 }
 
@@ -1652,10 +1666,10 @@ pub fn run() {
 
         #[cfg(target_os = "linux")]
         {
-            // If already running on DBus, DO NOT elevate! 
+            // If already running, DO NOT elevate! 
             // We want the current non-root process to continue to Tauri setup
             // so the single-instance plugin can forward the launch arguments and exit.
-            if !is_already_running_on_dbus() {
+            if !is_already_running() {
                 elevate_linux(launcher_pid);
             }
         }
