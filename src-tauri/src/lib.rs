@@ -1355,6 +1355,7 @@ fn elevate_linux(launcher_pid: u32) {
         let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
         let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+        let dbus = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
 
         let mut cmd = std::process::Command::new("pkexec");
         cmd.arg("env")
@@ -1363,7 +1364,8 @@ fn elevate_linux(launcher_pid: u32) {
             .arg(format!("WAYLAND_DISPLAY={wayland}"))
             .arg(format!("XDG_RUNTIME_DIR={xdg_runtime}"))
             .arg(format!("HOME={home}"))
-            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"));
+            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"))
+            .arg(format!("DBUS_SESSION_BUS_ADDRESS={dbus}"));
 
         if let Some(theme) = get_gtk_theme() {
             cmd.arg(format!("GTK_THEME={theme}"));
