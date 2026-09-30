@@ -161,7 +161,7 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
         let mut c = tokio::process::Command::new("powershell");
         c.args([
             "-Command",
-            "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','Invoke-WebRequest -Uri https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/windows.ps1 -UseBasicParsing | Invoke-Expression'"
+            "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','Invoke-RestMethod -Uri https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/windows.ps1 | Invoke-Expression'"
         ]);
         c
     };
