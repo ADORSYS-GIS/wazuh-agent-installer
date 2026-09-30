@@ -247,8 +247,13 @@ async function manualCheckForUpdates() {
       
       await invoke("run_app_update");
       
-      appendLog(terminalInstall, "Update finished. Please restart the application to apply the new version.", "success");
+      appendLog(terminalInstall, "Update started successfully! The application will now close to apply the new version.", "success");
       unlistenLog();
+      
+      setTimeout(async () => {
+        const { appWindow } = await import('@tauri-apps/api/window');
+        await appWindow.close();
+      }, 3000);
     } catch (err) {
       console.error("Failed to run update:", err);
       if (btnCheckUpdates) btnCheckUpdates.textContent = "Update Failed";

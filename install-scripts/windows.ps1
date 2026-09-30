@@ -45,15 +45,9 @@ Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath -UseBasicParsing
 
 Write-Output "Installing package..."
 try {
-    $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /passive /norestart" -Verb RunAs -Wait -PassThru
+    Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /passive /norestart" -Verb RunAs
+    Write-Output "Success: Wazuh Agent Installer update started! The application will now close to apply the new version."
 } catch {
     Write-Output "Error: UAC prompt was cancelled or elevation failed."
     exit 1602
-}
-
-if ($process.ExitCode -eq 0) {
-    Write-Output "Success: Wazuh Agent Installer installed successfully! You can find it in your Start Menu."
-} else {
-    Write-Output "Error: Installation failed with exit code: $($process.ExitCode). Please try running PowerShell as Administrator."
-    exit $($process.ExitCode)
 }
