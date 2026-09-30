@@ -48,7 +48,16 @@ trap 'rm -rf "$TMP"' EXIT
 echo "Downloading from: $DL_URL"
 curl -fsSL "$DL_URL" -o "$TMP/installer.deb"
 
-echo "📦 Installing package..."
-sudo dpkg -i "$TMP/installer.deb" || sudo apt-get install -f -y
+echo "Installing package..."
+if command -v pkexec >/dev/null 2>&1; then
+  SUDO="pkexec"
+else
+  SUDO="sudo"
+  echo "Warning: Using sudo. If this script is running in the background without a terminal, it may hang waiting for a password."
+fi
 
-echo "✅ Wazuh Agent Installer installed successfully!"
+if ! $SUDO dpkg -i "$TMP/installer.deb"; then
+  $SUDO apt-get install -f -y
+fi
+
+echo "Success: Wazuh Agent Installer installed successfully!"

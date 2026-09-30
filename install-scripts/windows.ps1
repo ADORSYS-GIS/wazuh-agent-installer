@@ -44,7 +44,12 @@ Write-Output "Downloading from: $DownloadUrl"
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath -UseBasicParsing
 
 Write-Output "Installing package..."
-$process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /passive /norestart" -Wait -NoNewWindow -PassThru
+try {
+    $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /passive /norestart" -Verb RunAs -Wait -PassThru
+} catch {
+    Write-Output "Error: UAC prompt was cancelled or elevation failed."
+    exit 1602
+}
 
 if ($process.ExitCode -eq 0) {
     Write-Output "Success: Wazuh Agent Installer installed successfully! You can find it in your Start Menu."
