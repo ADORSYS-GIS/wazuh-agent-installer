@@ -60,7 +60,7 @@ fi
 if [[ "$NEEDS_SUDO" -eq 1 ]]; then
   echo "Prompting for administrator privileges to copy app..."
   if ! osascript -e "do shell script \"rm -rf \\\"$TARGET\\\" && cp -R \\\"$APP_PATH\\\" /Applications/ && xattr -dr com.apple.quarantine \\\"$TARGET\\\"\" with administrator privileges"; then
-    echo "Error: Administrator privileges were denied or installation failed."
+    echo "Error: Administrator privileges were denied or installation failed." >&2
     hdiutil detach "$TMP/mount" -quiet
     exit 1
   fi

@@ -205,26 +205,32 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
 
     let log_file_1 = log_file.clone();
     spawn_log_reader(stdout, app.clone(), "install-log", move |line| {
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_file_1)
-        {
-            use std::io::Write;
-            let _ = writeln!(file, "{}", line);
-        }
+        let log_file_1 = log_file_1.clone();
+        tokio::task::block_in_place(|| {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_file_1)
+            {
+                use std::io::Write;
+                let _ = writeln!(file, "{}", line);
+            }
+        });
     });
 
     let log_file_2 = log_file.clone();
     spawn_log_reader(stderr, app.clone(), "install-log", move |line| {
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_file_2)
-        {
-            use std::io::Write;
-            let _ = writeln!(file, "{}", line);
-        }
+        let log_file_2 = log_file_2.clone();
+        tokio::task::block_in_place(|| {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_file_2)
+            {
+                use std::io::Write;
+                let _ = writeln!(file, "{}", line);
+            }
+        });
     });
 
     let status = child.wait().await.map_err(|e| e.to_string())?;
@@ -479,7 +485,7 @@ fn resolve_bundled_script(
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .mode(0o755)
+            .mode(0o700)
             .open(&tmp_path)
             .map_err(|e| format!("Failed to create script in temp dir: {}", e))?;
         file.write_all(&bytes)

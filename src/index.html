@@ -157,7 +157,7 @@
               Install and configure the necessary tools to keep your device secure.
             </p>
 
-            <div id="update-banner" class="update-banner" style="display: none" role="status">
+            <output id="update-banner" class="update-banner" style="display: none">
               <span id="update-banner-text"></span>
               <div class="update-banner-actions">
                 <a id="update-banner-link" class="btn btn-primary btn-sm" href="#" target="_blank" rel="noopener"
@@ -165,7 +165,7 @@
                 >
                 <button id="update-banner-dismiss" class="btn btn-ghost btn-sm" type="button">Dismiss</button>
               </div>
-            </div>
+            </output>
 
             <div class="card compact" style="margin-top: 16px">
               <div class="toggle-row compact">
@@ -201,7 +201,7 @@
                   <span class="spinner"></span> Waiting to start…
                 </div>
               </div>
-              <div class="status-banner" id="status-banner" role="status"></div>
+              <output class="status-banner" id="status-banner"></output>
             </div>
 
             <div id="result-screen" style="display: none; margin-top: 24px">
@@ -284,7 +284,7 @@
                   <span class="spinner"></span> Running enrollment…
                 </div>
               </div>
-              <div class="status-banner" id="enroll-status-banner" role="status"></div>
+              <output class="status-banner" id="enroll-status-banner"></output>
               <button
                 class="btn btn-ghost"
                 id="btn-retry-enroll"
@@ -374,7 +374,7 @@
                   <span class="spinner"></span> Connecting NetBird…
                 </div>
               </div>
-              <div class="status-banner" id="netbird-status-banner" role="status"></div>
+              <output class="status-banner" id="netbird-status-banner"></output>
               <button
                 class="btn btn-ghost"
                 id="btn-retry-netbird"
