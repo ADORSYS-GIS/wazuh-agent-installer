@@ -208,7 +208,7 @@ async function checkForUpdates() {
         updateBannerLink.href = "#";
         updateBannerLink.onclick = async (e) => {
             e.preventDefault();
-            await invoke("run_app_update");
+            await manualCheckForUpdates();
         };
     }
     showUpdateBanner();
@@ -275,7 +275,7 @@ async function manualCheckForUpdates() {
         updateBannerLink.href = "#";
         updateBannerLink.onclick = async (e) => {
             e.preventDefault();
-            await invoke("run_app_update");
+            await manualCheckForUpdates();
         };
     }
     showUpdateBanner();
