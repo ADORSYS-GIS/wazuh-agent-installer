@@ -206,6 +206,7 @@ async function checkForUpdates() {
     if (updateBannerLink) {
         updateBannerLink.textContent = "Update Now";
         updateBannerLink.href = "#";
+        updateBannerLink.removeAttribute("target");
         updateBannerLink.onclick = async (e) => {
             e.preventDefault();
             await manualCheckForUpdates();
@@ -273,6 +274,7 @@ async function manualCheckForUpdates() {
     if (updateBannerLink) {
         updateBannerLink.textContent = "Update Now";
         updateBannerLink.href = "#";
+        updateBannerLink.removeAttribute("target");
         updateBannerLink.onclick = async (e) => {
             e.preventDefault();
             await manualCheckForUpdates();

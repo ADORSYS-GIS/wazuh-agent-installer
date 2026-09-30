@@ -3,14 +3,14 @@ param(
 )
 
 $Repo = "ADORSYS-GIS/wazuh-agent-installer"
-Write-Host "📥 Downloading Wazuh Agent Installer for Windows..." -ForegroundColor Cyan
+Write-Output "📥 Downloading Wazuh Agent Installer for Windows..."
 
 if ($Version -eq "latest") {
-    $Response = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -MaximumRedirection 0 -ErrorAction Ignore
+    $Response = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -MaximumRedirection 0 -ErrorAction Ignore -UseBasicParsing
     if ($Response.StatusCode -in 301, 302) {
         $Tag = ($Response.Headers.Location -split '/')[-1]
     } else {
-        Write-Error "❌ Could not determine latest version tag."
+        Write-Output "❌ Could not determine latest version tag."
         exit 1
     }
 } else {
@@ -18,7 +18,7 @@ if ($Version -eq "latest") {
 }
 
 if (-not $Tag) {
-    Write-Error "❌ Could not determine version tag."
+    Write-Output "❌ Could not determine version tag."
     exit 1
 }
 
@@ -28,22 +28,23 @@ $Tag = "v$Ver"
 $DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/Wazuh.Agent.Installer_${Ver}_x64_en-US.msi"
 
 try {
-    Invoke-WebRequest -Uri $DownloadUrl -Method Head -ErrorAction Stop > $null
+    Invoke-WebRequest -Uri $DownloadUrl -Method Head -ErrorAction Stop -UseBasicParsing > $null
 } catch {
-    Write-Error "❌ Could not find Windows .msi package ($DownloadUrl) in release"
-    Write-Host "   Visit https://github.com/$Repo/releases to check available assets"
+    Write-Output "❌ Could not find Windows .msi package ($DownloadUrl) in release"
+    Write-Output "   Visit https://github.com/$Repo/releases to check available assets"
     exit 1
 }
 $TempPath = Join-Path $env:TEMP "WazuhInstaller_$Version.msi"
 
-Write-Host "Downloading from: $DownloadUrl"
-Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath
+Write-Output "Downloading from: $DownloadUrl"
+Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath -UseBasicParsing
 
-Write-Host "📦 Installing package..." -ForegroundColor Cyan
+Write-Output "📦 Installing package..."
 $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /passive /norestart" -Wait -NoNewWindow -PassThru
 
 if ($process.ExitCode -eq 0) {
-    Write-Host "✅ Wazuh Agent Installer installed successfully! You can find it in your Start Menu." -ForegroundColor Green
+    Write-Output "✅ Wazuh Agent Installer installed successfully! You can find it in your Start Menu."
 } else {
-    Write-Host "❌ Installation failed with exit code: $($process.ExitCode). Please try running PowerShell as Administrator." -ForegroundColor Red
+    Write-Output "❌ Installation failed with exit code: $($process.ExitCode). Please try running PowerShell as Administrator."
+    exit $($process.ExitCode)
 }
