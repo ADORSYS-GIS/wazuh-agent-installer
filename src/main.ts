@@ -248,14 +248,23 @@ async function manualCheckForUpdates() {
       
       await invoke("run_app_update");
       
-      appendLog(terminalInstall, "Update started successfully! The application will now close to apply the new version.", "success");
+      appendLog(terminalInstall, "Update started successfully! Please CLOSE this application to allow the update to apply, then open it again.", "success");
+      if (btnCheckUpdates) {
+        btnCheckUpdates.textContent = "Done - Please Restart";
+        btnCheckUpdates.classList.replace("btn-primary", "btn-success");
+        btnCheckUpdates.disabled = true;
+      }
       unlistenLog();
       
       setTimeout(async () => {
         if (hasTauri) {
-          await window.__TAURI__!.window.getCurrentWindow().close();
+          try {
+            await window.__TAURI__!.window.getCurrentWindow().close();
+          } catch (e) {
+            console.error("Could not auto-close:", e);
+          }
         }
-      }, 3000);
+      }, 5000);
     } catch (err) {
       console.error("Failed to run update:", err);
       if (btnCheckUpdates) btnCheckUpdates.textContent = "Update Failed";
