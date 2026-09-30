@@ -224,51 +224,84 @@ async function checkForUpdates() {
   }
 }
 
+async function triggerUpdate() {
+  if (btnCheckUpdates) btnCheckUpdates.textContent = "Updating...";
+  if (updateBanner) updateBanner.style.display = "none";
+  if (updatePill) updatePill.style.display = "none";
+
+  const welcomeCard = document.getElementById("welcome-card");
+  if (welcomeCard) welcomeCard.style.display = "none";
+  if (installLogCard) installLogCard.style.display = "block";
+
+  const terminalInstall = document.getElementById("terminal");
+  if (terminalInstall) {
+    terminalInstall.innerHTML = "";
+    appendLog(terminalInstall, "Starting auto-update process...", "info");
+  }
+
+  const unlistenLog = await listen<LogLine>("install-log", (e) => {
+    appendLog(terminalInstall, e.payload.line, e.payload.level);
+  });
+
+  await invoke("run_app_update");
+
+  appendLog(
+    terminalInstall,
+    "Update started successfully! Please CLOSE this application to allow the update to apply, then open it again.",
+    "success"
+  );
+  if (btnCheckUpdates) {
+    btnCheckUpdates.textContent = "Done - Please Restart";
+    btnCheckUpdates.classList.replace("btn-primary", "btn-success");
+    btnCheckUpdates.disabled = true;
+  }
+  unlistenLog();
+
+  setTimeout(async () => {
+    if (hasTauri) {
+      try {
+        await window.__TAURI__!.window.getCurrentWindow().close();
+      } catch (e) {
+        console.error("Could not auto-close:", e);
+      }
+    }
+  }, 5000);
+}
+
+async function checkAndShowUpdate() {
+  if (btnCheckUpdates) btnCheckUpdates.textContent = "Checking...";
+  const info = await invoke<UpdateInfo>("check_for_updates");
+  if (!info.update_available) {
+    if (btnCheckUpdates) btnCheckUpdates.textContent = "Up to date";
+    setTimeout(() => {
+      if (btnCheckUpdates) btnCheckUpdates.textContent = "Check Updates";
+    }, 2000);
+    return;
+  }
+  isUpdateAvailable = true;
+  const latest = info.latest_version ?? "new version";
+  if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
+  if (updateBannerLink) {
+    updateBannerLink.textContent = "Update Now";
+    updateBannerLink.href = "#";
+    updateBannerLink.removeAttribute("target");
+    updateBannerLink.onclick = async (e) => {
+      e.preventDefault();
+      await manualCheckForUpdates();
+    };
+  }
+  showUpdateBanner();
+  if (btnCheckUpdates) {
+    btnCheckUpdates.textContent = "Update Now";
+    btnCheckUpdates.classList.add("btn-primary");
+    btnCheckUpdates.classList.remove("btn-ghost");
+  }
+}
+
 async function manualCheckForUpdates() {
   if (isUpdateAvailable) {
     try {
-      if (btnCheckUpdates) btnCheckUpdates.textContent = "Updating...";
-
-      if (updateBanner) updateBanner.style.display = "none";
-      if (updatePill) updatePill.style.display = "none";
-
-      const welcomeCard = document.getElementById("welcome-card");
-      if (welcomeCard) welcomeCard.style.display = "none";
-      if (installLogCard) installLogCard.style.display = "block";
-
-      const terminalInstall = document.getElementById("terminal");
-      if (terminalInstall) {
-        terminalInstall.innerHTML = "";
-        appendLog(terminalInstall, "Starting auto-update process...", "info");
-      }
-
-      const unlistenLog = await listen<LogLine>("install-log", (e) => {
-        appendLog(terminalInstall, e.payload.line, e.payload.level);
-      });
-
-      await invoke("run_app_update");
-
-      appendLog(
-        terminalInstall,
-        "Update started successfully! Please CLOSE this application to allow the update to apply, then open it again.",
-        "success"
-      );
-      if (btnCheckUpdates) {
-        btnCheckUpdates.textContent = "Done - Please Restart";
-        btnCheckUpdates.classList.replace("btn-primary", "btn-success");
-        btnCheckUpdates.disabled = true;
-      }
-      unlistenLog();
-
-      setTimeout(async () => {
-        if (hasTauri) {
-          try {
-            await window.__TAURI__!.window.getCurrentWindow().close();
-          } catch (e) {
-            console.error("Could not auto-close:", e);
-          }
-        }
-      }, 5000);
+      await triggerUpdate();
     } catch (err) {
       console.error("Failed to run update:", err);
       if (btnCheckUpdates) btnCheckUpdates.textContent = "Update Failed";
@@ -278,34 +311,8 @@ async function manualCheckForUpdates() {
     return;
   }
 
-  if (btnCheckUpdates) btnCheckUpdates.textContent = "Checking...";
   try {
-    const info = await invoke<UpdateInfo>("check_for_updates");
-    if (!info.update_available) {
-      if (btnCheckUpdates) btnCheckUpdates.textContent = "Up to date";
-      setTimeout(() => {
-        if (btnCheckUpdates) btnCheckUpdates.textContent = "Check Updates";
-      }, 2000);
-      return;
-    }
-    isUpdateAvailable = true;
-    const latest = info.latest_version ?? "new version";
-    if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
-    if (updateBannerLink) {
-      updateBannerLink.textContent = "Update Now";
-      updateBannerLink.href = "#";
-      updateBannerLink.removeAttribute("target");
-      updateBannerLink.onclick = async (e) => {
-        e.preventDefault();
-        await manualCheckForUpdates();
-      };
-    }
-    showUpdateBanner();
-    if (btnCheckUpdates) {
-      btnCheckUpdates.textContent = "Update Now";
-      btnCheckUpdates.classList.add("btn-primary");
-      btnCheckUpdates.classList.remove("btn-ghost");
-    }
+    await checkAndShowUpdate();
   } catch (err) {
     console.warn("[manualCheckForUpdates] Could not check for updates:", err);
     if (btnCheckUpdates) btnCheckUpdates.textContent = "Check Updates";

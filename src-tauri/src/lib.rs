@@ -1616,57 +1616,86 @@ fn start_background_checker(app: AppHandle) {
     });
 }
 
-fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    if let Ok(config_dir) = app.path().app_config_dir() {
-        let _ = std::fs::create_dir_all(&config_dir);
-        let config_path = config_dir.join("config.json");
-        if !config_path.exists() {
-            let default_config = AppConfig::default();
-            if let Ok(json) = serde_json::to_string_pretty(&default_config) {
-                let _ = std::fs::write(config_path, json);
-            }
-        }
+fn init_config_dir(app: &tauri::App) {
+    let Ok(config_dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&config_dir);
 
-        let version_path = config_dir.join("version.txt");
-        let cargo_version = env!("CARGO_PKG_VERSION");
-        if version_path.exists() {
-            let local_content = std::fs::read_to_string(&version_path).unwrap_or_default();
-            let local_version = local_content.trim();
-            let cargo_parsed = parse_version(cargo_version).unwrap_or((0, 0, 0));
-            let local_parsed = parse_version(local_version).unwrap_or((0, 0, 0));
-            if cargo_parsed > local_parsed {
-                let _ = std::fs::write(&version_path, cargo_version);
-            }
-        } else {
-            let _ = std::fs::write(&version_path, cargo_version);
+    let config_path = config_dir.join("config.json");
+    if !config_path.exists() {
+        let default_config = AppConfig::default();
+        if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+            let _ = std::fs::write(config_path, json);
         }
     }
+
+    let version_path = config_dir.join("version.txt");
+    let cargo_version = env!("CARGO_PKG_VERSION");
+    if version_path.exists() {
+        let local_content = std::fs::read_to_string(&version_path).unwrap_or_default();
+        let local_version = local_content.trim();
+        let cargo_parsed = parse_version(cargo_version).unwrap_or((0, 0, 0));
+        let local_parsed = parse_version(local_version).unwrap_or((0, 0, 0));
+        if cargo_parsed > local_parsed {
+            let _ = std::fs::write(&version_path, cargo_version);
+        }
+    } else {
+        let _ = std::fs::write(&version_path, cargo_version);
+    }
+}
+
+fn start_update_poller(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        loop {
+            let current = get_local_version(&app_handle);
+            if let Some(latest) = fetch_latest_version().await {
+                let newer = parse_version(&latest)
+                    .map(|l| parse_version(&current).map(|c| l > c).unwrap_or(false))
+                    .unwrap_or(false);
+                if newer {
+                    notify_update(&app_handle, &latest);
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 4)).await;
+        }
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn setup_linux_show_watcher(app_handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let show_file = "/tmp/.wazuh-agent-installer.show";
+        let _ = std::fs::remove_file(show_file);
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            if std::fs::metadata(show_file).is_ok() {
+                let _ = std::fs::remove_file(show_file);
+                let app_handle_clone = app_handle.clone();
+                let _ = app_handle.run_on_main_thread(move || {
+                    use tauri::Manager;
+                    if let Some(window) = app_handle_clone.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                });
+            }
+        }
+    });
+}
+
+fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    init_config_dir(app);
+
     if is_checker_mode() {
         start_background_checker(app.handle().clone());
     } else {
         setup_tray(app)?;
 
-        // 1. Periodically check for updates while the app is running in the system tray (every 4 hours)
-        let app_handle = app.handle().clone();
-        tauri::async_runtime::spawn(async move {
-            // Wait 10 seconds on startup before the first check
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-            loop {
-                let current = get_local_version(&app_handle);
-                if let Some(latest) = fetch_latest_version().await {
-                    let newer = parse_version(&latest)
-                        .map(|l| parse_version(&current).map(|c| l > c).unwrap_or(false))
-                        .unwrap_or(false);
-                    if newer {
-                        notify_update(&app_handle, &latest);
-                    }
-                }
-
-                // Then sleep for 4 hours before the next check
-                tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 4)).await;
-            }
-        });
+        // 1. Periodically check for updates while the app is running (every 4 hours)
+        start_update_poller(app.handle().clone());
 
         // 2. Register for startup on boot/login.
         // We skip this on Linux at runtime because writing to ~/.config/autostart while
@@ -1677,28 +1706,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         #[cfg(target_os = "linux")]
-        {
-            let app_handle = app.handle().clone();
-            std::thread::spawn(move || {
-                let show_file = "/tmp/.wazuh-agent-installer.show";
-                let _ = std::fs::remove_file(show_file);
-                loop {
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                    if std::fs::metadata(show_file).is_ok() {
-                        let _ = std::fs::remove_file(show_file);
-                        let app_handle_clone = app_handle.clone();
-                        let _ = app_handle.run_on_main_thread(move || {
-                            use tauri::Manager;
-                            if let Some(window) = app_handle_clone.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
-                        });
-                    }
-                }
-            });
-        }
+        setup_linux_show_watcher(app.handle().clone());
     }
 
     Ok(())
