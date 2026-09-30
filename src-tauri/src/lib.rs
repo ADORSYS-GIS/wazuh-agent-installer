@@ -221,17 +221,29 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
 }
 
 fn notify_update(app: &AppHandle, latest: &str) {
-    let res = app
-        .notification()
-        .builder()
-        .title("Wazuh Agent Installer update available")
-        .body(format!("A new version ({latest}) is available."))
-        .show();
-        
-    if let Err(e) = res {
-        println!("Failed to show system notification: {}", e);
-    } else {
-        println!("System notification sent successfully for version {}", latest);
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("notify-send")
+            .arg("-a")
+            .arg("Wazuh")
+            .arg("Wazuh Agent Installer")
+            .arg(&format!("A new version ({}) is available.", latest))
+            .spawn();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let res = app
+            .notification()
+            .builder()
+            .title("Wazuh Agent Installer update available")
+            .body(format!("A new version ({latest}) is available."))
+            .show();
+            
+        if let Err(e) = res {
+            println!("Failed to show system notification: {}", e);
+        } else {
+            println!("System notification sent successfully for version {}", latest);
+        }
     }
 }
 
