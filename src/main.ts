@@ -58,6 +58,7 @@ declare global {
       window: {
         getCurrentWindow(): {
           hide(): Promise<void>;
+          close(): Promise<void>;
         };
       };
     };
@@ -251,8 +252,9 @@ async function manualCheckForUpdates() {
       unlistenLog();
       
       setTimeout(async () => {
-        const { appWindow } = await import('@tauri-apps/api/window');
-        await appWindow.close();
+        if (hasTauri) {
+          await window.__TAURI__!.window.getCurrentWindow().close();
+        }
       }, 3000);
     } catch (err) {
       console.error("Failed to run update:", err);
