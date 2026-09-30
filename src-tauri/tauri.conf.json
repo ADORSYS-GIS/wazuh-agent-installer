@@ -36,7 +36,10 @@
     "targets": "all",
     "resources": {
       "../setup-agent.sh": "./",
-      "../setup-agent.ps1": "./"
+      "../setup-agent.ps1": "./",
+      "../install-scripts/windows.ps1": "./",
+      "../install-scripts/macos.sh": "./",
+      "../install-scripts/ubuntu.sh": "./"
     },
     "icon": [
       "icons/32x32.png",

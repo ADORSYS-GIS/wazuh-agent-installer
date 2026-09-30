@@ -156,34 +156,36 @@ async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> 
 
 #[tauri::command]
 async fn run_app_update(app: AppHandle) -> Result<(), String> {
+    let resolved_path = if cfg!(target_os = "macos") {
+        resolve_bundled_script(&app, "windows.ps1", "macos.sh")?
+    } else {
+        resolve_bundled_script(&app, "windows.ps1", "ubuntu.sh")?
+    };
+
     #[cfg(target_os = "windows")]
     let mut cmd = {
-        let mut c = tokio::process::Command::new("powershell");
+        let mut c = create_command("powershell");
         c.args([
-            "-Command",
-            "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','aQBlAHgAIAAoACgATgBlAHcALQBPAGIAagBlAGMAdAAgAFMAeQBzAHQAZQBtAC4ATgBlAHQALgBXAGUAYgBDAGwAaQBlAG4AdAApAC4ARABvAHcAbgBsAG8AYQBkAFMAdAByAGkAbgBnACgAJwBoAHQAdABwAHMAOgAvAC8AcgBhAHcALgBnAGkAdABoAHUAYgB1AHMAZQByAGMAbwBuAHQAZQBuAHQALgBjAG8AbQAvAEEARABPAFIAUwBZAFMALQBHAEkAUwAvAHcAYQB6AHUAaAAtAGEAZwBlAG4AdAAtAGkAbgBzAHQAYQBsAGwAZQByAC8AbQBhAGkAbgAvAGkAbgBzAHQAYQBsAGwALQBzAGMAcgBpAHAAdABzAC8AdwBpAG4AZABvAHcAcwAuAHAAcwAxACcAKQApAA=='"
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &resolved_path,
         ]);
         c
     };
 
     #[cfg(target_os = "macos")]
     let mut cmd = {
-        let mut c = tokio::process::Command::new("osascript");
-        c.args([
-            "-e",
-            "do shell script \"curl -fsSL https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/macos.sh | bash\" with administrator privileges"
-        ]);
+        let mut c = create_command("bash");
+        c.arg(&resolved_path);
         c
     };
 
     #[cfg(target_os = "linux")]
     let mut cmd = {
-        let mut c = tokio::process::Command::new("pkexec");
-        c.args([
-            "bash",
-            "-c",
-            "curl -fsSL https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/install-scripts/ubuntu.sh | bash"
-        ]);
+        let mut c = create_command("bash");
+        c.arg(&resolved_path);
         c
     };
 
@@ -414,11 +416,11 @@ fn classify_line(line: &str) -> &'static str {
 
 // ---- Commands ----
 
-fn resolve_script(app: &AppHandle) -> Result<String, String> {
+fn resolve_bundled_script(app: &AppHandle, win_name: &str, unix_name: &str) -> Result<String, String> {
     let script_name = if cfg!(windows) {
-        "setup-agent.ps1"
+        win_name
     } else {
-        "setup-agent.sh"
+        unix_name
     };
     let resource_path = app
         .path()
@@ -448,7 +450,7 @@ fn resolve_script(app: &AppHandle) -> Result<String, String> {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let tmp_path = std::env::temp_dir().join(format!(
-            "wazuh-setup-agent-{}-{nanos}.sh",
+            "wazuh-bundled-script-{}-{nanos}.sh",
             std::process::id()
         ));
         let bytes = std::fs::read(&resource_path)
@@ -474,6 +476,10 @@ fn resolve_script(app: &AppHandle) -> Result<String, String> {
         .to_str()
         .map(|s| s.to_string())
         .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
+}
+
+fn resolve_script(app: &AppHandle) -> Result<String, String> {
+    resolve_bundled_script(app, "setup-agent.ps1", "setup-agent.sh")
 }
 
 #[tauri::command]
