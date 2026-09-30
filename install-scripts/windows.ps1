@@ -6,10 +6,10 @@ $Repo = "ADORSYS-GIS/wazuh-agent-installer"
 Write-Host "📥 Downloading Wazuh Agent Installer for Windows..." -ForegroundColor Cyan
 
 if ($Version -eq "latest") {
-    $Response = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -MaximumRedirection 0 -ErrorAction Ignore -UseBasicParsing
-    if ($Response.StatusCode -in 301, 302) {
-        $Tag = ($Response.Headers.Location -split '/')[-1]
-    } else {
+    try {
+        $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
+        $Tag = $Release.tag_name
+    } catch {
         Write-Error "❌ Could not determine latest version tag."
         exit 1
     }
