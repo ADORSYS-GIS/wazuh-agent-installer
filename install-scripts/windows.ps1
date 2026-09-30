@@ -6,10 +6,10 @@ $Repo = "ADORSYS-GIS/wazuh-agent-installer"
 Write-Host "📥 Downloading Wazuh Agent Installer for Windows..." -ForegroundColor Cyan
 
 if ($Version -eq "latest") {
-    try {
-        $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
-        $Tag = $Release.tag_name
-    } catch {
+    $Response = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -MaximumRedirection 0 -ErrorAction Ignore
+    if ($Response.StatusCode -in 301, 302) {
+        $Tag = ($Response.Headers.Location -split '/')[-1]
+    } else {
         Write-Error "❌ Could not determine latest version tag."
         exit 1
     }
@@ -22,16 +22,13 @@ if (-not $Tag) {
     exit 1
 }
 
-$Version = $Tag.TrimStart("v")
-$Tag = "v$Version"
+$Ver = $Tag.TrimStart('v')
+$Tag = "v$Ver"
 
-# Tauri builds the artifact using the base version from tauri.conf.json
-$PkgVersion = $Version -replace '-rc\.\d+', ''
-
-$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/Wazuh.Agent.Installer_${PkgVersion}_x64_en-US.msi"
+$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/Wazuh.Agent.Installer_${Ver}_x64_en-US.msi"
 
 try {
-    Invoke-WebRequest -Uri $DownloadUrl -Method Head -ErrorAction Stop -UseBasicParsing > $null
+    Invoke-WebRequest -Uri $DownloadUrl -Method Head -ErrorAction Stop > $null
 } catch {
     Write-Error "❌ Could not find Windows .msi package ($DownloadUrl) in release"
     Write-Host "   Visit https://github.com/$Repo/releases to check available assets"
@@ -40,7 +37,7 @@ try {
 $TempPath = Join-Path $env:TEMP "WazuhInstaller_$Version.msi"
 
 Write-Host "Downloading from: $DownloadUrl"
-Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath -UseBasicParsing
+Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath
 
 Write-Host "📦 Installing package..." -ForegroundColor Cyan
 $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempPath`" /passive /norestart" -Wait -NoNewWindow -PassThru
