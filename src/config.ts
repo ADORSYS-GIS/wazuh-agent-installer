@@ -21,7 +21,7 @@ export const BRAND_CONFIG = {
 
     // Dark theme surface backgrounds
     bgRoot: "#0b0e14",
-    bgCard: "#1.2.0f",
+    bgCard: "#12161f",
     bgCardHover: "#181d28",
     bgInput: "#161b26",
     bgInputFocus: "#1a2030",
