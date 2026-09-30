@@ -6,7 +6,9 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
+#[cfg(not(target_os = "linux"))]
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
+#[cfg(not(target_os = "linux"))]
 use tauri_plugin_notification::NotificationExt;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
@@ -139,13 +141,13 @@ async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> 
         (Some(latest), Some(cur)) => parse_version(latest).map(|l| l > cur).unwrap_or(false),
         _ => false,
     };
-    
+
     if update_available {
         if let Some(l) = &latest {
             notify_update(&app, l);
         }
     }
-    
+
     Ok(UpdateInfo {
         update_available,
         current_version: current,
@@ -192,16 +194,22 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn updater: {}", e))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn updater: {}", e))?;
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     let log_file = app.path().app_config_dir().unwrap().join("update.log");
-    
+
     let log_file_1 = log_file.clone();
     spawn_log_reader(stdout, app.clone(), "install-log", move |line| {
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&log_file_1) {
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file_1)
+        {
             use std::io::Write;
             let _ = writeln!(file, "{}", line);
         }
@@ -209,27 +217,37 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
 
     let log_file_2 = log_file.clone();
     spawn_log_reader(stderr, app.clone(), "install-log", move |line| {
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&log_file_2) {
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file_2)
+        {
             use std::io::Write;
             let _ = writeln!(file, "{}", line);
         }
     });
 
     let status = child.wait().await.map_err(|e| e.to_string())?;
-    
-    let _ = app.emit("install-log", LogLine { line: format!("Update process exited with status: {}", status), level: "info".into() });
+
+    let _ = app.emit(
+        "install-log",
+        LogLine {
+            line: format!("Update process exited with status: {}", status),
+            level: "info".into(),
+        },
+    );
 
     Ok(())
 }
 
-fn notify_update(app: &AppHandle, latest: &str) {
+fn notify_update(#[allow(unused_variables)] app: &AppHandle, latest: &str) {
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("notify-send")
             .arg("-a")
             .arg("Wazuh")
             .arg("Wazuh Agent Installer")
-            .arg(&format!("A new version ({}) is available.", latest))
+            .arg(format!("A new version ({}) is available.", latest))
             .spawn();
     }
     #[cfg(not(target_os = "linux"))]
@@ -240,11 +258,14 @@ fn notify_update(app: &AppHandle, latest: &str) {
             .title("Wazuh Agent Installer update available")
             .body(format!("A new version ({latest}) is available."))
             .show();
-            
+
         if let Err(e) = res {
             println!("Failed to show system notification: {}", e);
         } else {
-            println!("System notification sent successfully for version {}", latest);
+            println!(
+                "System notification sent successfully for version {}",
+                latest
+            );
         }
     }
 }
@@ -416,12 +437,12 @@ fn classify_line(line: &str) -> &'static str {
 
 // ---- Commands ----
 
-fn resolve_bundled_script(app: &AppHandle, win_name: &str, unix_name: &str) -> Result<String, String> {
-    let script_name = if cfg!(windows) {
-        win_name
-    } else {
-        unix_name
-    };
+fn resolve_bundled_script(
+    app: &AppHandle,
+    win_name: &str,
+    unix_name: &str,
+) -> Result<String, String> {
+    let script_name = if cfg!(windows) { win_name } else { unix_name };
     let resource_path = app
         .path()
         .resolve(script_name, tauri::path::BaseDirectory::Resource)
@@ -1277,7 +1298,10 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
 
 #[tauri::command]
 async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
-    if prefix.is_empty() || !prefix.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    if prefix.is_empty()
+        || !prefix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         return Err("Invalid log prefix".to_string());
     }
@@ -1380,7 +1404,7 @@ fn elevate_linux(launcher_pid: u32) {
         let home = std::env::var("HOME").unwrap_or_default();
         let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
         let dbus = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
-        
+
         let xdg_current_desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
         let xdg_session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
         let xdg_session_desktop = std::env::var("XDG_SESSION_DESKTOP").unwrap_or_default();
@@ -1560,7 +1584,7 @@ fn start_background_checker(app: AppHandle) {
                 let app_clone = app.clone();
                 let clicked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let clicked_clone = clicked.clone();
-                
+
                 app.listen("plugin:notification|action", move |_| {
                     clicked_clone.store(true, std::sync::atomic::Ordering::SeqCst);
                     if let Some(win) = app_clone.get_webview_window("main") {
@@ -1569,9 +1593,9 @@ fn start_background_checker(app: AppHandle) {
                         let _ = win.set_focus();
                     }
                 });
-                
+
                 notify_update(&app, &latest);
-                
+
                 // Wait up to 5 minutes for a click.
                 for _ in 0..300 {
                     if clicked.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1615,13 +1639,13 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         start_background_checker(app.handle().clone());
     } else {
         setup_tray(app)?;
-        
+
         // 1. Periodically check for updates while the app is running in the system tray (every 4 hours)
         let app_handle = app.handle().clone();
         tauri::async_runtime::spawn(async move {
             // Wait 10 seconds on startup before the first check
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-            
+
             loop {
                 let current = get_local_version(&app_handle);
                 if let Some(latest) = fetch_latest_version().await {
@@ -1632,14 +1656,14 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         notify_update(&app_handle, &latest);
                     }
                 }
-                
+
                 // Then sleep for 4 hours before the next check
                 tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 4)).await;
             }
         });
 
-        // 2. Register for startup on boot/login. 
-        // We skip this on Linux at runtime because writing to ~/.config/autostart while 
+        // 2. Register for startup on boot/login.
+        // We skip this on Linux at runtime because writing to ~/.config/autostart while
         // the app is running causes GNOME to glitch out the window decorations.
         #[cfg(not(target_os = "linux"))]
         if !app.autolaunch().is_enabled().unwrap_or(false) {
@@ -1678,31 +1702,25 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 fn is_already_running() -> bool {
     let lock_path = "/tmp/.wazuh-agent-installer.lock";
     let c_path = std::ffi::CString::new(lock_path).unwrap();
-    
+
     // Open the file. Use 0o666 so any user can open it.
-    let fd = unsafe {
-        libc::open(
-            c_path.as_ptr(),
-            libc::O_RDWR | libc::O_CREAT,
-            0o666,
-        )
-    };
-    
+    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CREAT, 0o666) };
+
     if fd < 0 {
         // Can't even open the file, fallback to false
         return false;
     }
-    
+
     // Ensure the file is actually world-writable so root doesn't lock out the user from opening it next time
     unsafe { libc::chmod(c_path.as_ptr(), 0o666) };
-    
+
     // Try to get an exclusive lock without blocking
     let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
     if ret < 0 {
         // If we can't get the lock, another instance is already holding it!
         return true;
     }
-    
+
     // We intentionally LEAVE the file descriptor open and DO NOT close it.
     // The OS will automatically release the lock when this process exits.
     // When the user process exits to spawn pkexec, the lock drops, and the pkexec root process grabs it.
