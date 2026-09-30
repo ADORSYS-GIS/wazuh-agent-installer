@@ -2,6 +2,10 @@ param(
     [string]$Version = "latest"
 )
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $Repo = "ADORSYS-GIS/wazuh-agent-installer"
 Write-Output "📥 Downloading Wazuh Agent Installer for Windows..."
 
