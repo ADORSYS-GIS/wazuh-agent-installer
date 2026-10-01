@@ -97,7 +97,7 @@ fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
 /// Fetch version.txt over HTTPS using curl (present on all supported platforms,
 /// and already a dependency of the install scripts).
 async fn fetch_latest_version() -> Option<String> {
-    let mut child = Command::new("curl")
+    let child = Command::new("curl")
         .args(["-fsSL", "--proto", "=https", "--tlsv1.2", VERSION_FILE_URL])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
