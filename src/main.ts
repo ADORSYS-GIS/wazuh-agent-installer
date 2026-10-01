@@ -198,54 +198,77 @@ updateBannerDismiss?.addEventListener("click", () => {
   if (updateBanner) updateBanner.style.display = "none";
 });
 btnCheckUpdates?.addEventListener("click", async () => {
-  const icon = document.getElementById("about-update-icon");
-  const label = document.getElementById("about-update-label");
-  const btn = document.getElementById("btn-check-updates");
-  if (btn) btn.classList.add("spinning");
-  if (label) label.textContent = "Checking...";
-  await manualCheckForUpdates();
-  if (btn) btn.classList.remove("spinning");
-  if (label) label.textContent = isUpdateAvailable ? "Update Now" : "Up to date";
-  if (icon) icon.textContent = isUpdateAvailable ? "↑" : "✓";
-  setTimeout(() => {
-    if (label) label.textContent = "Check for updates";
-    if (icon) icon.textContent = "↻";
-  }, 3000);
+  if (isUpdateAvailable) {
+    await triggerUpdate();
+  } else {
+    const icon = document.getElementById("about-update-icon");
+    const label = document.getElementById("about-update-label");
+    const btn = document.getElementById("btn-check-updates");
+    if (btn) btn.classList.add("spinning");
+    if (label) label.textContent = "Checking...";
+    await checkForUpdates(true);
+    if (btn) btn.classList.remove("spinning");
+    if (label) label.textContent = isUpdateAvailable ? "Update Now" : "Up to date";
+    if (icon) icon.textContent = isUpdateAvailable ? "↑" : "✓";
+    setTimeout(() => {
+      if (label) label.textContent = "Check for updates";
+      if (icon) icon.textContent = "↻";
+    }, 3000);
+  }
 });
 
 // About popover toggle
 const btnAbout = document.getElementById("btn-about");
-const aboutPopover = document.getElementById("about-popover");
+const aboutPopover = document.getElementById("about-popover") as HTMLDialogElement | null;
 
 function closeAboutPopover() {
-  if (aboutPopover) aboutPopover.style.display = "none";
+  if (aboutPopover && aboutPopover.open) aboutPopover.close();
 }
 
 btnAbout?.addEventListener("click", (e) => {
   e.stopPropagation();
   if (!aboutPopover) return;
-  const isOpen = aboutPopover.style.display !== "none";
-  aboutPopover.style.display = isOpen ? "none" : "block";
+  if (aboutPopover.open) {
+    aboutPopover.close();
+  } else {
+    aboutPopover.showModal();
+  }
 });
 
-document.addEventListener("click", (e) => {
-  if (aboutPopover && aboutPopover.style.display !== "none") {
-    if (!aboutPopover.contains(e.target as Node) && e.target !== btnAbout) {
-      closeAboutPopover();
-    }
+aboutPopover?.addEventListener("click", (e) => {
+  const rect = aboutPopover.getBoundingClientRect();
+  const isInDialog =
+    rect.top <= e.clientY &&
+    e.clientY <= rect.top + rect.height &&
+    rect.left <= e.clientX &&
+    e.clientX <= rect.left + rect.width;
+  if (!isInDialog) {
+    aboutPopover.close();
   }
 });
 
 finishBoot();
 
-async function checkForUpdates() {
+async function checkForUpdates(manualCheck = false) {
+  if (btnCheckUpdates && manualCheck) btnCheckUpdates.textContent = "Checking...";
   try {
     const info = await invoke<UpdateInfo>("check_for_updates");
     if (info.latest_version) latestOnlineVersion = info.latest_version;
-    if (!info.update_available) return;
-    applyUpdateAvailable(info.latest_version ?? "new version");
+    
+    if (info.update_available) {
+      applyUpdateAvailable(info.latest_version ?? "new version");
+    } else {
+      clearUpdateAvailable();
+      if (btnCheckUpdates && manualCheck) {
+        btnCheckUpdates.textContent = "Up to date";
+        setTimeout(() => {
+          if (btnCheckUpdates) btnCheckUpdates.textContent = "Check for updates";
+        }, 2000);
+      }
+    }
   } catch (err) {
     console.warn("[checkForUpdates] Could not check for updates:", err);
+    if (btnCheckUpdates && manualCheck) btnCheckUpdates.textContent = "Check Updates";
   }
 }
 
@@ -268,19 +291,26 @@ async function triggerUpdate() {
     appendLog(terminalInstall, e.payload.line, e.payload.level);
   });
 
-  await invoke("run_app_update");
-
-  appendLog(
-    terminalInstall,
-    "Update started successfully! Please CLOSE this application to allow the update to apply, then open it again.",
-    "success"
-  );
-  if (btnCheckUpdates) {
-    btnCheckUpdates.textContent = "Done - Please Restart";
-    btnCheckUpdates.classList.replace("btn-primary", "btn-success");
-    btnCheckUpdates.disabled = true;
+  try {
+    await invoke("run_app_update");
+    appendLog(
+      terminalInstall,
+      "Update started successfully! Please CLOSE this application to allow the update to apply, then open it again.",
+      "success"
+    );
+    if (btnCheckUpdates) {
+      btnCheckUpdates.textContent = "Done - Please Restart";
+      btnCheckUpdates.classList.replace("btn-primary", "btn-success");
+      btnCheckUpdates.disabled = true;
+    }
+  } catch (err) {
+    appendLog(terminalInstall, `ERROR: ${err}`, "error");
+    if (btnCheckUpdates) {
+      btnCheckUpdates.textContent = "Update Failed";
+    }
+  } finally {
+    unlistenLog();
   }
-  unlistenLog();
 
   setTimeout(async () => {
     if (hasTauri) {
@@ -291,42 +321,6 @@ async function triggerUpdate() {
       }
     }
   }, 5000);
-}
-
-async function checkAndShowUpdate() {
-  if (btnCheckUpdates) btnCheckUpdates.textContent = "Checking...";
-  const info = await invoke<UpdateInfo>("check_for_updates");
-  if (info.latest_version) latestOnlineVersion = info.latest_version;
-
-  if (!info.update_available) {
-    if (btnCheckUpdates) btnCheckUpdates.textContent = "Up to date";
-    setTimeout(() => {
-      if (btnCheckUpdates) btnCheckUpdates.textContent = "Check for updates";
-    }, 2000);
-    return;
-  }
-  applyUpdateAvailable(info.latest_version ?? "new version");
-}
-
-async function manualCheckForUpdates() {
-  if (isUpdateAvailable) {
-    try {
-      await triggerUpdate();
-    } catch (err) {
-      console.error("Failed to run update:", err);
-      if (btnCheckUpdates) btnCheckUpdates.textContent = "Update Failed";
-      const terminalInstall = document.getElementById("terminal");
-      appendLog(terminalInstall, `ERROR: ${err}`, "error");
-    }
-    return;
-  }
-
-  try {
-    await checkAndShowUpdate();
-  } catch (err) {
-    console.warn("[manualCheckForUpdates] Could not check for updates:", err);
-    if (btnCheckUpdates) btnCheckUpdates.textContent = "Check Updates";
-  }
 }
 
 function showUpdateBanner() {
@@ -343,7 +337,7 @@ function applyUpdateAvailable(latest: string): void {
     updateBannerLink.removeAttribute("target");
     updateBannerLink.onclick = async (e) => {
       e.preventDefault();
-      await manualCheckForUpdates();
+      await triggerUpdate();
     };
   }
   showUpdateBanner();

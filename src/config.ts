@@ -7,7 +7,6 @@ export const BRAND_CONFIG = {
   // Brand Metadata
   companyName: "Adorsys",
   appTitle: "Wazuh Agent Installer",
-  appVersion: "v1.2.0",
   logo: logoUrl,
 
   // Brand Theme Palette (dynamically injected into :root variables)

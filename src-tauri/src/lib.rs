@@ -15,7 +15,7 @@ use tokio::process::Command;
 
 /// Where the latest published version is read from (kept on the main branch).
 const VERSION_FILE_URL: &str =
-    "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/feature/auto-updater-review/version.txt";
+    "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/version.txt";
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -80,9 +80,7 @@ pub struct InstallConfig {
 #[derive(Serialize)]
 struct UpdateInfo {
     update_available: bool,
-    current_version: String,
     latest_version: Option<String>,
-    url: String,
 }
 
 /// Parse a loose semver ("v1.2.3", "1.2.3-rc.1", "1.2") into a comparable tuple.
@@ -99,15 +97,17 @@ fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
 /// Fetch version.txt over HTTPS using curl (present on all supported platforms,
 /// and already a dependency of the install scripts).
 async fn fetch_latest_version() -> Option<String> {
-    let output = Command::new("curl")
+    let mut child = Command::new("curl")
         .args(["-fsSL", "--proto", "=https", "--tlsv1.2", VERSION_FILE_URL])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
-        .output()
-        .await
+        .spawn()
         .ok()?;
+    let output = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait_with_output())
+        .await
+        .ok()?.ok()?;
     if !output.status.success() {
         return None;
     }
@@ -147,27 +147,22 @@ async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> 
         _ => false,
     };
 
-    if update_available {
-        if let Some(l) = &latest {
-            notify_update(&app, l);
-        }
-    }
-
     Ok(UpdateInfo {
         update_available,
-        current_version: current,
         latest_version: latest,
-        url: "https://github.com/ADORSYS-GIS/wazuh-agent-installer/releases/latest".to_string(),
     })
 }
 
 #[tauri::command]
 async fn run_app_update(app: AppHandle) -> Result<(), String> {
-    let resolved_path = if cfg!(target_os = "macos") {
-        resolve_bundled_script(&app, "windows.ps1", "macos.sh")?
+    let script_name = if cfg!(windows) {
+        "windows.ps1"
+    } else if cfg!(target_os = "macos") {
+        "macos.sh"
     } else {
-        resolve_bundled_script(&app, "windows.ps1", "ubuntu.sh")?
+        "ubuntu.sh"
     };
+    let resolved_path = resolve_bundled_script(&app, script_name)?;
 
     #[cfg(target_os = "windows")]
     let mut cmd = {
@@ -206,39 +201,37 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-    let log_file = app.path().app_config_dir().unwrap().join("update.log");
-
-    let log_file_1 = log_file.clone();
+    let (tx_log, mut rx_log) = tokio::sync::mpsc::unbounded_channel::<String>();
+    
+    let tx1 = tx_log.clone();
     spawn_log_reader(stdout, app.clone(), "install-log", move |line| {
-        let log_file_1 = log_file_1.clone();
-        tokio::task::block_in_place(|| {
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_file_1)
-            {
-                use std::io::Write;
-                let _ = writeln!(file, "{}", line);
-            }
-        });
+        let _ = tx1.send(line.to_string());
     });
 
-    let log_file_2 = log_file.clone();
+    let tx2 = tx_log;
     spawn_log_reader(stderr, app.clone(), "install-log", move |line| {
-        let log_file_2 = log_file_2.clone();
-        tokio::task::block_in_place(|| {
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_file_2)
-            {
-                use std::io::Write;
-                let _ = writeln!(file, "{}", line);
+        let _ = tx2.send(line.to_string());
+    });
+
+    let log_file = app.path().app_config_dir().unwrap().join("update.log");
+    tokio::spawn(async move {
+        if let Ok(mut file) = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file)
+            .await
+        {
+            use tokio::io::AsyncWriteExt;
+            while let Some(line) = rx_log.recv().await {
+                let _ = file.write_all(format!("{}\n", line).as_bytes()).await;
             }
-        });
+        }
     });
 
     let status = child.wait().await.map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("Updater failed with exit code: {}", status.code().unwrap_or(-1)));
+    }
 
     let _ = app.emit(
         "install-log",
@@ -450,10 +443,8 @@ fn classify_line(line: &str) -> &'static str {
 
 fn resolve_bundled_script(
     app: &AppHandle,
-    win_name: &str,
-    unix_name: &str,
+    script_name: &str,
 ) -> Result<String, String> {
-    let script_name = if cfg!(windows) { win_name } else { unix_name };
     let resource_path = app
         .path()
         .resolve(script_name, tauri::path::BaseDirectory::Resource)
@@ -511,7 +502,8 @@ fn resolve_bundled_script(
 }
 
 fn resolve_script(app: &AppHandle) -> Result<String, String> {
-    resolve_bundled_script(app, "setup-agent.ps1", "setup-agent.sh")
+    let script_name = if cfg!(windows) { "setup-agent.ps1" } else { "setup-agent.sh" };
+    resolve_bundled_script(app, script_name)
 }
 
 #[tauri::command]
@@ -1465,7 +1457,7 @@ fn elevate_macos(launcher_pid: u32) {
         let args = get_launcher_args();
 
         let sq = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
-        let mut parts = vec![sq(&exe), sq(&format!("--parent-pid {launcher_pid}"))];
+        let mut parts = vec![sq(&exe), sq("--parent-pid"), sq(&launcher_pid.to_string())];
         for a in &args {
             parts.push(sq(a));
         }
@@ -1591,30 +1583,7 @@ fn start_background_checker(app: AppHandle) {
                 .map(|l| parse_version(&current).map(|c| l > c).unwrap_or(false))
                 .unwrap_or(false);
             if newer {
-                use tauri::Listener;
-                let app_clone = app.clone();
-                let clicked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-                let clicked_clone = clicked.clone();
-
-                app.listen("plugin:notification|action", move |_| {
-                    clicked_clone.store(true, std::sync::atomic::Ordering::SeqCst);
-                    if let Some(win) = app_clone.get_webview_window("main") {
-                        let _ = win.show();
-                        let _ = win.unminimize();
-                        let _ = win.set_focus();
-                    }
-                });
-
                 notify_update(&app, &latest);
-
-                // Wait up to 5 minutes for a click.
-                for _ in 0..300 {
-                    if clicked.load(std::sync::atomic::Ordering::SeqCst) {
-                        // User clicked the notification, keep the app alive!
-                        return;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                }
             }
         }
         app.exit(0);
