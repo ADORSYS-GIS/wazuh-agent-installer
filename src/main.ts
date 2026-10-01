@@ -172,7 +172,7 @@ navItems.forEach((item) => {
   item.addEventListener("click", () => {
     if (item.classList.contains("nav-accordion-toggle")) {
       const accordion = item.closest(".nav-group-accordion");
-      if (accordion) accordion.classList.toggle("expanded");
+      accordion?.classList.toggle("expanded");
       return;
     }
     if (item.dataset.target) {
@@ -350,8 +350,8 @@ function applyUpdateAvailable(latest: string): void {
   // Make the version chip glow amber
   const versionChip = document.getElementById("btn-about");
   const versionDot = document.querySelector(".version-dot");
-  if (versionChip) versionChip.classList.add("has-update");
-  if (versionDot) versionDot.classList.add("has-update");
+  versionChip?.classList.add("has-update");
+  versionDot?.classList.add("has-update");
 
   if (btnCheckUpdates) {
     btnCheckUpdates.textContent = "Update Now";
@@ -368,8 +368,8 @@ function clearUpdateAvailable(): void {
   // Remove amber glow
   const versionChip = document.getElementById("btn-about");
   const versionDot = document.querySelector(".version-dot");
-  if (versionChip) versionChip.classList.remove("has-update");
-  if (versionDot) versionDot.classList.remove("has-update");
+  versionChip?.classList.remove("has-update");
+  versionDot?.classList.remove("has-update");
 
   if (btnCheckUpdates) {
     btnCheckUpdates.textContent = "Check for updates";
@@ -544,7 +544,7 @@ function stripAnsi(str: string): string {
 function appendLog(term: HTMLElement | null, line: string, level: string): void {
   if (!term) return;
   const placeholder = term.querySelector(".terminal-placeholder");
-  if (placeholder) placeholder.remove();
+  placeholder?.remove();
 
   const div = document.createElement("div");
   div.className = `log-line ${level}`;
@@ -969,7 +969,7 @@ function enableSaveLogs(buttonId: string, terminalId: string, prefix: string) {
   btn.onclick = async () => {
     const clone = term.cloneNode(true) as HTMLElement;
     const placeholder = clone.querySelector(".terminal-placeholder");
-    if (placeholder) placeholder.remove();
+    placeholder?.remove();
 
     const logs = clone.innerText.trim();
     if (!logs) return;
