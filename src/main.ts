@@ -151,6 +151,7 @@ const updateBannerDismiss = document.getElementById("update-banner-dismiss") as 
 const updatePill = document.getElementById("update-pill") as HTMLButtonElement | null;
 const btnCheckUpdates = document.getElementById("btn-check-updates") as HTMLButtonElement | null;
 let isUpdateAvailable = false;
+let latestOnlineVersion: string | null = null;
 
 // ---- Initialization ----
 
@@ -240,6 +241,7 @@ finishBoot();
 async function checkForUpdates() {
   try {
     const info = await invoke<UpdateInfo>("check_for_updates");
+    if (info.latest_version) latestOnlineVersion = info.latest_version;
     if (!info.update_available) return;
     applyUpdateAvailable(info.latest_version ?? "new version");
   } catch (err) {
@@ -294,10 +296,12 @@ async function triggerUpdate() {
 async function checkAndShowUpdate() {
   if (btnCheckUpdates) btnCheckUpdates.textContent = "Checking...";
   const info = await invoke<UpdateInfo>("check_for_updates");
+  if (info.latest_version) latestOnlineVersion = info.latest_version;
+
   if (!info.update_available) {
     if (btnCheckUpdates) btnCheckUpdates.textContent = "Up to date";
     setTimeout(() => {
-      if (btnCheckUpdates) btnCheckUpdates.textContent = "Check Updates";
+      if (btnCheckUpdates) btnCheckUpdates.textContent = "Check for updates";
     }, 2000);
     return;
   }
@@ -354,6 +358,24 @@ function applyUpdateAvailable(latest: string): void {
     btnCheckUpdates.textContent = "Update Now";
     btnCheckUpdates.classList.add("btn-primary");
     btnCheckUpdates.classList.remove("btn-ghost");
+  }
+}
+
+function clearUpdateAvailable(): void {
+  isUpdateAvailable = false;
+  if (updateBanner) updateBanner.style.display = "none";
+  if (updatePill) updatePill.style.display = "none";
+
+  // Remove amber glow
+  const versionChip = document.getElementById("btn-about");
+  const versionDot = document.querySelector(".version-dot");
+  if (versionChip) versionChip.classList.remove("has-update");
+  if (versionDot) versionDot.classList.remove("has-update");
+
+  if (btnCheckUpdates) {
+    btnCheckUpdates.textContent = "Check for updates";
+    btnCheckUpdates.classList.remove("btn-primary");
+    btnCheckUpdates.classList.add("btn-ghost");
   }
 }
 
@@ -417,6 +439,18 @@ async function syncLocalVersion() {
 
     if (appVersion) appVersion.textContent = displayVersion;
     if (aboutVersionLabel) aboutVersionLabel.textContent = displayVersion;
+
+    // Compare with latest online version if we know it
+    if (latestOnlineVersion) {
+      const cmp = displayVersion
+        .replace(/^v/, "")
+        .localeCompare(latestOnlineVersion.replace(/^v/, ""), undefined, { numeric: true, sensitivity: "base" });
+      if (cmp >= 0) {
+        clearUpdateAvailable();
+      } else {
+        applyUpdateAvailable(latestOnlineVersion);
+      }
+    }
   } catch (err) {
     console.warn("Failed to sync local version:", err);
   }
