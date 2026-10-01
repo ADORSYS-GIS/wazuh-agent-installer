@@ -140,11 +140,47 @@
           </nav>
 
           <div class="sidebar-footer">
-            <span class="version" id="app-version">—</span>
-            <button id="btn-check-updates" class="btn btn-ghost btn-sm" style="margin-left: 8px">Check Updates</button>
-            <button class="update-pill" id="update-pill" type="button" style="display: none">
-              New version available
+            <!-- Clickable version chip — triggers About popover -->
+            <button id="btn-about" class="version-chip" type="button" aria-haspopup="dialog">
+              <span class="version-dot"></span>
+              <span id="app-version">v1.1.0</span>
             </button>
+            <!-- Hidden "Update available" pill shown by JS when a newer version is found -->
+            <button class="update-pill" id="update-pill" type="button" style="display: none">↑ Update available</button>
+          </div>
+
+          <!-- ========== About Popover ========== -->
+          <div
+            id="about-popover"
+            class="about-popover"
+            role="dialog"
+            aria-modal="true"
+            aria-label="About"
+            style="display: none"
+          >
+            <div class="about-popover-inner">
+              <div class="about-header">
+                <img id="about-logo" class="about-logo" src="" alt="Adorsys logo" />
+                <div>
+                  <div class="about-app-name">Wazuh Agent Installer</div>
+                  <div class="about-version" id="about-version-label">v1.1.0</div>
+                </div>
+              </div>
+              <div class="about-divider"></div>
+              <div class="about-row">
+                <span class="about-label">Publisher</span>
+                <span class="about-value">Adorsys GIS</span>
+              </div>
+              <div class="about-row">
+                <span class="about-label">License</span>
+                <span class="about-value">MIT</span>
+              </div>
+              <div class="about-divider"></div>
+              <button id="btn-check-updates" class="about-update-btn" type="button">
+                <span id="about-update-icon">↻</span>
+                <span id="about-update-label">Check for updates</span>
+              </button>
+            </div>
           </div>
         </aside>
 

@@ -134,6 +134,11 @@ fn get_local_version(app: &AppHandle) -> String {
 }
 
 #[tauri::command]
+fn get_local_version_command(app: tauri::AppHandle) -> String {
+    get_local_version(&app)
+}
+
+#[tauri::command]
 async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     let current = get_local_version(&app);
     let latest = fetch_latest_version().await;
@@ -1808,7 +1813,8 @@ pub fn run() {
             save_logs,
             get_app_config,
             check_for_updates,
-            run_app_update
+            run_app_update,
+            get_local_version_command
         ])
         .setup(setup_app)
         .run(tauri::generate_context!())

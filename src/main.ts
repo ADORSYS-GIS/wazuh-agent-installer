@@ -189,11 +189,51 @@ btnStartNetbird?.addEventListener("click", startNetbirdConnection);
 btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
 btnRefreshComponents?.addEventListener("click", refreshComponents);
 
-updatePill?.addEventListener("click", showUpdateBanner);
+updatePill?.addEventListener("click", () => {
+  showUpdateBanner();
+  closeAboutPopover();
+});
 updateBannerDismiss?.addEventListener("click", () => {
   if (updateBanner) updateBanner.style.display = "none";
 });
-btnCheckUpdates?.addEventListener("click", manualCheckForUpdates);
+btnCheckUpdates?.addEventListener("click", async () => {
+  const icon = document.getElementById("about-update-icon");
+  const label = document.getElementById("about-update-label");
+  const btn = document.getElementById("btn-check-updates");
+  if (btn) btn.classList.add("spinning");
+  if (label) label.textContent = "Checking...";
+  await manualCheckForUpdates();
+  if (btn) btn.classList.remove("spinning");
+  if (label) label.textContent = isUpdateAvailable ? "Update Now" : "Up to date";
+  if (icon) icon.textContent = isUpdateAvailable ? "↑" : "✓";
+  setTimeout(() => {
+    if (label) label.textContent = "Check for updates";
+    if (icon) icon.textContent = "↻";
+  }, 3000);
+});
+
+// About popover toggle
+const btnAbout = document.getElementById("btn-about");
+const aboutPopover = document.getElementById("about-popover");
+
+function closeAboutPopover() {
+  if (aboutPopover) aboutPopover.style.display = "none";
+}
+
+btnAbout?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!aboutPopover) return;
+  const isOpen = aboutPopover.style.display !== "none";
+  aboutPopover.style.display = isOpen ? "none" : "block";
+});
+
+document.addEventListener("click", (e) => {
+  if (aboutPopover && aboutPopover.style.display !== "none") {
+    if (!aboutPopover.contains(e.target as Node) && e.target !== btnAbout) {
+      closeAboutPopover();
+    }
+  }
+});
 
 finishBoot();
 
@@ -303,6 +343,13 @@ function applyUpdateAvailable(latest: string): void {
     };
   }
   showUpdateBanner();
+
+  // Make the version chip glow amber
+  const versionChip = document.getElementById("btn-about");
+  const versionDot = document.querySelector(".version-dot");
+  if (versionChip) versionChip.classList.add("has-update");
+  if (versionDot) versionDot.classList.add("has-update");
+
   if (btnCheckUpdates) {
     btnCheckUpdates.textContent = "Update Now";
     btnCheckUpdates.classList.add("btn-primary");
@@ -318,11 +365,13 @@ function finishBoot() {
   refreshComponents(); // Initial load
   checkEnrollmentState(); // Check if already enrolled on startup
   checkNetbirdState(); // Check if already connected to Netbird on startup
+  syncLocalVersion(); // Sync local version file
   checkForUpdates(); // Check for a newer version on startup
 
-  // Keep the enrolled card in sync while the app is open
+  // Keep the enrolled card and version in sync while the app is open
   setInterval(() => checkEnrollmentState(), 15_000);
   setInterval(() => checkNetbirdState(), 15_000);
+  setInterval(() => syncLocalVersion(), 10_000);
 }
 
 function switchTab(targetId: string) {
@@ -359,14 +408,28 @@ function applyBrandTheme(): void {
   root.style.setProperty("--brand-status-info", "#60a5fa");
 }
 
+async function syncLocalVersion() {
+  try {
+    const localVersion = await invoke<string>("get_local_version_command");
+    const appVersion = document.getElementById("app-version");
+    const aboutVersionLabel = document.getElementById("about-version-label");
+    const displayVersion = localVersion.startsWith("v") ? localVersion : `v${localVersion}`;
+
+    if (appVersion) appVersion.textContent = displayVersion;
+    if (aboutVersionLabel) aboutVersionLabel.textContent = displayVersion;
+  } catch (err) {
+    console.warn("Failed to sync local version:", err);
+  }
+}
+
 function initializeAppHeaderAndOptions(): void {
   const appLogo = document.getElementById("app-logo") as HTMLImageElement | null;
   const appTitle = document.getElementById("app-title");
-  const appVersion = document.getElementById("app-version");
+  const aboutLogo = document.getElementById("about-logo") as HTMLImageElement | null;
 
   if (appLogo) appLogo.src = BRAND_CONFIG.logo;
+  if (aboutLogo) aboutLogo.src = BRAND_CONFIG.logo;
   if (appTitle) appTitle.textContent = BRAND_CONFIG.appTitle;
-  if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
   document.title = BRAND_CONFIG.appTitle;
 }
 
