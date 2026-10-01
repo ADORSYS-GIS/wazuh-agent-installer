@@ -107,7 +107,8 @@ async fn fetch_latest_version() -> Option<String> {
         .ok()?;
     let output = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait_with_output())
         .await
-        .ok()?.ok()?;
+        .ok()?
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -202,7 +203,7 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
     let (tx_log, mut rx_log) = tokio::sync::mpsc::unbounded_channel::<String>();
-    
+
     let tx1 = tx_log.clone();
     spawn_log_reader(stdout, app.clone(), "install-log", move |line| {
         let _ = tx1.send(line.to_string());
@@ -230,7 +231,10 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
 
     let status = child.wait().await.map_err(|e| e.to_string())?;
     if !status.success() {
-        return Err(format!("Updater failed with exit code: {}", status.code().unwrap_or(-1)));
+        return Err(format!(
+            "Updater failed with exit code: {}",
+            status.code().unwrap_or(-1)
+        ));
     }
 
     let _ = app.emit(
@@ -441,10 +445,7 @@ fn classify_line(line: &str) -> &'static str {
 
 // ---- Commands ----
 
-fn resolve_bundled_script(
-    app: &AppHandle,
-    script_name: &str,
-) -> Result<String, String> {
+fn resolve_bundled_script(app: &AppHandle, script_name: &str) -> Result<String, String> {
     let resource_path = app
         .path()
         .resolve(script_name, tauri::path::BaseDirectory::Resource)
@@ -502,7 +503,11 @@ fn resolve_bundled_script(
 }
 
 fn resolve_script(app: &AppHandle) -> Result<String, String> {
-    let script_name = if cfg!(windows) { "setup-agent.ps1" } else { "setup-agent.sh" };
+    let script_name = if cfg!(windows) {
+        "setup-agent.ps1"
+    } else {
+        "setup-agent.sh"
+    };
     resolve_bundled_script(app, script_name)
 }
 
@@ -1639,7 +1644,8 @@ fn start_update_poller(app_handle: tauri::AppHandle) {
 
 #[cfg(target_os = "linux")]
 fn get_runtime_path(filename: &str) -> String {
-    let mut path = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()));
+    let mut path =
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()));
     path.push(".config");
     path.push("wazuh-agent-installer");
     let _ = std::fs::create_dir_all(&path);
