@@ -200,21 +200,26 @@ updateBannerDismiss?.addEventListener("click", () => {
 btnCheckUpdates?.addEventListener("click", async () => {
   if (isUpdateAvailable) {
     await triggerUpdate();
-  } else {
-    const icon = document.getElementById("about-update-icon");
-    const label = document.getElementById("about-update-label");
-    const btn = document.getElementById("btn-check-updates");
-    if (btn) btn.classList.add("spinning");
-    if (label) label.textContent = "Checking...";
-    await checkForUpdates(true);
-    if (btn) btn.classList.remove("spinning");
-    if (label) label.textContent = isUpdateAvailable ? "Update Now" : "Up to date";
-    if (icon) icon.textContent = isUpdateAvailable ? "↑" : "✓";
-    setTimeout(() => {
-      if (label) label.textContent = "Check for updates";
-      if (icon) icon.textContent = "↻";
-    }, 3000);
+    return;
   }
+  
+  const icon = document.getElementById("about-update-icon");
+  const label = document.getElementById("about-update-label");
+  const btn = document.getElementById("btn-check-updates");
+  
+  btn?.classList.add("spinning");
+  if (label) label.textContent = "Checking...";
+  
+  await checkForUpdates(true);
+  
+  btn?.classList.remove("spinning");
+  if (label) label.textContent = isUpdateAvailable ? "Update Now" : "Up to date";
+  if (icon) icon.textContent = isUpdateAvailable ? "↑" : "✓";
+  
+  setTimeout(() => {
+    if (label) label.textContent = "Check for updates";
+    if (icon) icon.textContent = "↻";
+  }, 3000);
 });
 
 // About popover toggle
