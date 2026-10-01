@@ -201,24 +201,7 @@ async function checkForUpdates() {
   try {
     const info = await invoke<UpdateInfo>("check_for_updates");
     if (!info.update_available) return;
-    isUpdateAvailable = true;
-    const latest = info.latest_version ?? "new version";
-    if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
-    if (updateBannerLink) {
-      updateBannerLink.textContent = "Update Now";
-      updateBannerLink.href = "#";
-      updateBannerLink.removeAttribute("target");
-      updateBannerLink.onclick = async (e) => {
-        e.preventDefault();
-        await manualCheckForUpdates();
-      };
-    }
-    showUpdateBanner();
-    if (btnCheckUpdates) {
-      btnCheckUpdates.textContent = "Update Now";
-      btnCheckUpdates.classList.add("btn-primary");
-      btnCheckUpdates.classList.remove("btn-ghost");
-    }
+    applyUpdateAvailable(info.latest_version ?? "new version");
   } catch (err) {
     console.warn("[checkForUpdates] Could not check for updates:", err);
   }
@@ -278,24 +261,7 @@ async function checkAndShowUpdate() {
     }, 2000);
     return;
   }
-  isUpdateAvailable = true;
-  const latest = info.latest_version ?? "new version";
-  if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
-  if (updateBannerLink) {
-    updateBannerLink.textContent = "Update Now";
-    updateBannerLink.href = "#";
-    updateBannerLink.removeAttribute("target");
-    updateBannerLink.onclick = async (e) => {
-      e.preventDefault();
-      await manualCheckForUpdates();
-    };
-  }
-  showUpdateBanner();
-  if (btnCheckUpdates) {
-    btnCheckUpdates.textContent = "Update Now";
-    btnCheckUpdates.classList.add("btn-primary");
-    btnCheckUpdates.classList.remove("btn-ghost");
-  }
+  applyUpdateAvailable(info.latest_version ?? "new version");
 }
 
 async function manualCheckForUpdates() {
@@ -322,6 +288,26 @@ async function manualCheckForUpdates() {
 function showUpdateBanner() {
   if (updateBanner) updateBanner.style.display = "flex";
   if (updatePill) updatePill.style.display = "inline-block";
+}
+
+function applyUpdateAvailable(latest: string): void {
+  isUpdateAvailable = true;
+  if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
+  if (updateBannerLink) {
+    updateBannerLink.textContent = "Update Now";
+    updateBannerLink.href = "#";
+    updateBannerLink.removeAttribute("target");
+    updateBannerLink.onclick = async (e) => {
+      e.preventDefault();
+      await manualCheckForUpdates();
+    };
+  }
+  showUpdateBanner();
+  if (btnCheckUpdates) {
+    btnCheckUpdates.textContent = "Update Now";
+    btnCheckUpdates.classList.add("btn-primary");
+    btnCheckUpdates.classList.remove("btn-ghost");
+  }
 }
 
 function finishBoot() {
