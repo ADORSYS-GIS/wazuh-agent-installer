@@ -1669,14 +1669,24 @@ fn start_update_poller(app_handle: tauri::AppHandle) {
 }
 
 #[cfg(target_os = "linux")]
+fn get_runtime_path(filename: &str) -> String {
+    let mut path = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()));
+    path.push(".config");
+    path.push("wazuh-agent-installer");
+    let _ = std::fs::create_dir_all(&path);
+    path.push(filename);
+    path.to_string_lossy().to_string()
+}
+
+#[cfg(target_os = "linux")]
 fn setup_linux_show_watcher(app_handle: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let show_file = "/tmp/.wazuh-agent-installer.show";
-        let _ = std::fs::remove_file(show_file);
+        let show_file = get_runtime_path(".show");
+        let _ = std::fs::remove_file(&show_file);
         loop {
             std::thread::sleep(std::time::Duration::from_millis(300));
-            if std::fs::metadata(show_file).is_ok() {
-                let _ = std::fs::remove_file(show_file);
+            if std::fs::metadata(&show_file).is_ok() {
+                let _ = std::fs::remove_file(&show_file);
                 let app_handle_clone = app_handle.clone();
                 let _ = app_handle.run_on_main_thread(move || {
                     use tauri::Manager;
@@ -1719,7 +1729,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(target_os = "linux")]
 fn is_already_running() -> bool {
-    let lock_path = "/tmp/.wazuh-agent-installer.lock";
+    let lock_path = get_runtime_path(".lock");
     let c_path = std::ffi::CString::new(lock_path).unwrap();
 
     // Open the file. Use 0o666 so any user can open it.
@@ -1762,9 +1772,10 @@ pub fn run() {
             // If already running, the root instance is holding the lock.
             // We tell it to show its window via a signal file and exit!
             if is_already_running() {
-                let _ = std::fs::write("/tmp/.wazuh-agent-installer.show", "show");
+                let show_path = get_runtime_path(".show");
+                let _ = std::fs::write(&show_path, "show");
                 // Ensure anyone can remove it later
-                let c_path = std::ffi::CString::new("/tmp/.wazuh-agent-installer.show").unwrap();
+                let c_path = std::ffi::CString::new(show_path).unwrap();
                 unsafe { libc::chmod(c_path.as_ptr(), 0o666) };
                 std::process::exit(0);
             } else {
