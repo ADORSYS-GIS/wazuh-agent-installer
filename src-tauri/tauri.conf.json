@@ -22,11 +22,13 @@
         "resizable": true,
         "center": true,
         "decorations": true,
-        "closable": true
+        "closable": true,
+        "minimizable": true,
+        "maximizable": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {
@@ -34,7 +36,10 @@
     "targets": "all",
     "resources": {
       "../setup-agent.sh": "./",
-      "../setup-agent.ps1": "./"
+      "../setup-agent.ps1": "./",
+      "../install-scripts/windows.ps1": "./",
+      "../install-scripts/macos.sh": "./",
+      "../install-scripts/ubuntu.sh": "./"
     },
     "icon": [
       "icons/32x32.png",

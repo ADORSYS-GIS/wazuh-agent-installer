@@ -23,5 +23,8 @@
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
     "@fontsource/plus-jakarta-sans": "^5.3.0"
+  },
+  "overrides": {
+    "picocolors": "1.1.1"
   }
 }

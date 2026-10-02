@@ -6,8 +6,16 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
+#[cfg(not(target_os = "linux"))]
+use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
+#[cfg(not(target_os = "linux"))]
+use tauri_plugin_notification::NotificationExt;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
+
+/// Where the latest published version is read from (kept on the main branch).
+const VERSION_FILE_URL: &str =
+    "https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/main/version.txt";
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -68,6 +76,207 @@ pub struct InstallConfig {
 }
 
 // ---- Helpers ----
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    update_available: bool,
+    latest_version: Option<String>,
+}
+
+/// Parse a loose semver ("v1.2.3", "1.2.3-rc.1", "1.2") into a comparable tuple.
+fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+    let s = v.trim().trim_start_matches('v');
+    let core = s.split('-').next().unwrap_or(s);
+    let mut it = core.split('.');
+    let major = it.next()?.trim().parse().ok()?;
+    let minor = it.next().unwrap_or("0").trim().parse().unwrap_or(0);
+    let patch = it.next().unwrap_or("0").trim().parse().unwrap_or(0);
+    Some((major, minor, patch))
+}
+
+/// Fetch version.txt over HTTPS using curl (present on all supported platforms,
+/// and already a dependency of the install scripts).
+async fn fetch_latest_version() -> Option<String> {
+    let child = Command::new("curl")
+        .args(["-fsSL", "--proto", "=https", "--tlsv1.2", VERSION_FILE_URL])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .ok()?;
+    let output = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait_with_output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn get_local_version(app: &AppHandle) -> String {
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let version_path = config_dir.join("version.txt");
+        if let Ok(content) = std::fs::read_to_string(version_path) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
+fn get_local_version_command(app: tauri::AppHandle) -> String {
+    get_local_version(&app)
+}
+
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
+    let current = get_local_version(&app);
+    let latest = fetch_latest_version().await;
+    let update_available = match (&latest, parse_version(&current)) {
+        (Some(latest), Some(cur)) => parse_version(latest).map(|l| l > cur).unwrap_or(false),
+        _ => false,
+    };
+
+    Ok(UpdateInfo {
+        update_available,
+        latest_version: latest,
+    })
+}
+
+#[tauri::command]
+async fn run_app_update(app: AppHandle) -> Result<(), String> {
+    let script_name = if cfg!(windows) {
+        "windows.ps1"
+    } else if cfg!(target_os = "macos") {
+        "macos.sh"
+    } else {
+        "ubuntu.sh"
+    };
+    let resolved_path = resolve_bundled_script(&app, script_name)?;
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = create_command("powershell");
+        c.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &resolved_path,
+        ]);
+        c
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = create_command("bash");
+        c.arg(&resolved_path);
+        c
+    };
+
+    #[cfg(target_os = "linux")]
+    let mut cmd = {
+        let mut c = create_command("bash");
+        c.arg(&resolved_path);
+        c
+    };
+
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn updater: {}", e))?;
+
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let (tx_log, mut rx_log) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    let tx1 = tx_log.clone();
+    spawn_log_reader(stdout, app.clone(), "install-log", move |line| {
+        let _ = tx1.send(line.to_string());
+    });
+
+    let tx2 = tx_log;
+    spawn_log_reader(stderr, app.clone(), "install-log", move |line| {
+        let _ = tx2.send(line.to_string());
+    });
+
+    let log_file = app.path().app_config_dir().unwrap().join("update.log");
+    tokio::spawn(async move {
+        if let Ok(mut file) = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file)
+            .await
+        {
+            use tokio::io::AsyncWriteExt;
+            while let Some(line) = rx_log.recv().await {
+                let _ = file.write_all(format!("{}\n", line).as_bytes()).await;
+            }
+        }
+    });
+
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!(
+            "Updater failed with exit code: {}",
+            status.code().unwrap_or(-1)
+        ));
+    }
+
+    let _ = app.emit(
+        "install-log",
+        LogLine {
+            line: format!("Update process exited with status: {}", status),
+            level: "info".into(),
+        },
+    );
+
+    Ok(())
+}
+
+fn notify_update(#[allow(unused_variables)] app: &AppHandle, latest: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("notify-send")
+            .arg("-a")
+            .arg("Wazuh")
+            .arg("Wazuh Agent Installer")
+            .arg(format!("A new version ({}) is available.", latest))
+            .spawn();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let res = app
+            .notification()
+            .builder()
+            .title("Wazuh Agent Installer update available")
+            .body(format!("A new version ({latest}) is available."))
+            .show();
+
+        if let Err(e) = res {
+            println!("Failed to show system notification: {}", e);
+        } else {
+            println!(
+                "System notification sent successfully for version {}",
+                latest
+            );
+        }
+    }
+}
 
 fn parse_yara_version(out_str: &str) -> Option<String> {
     let first_line = out_str.lines().next().unwrap_or(out_str);
@@ -236,12 +445,7 @@ fn classify_line(line: &str) -> &'static str {
 
 // ---- Commands ----
 
-fn resolve_script(app: &AppHandle) -> Result<String, String> {
-    let script_name = if cfg!(windows) {
-        "setup-agent.ps1"
-    } else {
-        "setup-agent.sh"
-    };
+fn resolve_bundled_script(app: &AppHandle, script_name: &str) -> Result<String, String> {
     let resource_path = app
         .path()
         .resolve(script_name, tauri::path::BaseDirectory::Resource)
@@ -261,12 +465,30 @@ fn resolve_script(app: &AppHandle) -> Result<String, String> {
                     .ok_or_else(|| "Script path contains invalid UTF-8".to_string());
             }
         }
-        // Not executable — copy to /tmp and chmod (dev mode)
-        let tmp_path = std::env::temp_dir().join("wazuh-setup-agent.sh");
-        std::fs::copy(&resource_path, &tmp_path)
-            .map_err(|e| format!("Failed to copy script to temp dir: {}", e))?;
-        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("Failed to set script permissions: {}", e))?;
+        // Not executable — write to a random, unpredictable temp file using O_EXCL
+        // (create_new) so a local attacker cannot pre-plant a symlink or race the path.
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let tmp_path = std::env::temp_dir().join(format!(
+            "wazuh-bundled-script-{}-{nanos}.sh",
+            std::process::id()
+        ));
+        let bytes = std::fs::read(&resource_path)
+            .map_err(|e| format!("Failed to read bundled script: {}", e))?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o700)
+            .open(&tmp_path)
+            .map_err(|e| format!("Failed to create script in temp dir: {}", e))?;
+        file.write_all(&bytes)
+            .map_err(|e| format!("Failed to write script to temp dir: {}", e))?;
+        file.flush()
+            .map_err(|e| format!("Failed to flush script to temp dir: {}", e))?;
         tmp_path
             .to_str()
             .map(|s| s.to_string())
@@ -278,6 +500,15 @@ fn resolve_script(app: &AppHandle) -> Result<String, String> {
         .to_str()
         .map(|s| s.to_string())
         .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
+}
+
+fn resolve_script(app: &AppHandle) -> Result<String, String> {
+    let script_name = if cfg!(windows) {
+        "setup-agent.ps1"
+    } else {
+        "setup-agent.sh"
+    };
+    resolve_bundled_script(app, script_name)
 }
 
 #[tauri::command]
@@ -422,7 +653,21 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
     })
 }
 
+fn is_safe_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    // Only ever open http(s) URLs, and reject any whitespace/control characters
+    // that could inject schemes or argument-splitting when passed to a browser opener.
+    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+        return false;
+    }
+    !trimmed.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 fn open_browser(url: &str) {
+    let url = url.trim();
+    if !is_safe_url(url) {
+        return;
+    }
     #[cfg(target_os = "linux")]
     {
         if let Ok(uid) = std::env::var("PKEXEC_UID") {
@@ -1061,6 +1306,13 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
 
 #[tauri::command]
 async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
+    if prefix.is_empty()
+        || !prefix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("Invalid log prefix".to_string());
+    }
     let mut path = dirs::download_dir().unwrap_or_else(|| std::env::current_dir().unwrap());
     let filename = format!("wazuh-{}-logs.txt", prefix);
     path.push(filename);
@@ -1159,6 +1411,11 @@ fn elevate_linux(launcher_pid: u32) {
         let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
         let xdg_data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+        let dbus = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
+
+        let xdg_current_desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+        let xdg_session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
+        let xdg_session_desktop = std::env::var("XDG_SESSION_DESKTOP").unwrap_or_default();
 
         let mut cmd = std::process::Command::new("pkexec");
         cmd.arg("env")
@@ -1167,7 +1424,12 @@ fn elevate_linux(launcher_pid: u32) {
             .arg(format!("WAYLAND_DISPLAY={wayland}"))
             .arg(format!("XDG_RUNTIME_DIR={xdg_runtime}"))
             .arg(format!("HOME={home}"))
-            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"));
+            .arg(format!("XDG_DATA_DIRS={xdg_data_dirs}"))
+            .arg(format!("DBUS_SESSION_BUS_ADDRESS={dbus}"))
+            .arg(format!("XDG_CURRENT_DESKTOP={xdg_current_desktop}"))
+            .arg(format!("XDG_SESSION_TYPE={xdg_session_type}"))
+            .arg(format!("XDG_SESSION_DESKTOP={xdg_session_desktop}"))
+            .arg("GTK_DECORATION_LAYOUT=menu:minimize,maximize,close");
 
         if let Some(theme) = get_gtk_theme() {
             cmd.arg(format!("GTK_THEME={theme}"));
@@ -1200,13 +1462,12 @@ fn elevate_macos(launcher_pid: u32) {
         let args = get_launcher_args();
 
         let sq = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
-        let mut parts = vec![sq(&exe), sq(&format!("--parent-pid {launcher_pid}"))];
+        let mut parts = vec![sq(&exe), sq("--parent-pid"), sq(&launcher_pid.to_string())];
         for a in &args {
             parts.push(sq(a));
         }
         let home = std::env::var("HOME").unwrap_or_default();
-        let env_setup = format!("export HOME={};", sq(&home));
-        let shell_cmd = format!("{} sh -c {}", env_setup, sq(&parts.join(" ")));
+        let shell_cmd = format!("export HOME={}; {}", sq(&home), parts.join(" "));
 
         let apple_script_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
 
@@ -1309,19 +1570,162 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    if let Ok(config_dir) = app.path().app_config_dir() {
-        let _ = std::fs::create_dir_all(&config_dir);
-        let config_path = config_dir.join("config.json");
-        if !config_path.exists() {
-            let default_config = AppConfig::default();
-            if let Ok(json) = serde_json::to_string_pretty(&default_config) {
-                let _ = std::fs::write(config_path, json);
+fn is_checker_mode() -> bool {
+    env::args().any(|a| a == "--check-updates")
+}
+
+/// Non-elevated background checker: launched at login, reads version.txt once,
+/// shows an OS notification if an update is available, then exits. It never
+/// downloads or installs anything.
+fn start_background_checker(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.hide();
+        }
+        let current = get_local_version(&app);
+        if let Some(latest) = fetch_latest_version().await {
+            let newer = parse_version(&latest)
+                .map(|l| parse_version(&current).map(|c| l > c).unwrap_or(false))
+                .unwrap_or(false);
+            if newer {
+                notify_update(&app, &latest);
             }
         }
+        app.exit(0);
+    });
+}
+
+fn init_config_dir(app: &tauri::App) {
+    let Ok(config_dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&config_dir);
+
+    let config_path = config_dir.join("config.json");
+    if !config_path.exists() {
+        let default_config = AppConfig::default();
+        if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+            let _ = std::fs::write(config_path, json);
+        }
     }
-    setup_tray(app)?;
+
+    let version_path = config_dir.join("version.txt");
+    let cargo_version = env!("CARGO_PKG_VERSION");
+    if version_path.exists() {
+        let local_content = std::fs::read_to_string(&version_path).unwrap_or_default();
+        let local_version = local_content.trim();
+        let cargo_parsed = parse_version(cargo_version).unwrap_or((0, 0, 0));
+        let local_parsed = parse_version(local_version).unwrap_or((0, 0, 0));
+        if cargo_parsed > local_parsed {
+            let _ = std::fs::write(&version_path, cargo_version);
+        }
+    } else {
+        let _ = std::fs::write(&version_path, cargo_version);
+    }
+}
+
+fn start_update_poller(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        loop {
+            let current = get_local_version(&app_handle);
+            if let Some(latest) = fetch_latest_version().await {
+                let newer = parse_version(&latest)
+                    .map(|l| parse_version(&current).map(|c| l > c).unwrap_or(false))
+                    .unwrap_or(false);
+                if newer {
+                    notify_update(&app_handle, &latest);
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 4)).await;
+        }
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn get_runtime_path(filename: &str) -> String {
+    let mut path =
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()));
+    path.push(".config");
+    path.push("wazuh-agent-installer");
+    let _ = std::fs::create_dir_all(&path);
+    path.push(filename);
+    path.to_string_lossy().to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn setup_linux_show_watcher(app_handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let show_file = get_runtime_path(".show");
+        let _ = std::fs::remove_file(&show_file);
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            if std::fs::metadata(&show_file).is_ok() {
+                let _ = std::fs::remove_file(&show_file);
+                let app_handle_clone = app_handle.clone();
+                let _ = app_handle.run_on_main_thread(move || {
+                    use tauri::Manager;
+                    if let Some(window) = app_handle_clone.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                });
+            }
+        }
+    });
+}
+
+fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    init_config_dir(app);
+
+    if is_checker_mode() {
+        start_background_checker(app.handle().clone());
+    } else {
+        setup_tray(app)?;
+
+        // 1. Periodically check for updates while the app is running (every 4 hours)
+        start_update_poller(app.handle().clone());
+
+        // 2. Register for startup on boot/login.
+        // We skip this on Linux at runtime because writing to ~/.config/autostart while
+        // the app is running causes GNOME to glitch out the window decorations.
+        #[cfg(not(target_os = "linux"))]
+        if !app.autolaunch().is_enabled().unwrap_or(false) {
+            let _ = app.autolaunch().enable();
+        }
+
+        #[cfg(target_os = "linux")]
+        setup_linux_show_watcher(app.handle().clone());
+    }
+
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn try_lock_instance() -> Option<i32> {
+    let lock_path = get_runtime_path(".lock");
+    let c_path = std::ffi::CString::new(lock_path).unwrap();
+
+    // Open the file. Use 0o666 so any user can open it.
+    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CREAT, 0o666) };
+
+    if fd < 0 {
+        return None;
+    }
+
+    // Ensure the file is actually world-writable so root doesn't lock out the user from opening it next time
+    unsafe { libc::chmod(c_path.as_ptr(), 0o666) };
+
+    // Try to get an exclusive lock without blocking
+    let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+    if ret < 0 {
+        // Someone else has the lock
+        unsafe { libc::close(fd) };
+        return None;
+    }
+
+    Some(fd)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1329,28 +1733,63 @@ pub fn run() {
     #[cfg(unix)]
     pre_create_config();
 
-    #[cfg(unix)]
-    let launcher_pid = std::process::id();
+    let checker_mode = is_checker_mode();
 
-    #[cfg(target_os = "linux")]
-    elevate_linux(launcher_pid);
+    if !checker_mode {
+        #[cfg(unix)]
+        let launcher_pid = std::process::id();
 
-    #[cfg(target_os = "macos")]
-    elevate_macos(launcher_pid);
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(fd) = try_lock_instance() {
+                if unsafe { libc::geteuid() } == 0 {
+                    // We are root! We hold the lock for the lifetime of the app.
+                    // We intentionally leak `fd`.
+                } else {
+                    // We are user! We drop the lock before elevating so the root process can grab it.
+                    unsafe { libc::close(fd) };
+                    elevate_linux(launcher_pid);
+                }
+            } else {
+                // Someone else is holding the lock (usually the root instance).
+                let show_path = get_runtime_path(".show");
+                let _ = std::fs::write(&show_path, "show");
+                // Ensure anyone can remove it later
+                let c_path = std::ffi::CString::new(show_path).unwrap();
+                unsafe { libc::chmod(c_path.as_ptr(), 0o666) };
+                std::process::exit(0);
+            }
+        }
 
-    #[cfg(unix)]
-    spawn_watchdog();
+        #[cfg(target_os = "macos")]
+        elevate_macos(launcher_pid);
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        #[cfg(unix)]
+        spawn_watchdog();
+    }
+
+    let mut builder = tauri::Builder::default();
+
+    // The background checker is short-lived and non-elevated; let it run without
+    // the single-instance lock so a real app launch always opens a fresh instance.
+    if !checker_mode {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
-        }))
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--check-updates"]),
+        ))
         .invoke_handler(tauri::generate_handler![
             is_root,
             get_platform,
@@ -1361,7 +1800,10 @@ pub fn run() {
             check_enrollment,
             check_netbird,
             save_logs,
-            get_app_config
+            get_app_config,
+            check_for_updates,
+            run_app_update,
+            get_local_version_command
         ])
         .setup(setup_app)
         .run(tauri::generate_context!())

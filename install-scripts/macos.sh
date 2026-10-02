@@ -48,11 +48,30 @@ if [[ -z "$APP_PATH" ]]; then
 fi
 
 APP_NAME=$(basename "$APP_PATH")
-echo "Copying $APP_NAME to /Applications/..."
-cp -R "$APP_PATH" /Applications/
+TARGET="/Applications/$APP_NAME"
+NEEDS_SUDO=0
+
+if [[ -e "$TARGET" ]] && [[ ! -w "$TARGET" ]]; then
+  NEEDS_SUDO=1
+elif [[ ! -e "$TARGET" ]] && [[ ! -w "/Applications/" ]]; then
+  NEEDS_SUDO=1
+fi
+
+if [[ "$NEEDS_SUDO" -eq 1 ]]; then
+  echo "Prompting for administrator privileges to copy app..."
+  if ! osascript -e "do shell script \"rm -rf \\\"$TARGET\\\" && cp -R \\\"$APP_PATH\\\" /Applications/ && xattr -dr com.apple.quarantine \\\"$TARGET\\\"\" with administrator privileges"; then
+    echo "Error: Administrator privileges were denied or installation failed." >&2
+    hdiutil detach "$TMP/mount" -quiet
+    exit 1
+  fi
+else
+  echo "Copying $APP_NAME to /Applications/..."
+  rm -rf "$TARGET"
+  cp -R "$APP_PATH" /Applications/
+  echo "Removing quarantine attribute to bypass macOS Gatekeeper..."
+  xattr -dr com.apple.quarantine "$TARGET"
+fi
+
 hdiutil detach "$TMP/mount" -quiet
 
-echo "🛡️  Removing quarantine attribute to bypass macOS Gatekeeper..."
-xattr -dr com.apple.quarantine "/Applications/$APP_NAME"
-
-echo "✅ Wazuh Agent Installer installed successfully! You can find it in your Applications folder."
+echo "Success: Wazuh Agent Installer installed successfully! You can find it in your Applications folder."
