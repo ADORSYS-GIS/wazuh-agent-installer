@@ -41,9 +41,7 @@ interface AppConfig {
 
 interface UpdateInfo {
   update_available: boolean;
-  current_version: string;
   latest_version: string | null;
-  url: string;
 }
 
 declare global {
@@ -308,6 +306,16 @@ async function triggerUpdate() {
       btnCheckUpdates.classList.replace("btn-primary", "btn-success");
       btnCheckUpdates.disabled = true;
     }
+
+    setTimeout(async () => {
+      if (hasTauri) {
+        try {
+          await window.__TAURI__!.window.getCurrentWindow().close();
+        } catch (e) {
+          console.error("Could not auto-close:", e);
+        }
+      }
+    }, 5000);
   } catch (err) {
     appendLog(terminalInstall, `ERROR: ${err}`, "error");
     if (btnCheckUpdates) {
@@ -316,16 +324,6 @@ async function triggerUpdate() {
   } finally {
     unlistenLog();
   }
-
-  setTimeout(async () => {
-    if (hasTauri) {
-      try {
-        await window.__TAURI__!.window.getCurrentWindow().close();
-      } catch (e) {
-        console.error("Could not auto-close:", e);
-      }
-    }
-  }, 5000);
 }
 
 function showUpdateBanner() {
