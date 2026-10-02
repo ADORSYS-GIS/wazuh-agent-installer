@@ -227,7 +227,7 @@ const btnAbout = document.getElementById("btn-about");
 const aboutPopover = document.getElementById("about-popover") as HTMLDialogElement | null;
 
 function closeAboutPopover() {
-  if (aboutPopover && aboutPopover.open) aboutPopover.close();
+  if (aboutPopover?.open) aboutPopover.close();
 }
 
 btnAbout?.addEventListener("click", (e) => {
