@@ -1703,7 +1703,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "linux")]
-fn is_already_running() -> bool {
+fn try_lock_instance() -> Option<i32> {
     let lock_path = get_runtime_path(".lock");
     let c_path = std::ffi::CString::new(lock_path).unwrap();
 
@@ -1711,8 +1711,7 @@ fn is_already_running() -> bool {
     let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CREAT, 0o666) };
 
     if fd < 0 {
-        // Can't even open the file, fallback to false
-        return false;
+        return None;
     }
 
     // Ensure the file is actually world-writable so root doesn't lock out the user from opening it next time
@@ -1721,14 +1720,12 @@ fn is_already_running() -> bool {
     // Try to get an exclusive lock without blocking
     let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
     if ret < 0 {
-        // If we can't get the lock, another instance is already holding it!
-        return true;
+        // Someone else has the lock
+        unsafe { libc::close(fd) };
+        return None;
     }
 
-    // We intentionally LEAVE the file descriptor open and DO NOT close it.
-    // The OS will automatically release the lock when this process exits.
-    // When the user process exits to spawn pkexec, the lock drops, and the pkexec root process grabs it.
-    false
+    Some(fd)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1744,17 +1741,23 @@ pub fn run() {
 
         #[cfg(target_os = "linux")]
         {
-            // If already running, the root instance is holding the lock.
-            // We tell it to show its window via a signal file and exit!
-            if is_already_running() {
+            if let Some(fd) = try_lock_instance() {
+                if unsafe { libc::geteuid() } == 0 {
+                    // We are root! We hold the lock for the lifetime of the app.
+                    // We intentionally leak `fd`.
+                } else {
+                    // We are user! We drop the lock before elevating so the root process can grab it.
+                    unsafe { libc::close(fd) };
+                    elevate_linux(launcher_pid);
+                }
+            } else {
+                // Someone else is holding the lock (usually the root instance).
                 let show_path = get_runtime_path(".show");
                 let _ = std::fs::write(&show_path, "show");
                 // Ensure anyone can remove it later
                 let c_path = std::ffi::CString::new(show_path).unwrap();
                 unsafe { libc::chmod(c_path.as_ptr(), 0o666) };
                 std::process::exit(0);
-            } else {
-                elevate_linux(launcher_pid);
             }
         }
 
