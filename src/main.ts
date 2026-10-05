@@ -189,6 +189,7 @@ btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
 btnRefreshComponents?.addEventListener("click", refreshComponents);
 
 updatePill?.addEventListener("click", () => {
+  switchTab("tab-setup");
   showUpdateBanner();
   closeAboutPopover();
 });
@@ -200,20 +201,20 @@ btnCheckUpdates?.addEventListener("click", async () => {
     await triggerUpdate();
     return;
   }
-  
+
   const icon = document.getElementById("about-update-icon");
   const label = document.getElementById("about-update-label");
   const btn = document.getElementById("btn-check-updates");
-  
+
   btn?.classList.add("spinning");
   if (label) label.textContent = "Checking...";
-  
+
   await checkForUpdates(true);
-  
+
   btn?.classList.remove("spinning");
   if (label) label.textContent = isUpdateAvailable ? "Update Now" : "Up to date";
   if (icon) icon.textContent = isUpdateAvailable ? "↑" : "✓";
-  
+
   setTimeout(() => {
     if (label) label.textContent = "Check for updates";
     if (icon) icon.textContent = "↻";
@@ -257,7 +258,7 @@ async function checkForUpdates(manualCheck = false) {
   try {
     const info = await invoke<UpdateInfo>("check_for_updates");
     if (info.latest_version) latestOnlineVersion = info.latest_version;
-    
+
     if (info.update_available) {
       applyUpdateAvailable(info.latest_version ?? "new version");
     } else {
@@ -276,6 +277,9 @@ async function checkForUpdates(manualCheck = false) {
 }
 
 async function triggerUpdate() {
+  // The update log lives on the Setup tab, so make sure it is visible
+  switchTab("tab-setup");
+  closeAboutPopover();
   if (btnCheckUpdates) btnCheckUpdates.textContent = "Updating...";
   if (updateBanner) updateBanner.style.display = "none";
   if (updatePill) updatePill.style.display = "none";
