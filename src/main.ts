@@ -234,7 +234,7 @@ btnAbout?.addEventListener("click", (e) => {
   if (aboutPopover.open) {
     aboutPopover.close();
   } else {
-    aboutPopover.showModal();
+    aboutPopover.show();
   }
 });
 
