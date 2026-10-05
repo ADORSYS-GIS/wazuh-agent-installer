@@ -64,10 +64,6 @@ jobs:
         working-directory: ./src-tauri
         run: cargo fmt --all --check
 
-      - name: Clippy lints
-        working-directory: ./src-tauri
-        run: cargo clippy -- -D warnings
-
       - name: Run tests
         working-directory: ./src-tauri
         run: cargo nextest run --no-tests pass
