@@ -1,6 +1,7 @@
 {
   "name": "wazuh-agent-installer",
   "version": "1.2.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
