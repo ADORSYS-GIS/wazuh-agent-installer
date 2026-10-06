@@ -136,22 +136,12 @@ body {
   font-size: 12px;
   font-weight: 500;
   color: var(--brand-text-secondary);
-  cursor: pointer;
   transition: all 0.2s;
   border-radius: 6px;
 }
 
-.version-chip:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--brand-text-primary);
-}
-
 .version-chip.has-update {
   color: var(--brand-status-warn);
-}
-
-.version-chip.has-update:hover {
-  background: rgba(251, 191, 36, 0.1);
 }
 
 .version-dot {
@@ -198,109 +188,6 @@ body {
 
 .update-pill:hover {
   background: rgba(26, 115, 232, 0.1);
-}
-
-/* ---- About popover ---- */
-.about-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 12px;
-  width: 220px;
-  background: #1e2433;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.6),
-    0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
-  animation: fadeUp 0.18s ease;
-  overflow: hidden;
-}
-
-.about-popover-inner {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.about-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 14px;
-}
-
-.about-logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  object-fit: contain;
-}
-
-.about-app-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--brand-text-primary);
-  line-height: 1.2;
-}
-
-.about-version {
-  font-size: 11px;
-  color: var(--brand-text-secondary);
-  margin-top: 2px;
-}
-
-.about-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.07);
-  margin: 4px -16px;
-}
-
-.about-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 9px 0;
-  font-size: 12px;
-}
-
-.about-label {
-  color: var(--brand-text-secondary);
-}
-
-.about-value {
-  color: var(--brand-text-primary);
-  font-weight: 500;
-}
-
-.about-update-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  margin-top: 12px;
-  padding: 9px 0;
-  background: var(--brand-primary-ghost);
-  border: 1px solid rgba(26, 115, 232, 0.3);
-  border-radius: 8px;
-  color: var(--brand-primary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.about-update-btn:hover {
-  background: var(--brand-primary);
-  color: white;
-  border-color: var(--brand-primary);
-}
-
-.about-update-btn.spinning #about-update-icon {
-  display: inline-block;
-  animation: spin 0.8s linear infinite;
 }
 
 .update-banner {

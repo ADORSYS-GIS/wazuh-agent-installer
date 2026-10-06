@@ -147,8 +147,6 @@ const updateBannerText = document.getElementById("update-banner-text");
 const updateBannerLink = document.getElementById("update-banner-link") as HTMLAnchorElement | null;
 const updateBannerDismiss = document.getElementById("update-banner-dismiss") as HTMLButtonElement | null;
 const updatePill = document.getElementById("update-pill") as HTMLButtonElement | null;
-const btnCheckUpdates = document.getElementById("btn-check-updates") as HTMLButtonElement | null;
-let isUpdateAvailable = false;
 let latestOnlineVersion: string | null = null;
 
 // ---- Initialization ----
@@ -191,70 +189,13 @@ btnRefreshComponents?.addEventListener("click", refreshComponents);
 updatePill?.addEventListener("click", () => {
   switchTab("tab-setup");
   showUpdateBanner();
-  closeAboutPopover();
 });
 updateBannerDismiss?.addEventListener("click", () => {
   if (updateBanner) updateBanner.style.display = "none";
 });
-btnCheckUpdates?.addEventListener("click", async () => {
-  if (isUpdateAvailable) {
-    await triggerUpdate();
-    return;
-  }
-
-  const icon = document.getElementById("about-update-icon");
-  const label = document.getElementById("about-update-label");
-  const btn = document.getElementById("btn-check-updates");
-
-  btn?.classList.add("spinning");
-  if (label) label.textContent = "Checking...";
-
-  await checkForUpdates(true);
-
-  btn?.classList.remove("spinning");
-  if (label) label.textContent = isUpdateAvailable ? "Update Now" : "Up to date";
-  if (icon) icon.textContent = isUpdateAvailable ? "↑" : "✓";
-
-  setTimeout(() => {
-    if (label) label.textContent = "Check for updates";
-    if (icon) icon.textContent = "↻";
-  }, 3000);
-});
-
-// About popover toggle
-const btnAbout = document.getElementById("btn-about");
-const aboutPopover = document.getElementById("about-popover") as HTMLDialogElement | null;
-
-function closeAboutPopover() {
-  if (aboutPopover?.open) aboutPopover.close();
-}
-
-btnAbout?.addEventListener("click", (e) => {
-  e.stopPropagation();
-  if (!aboutPopover) return;
-  if (aboutPopover.open) {
-    aboutPopover.close();
-  } else {
-    aboutPopover.show();
-  }
-});
-
-aboutPopover?.addEventListener("click", (e) => {
-  const rect = aboutPopover.getBoundingClientRect();
-  const isInDialog =
-    rect.top <= e.clientY &&
-    e.clientY <= rect.top + rect.height &&
-    rect.left <= e.clientX &&
-    e.clientX <= rect.left + rect.width;
-  if (!isInDialog) {
-    aboutPopover.close();
-  }
-});
-
 finishBoot();
 
-async function checkForUpdates(manualCheck = false) {
-  if (btnCheckUpdates && manualCheck) btnCheckUpdates.textContent = "Checking...";
+async function checkForUpdates() {
   try {
     const info = await invoke<UpdateInfo>("check_for_updates");
     if (info.latest_version) latestOnlineVersion = info.latest_version;
@@ -263,24 +204,15 @@ async function checkForUpdates(manualCheck = false) {
       applyUpdateAvailable(info.latest_version ?? "new version");
     } else {
       clearUpdateAvailable();
-      if (btnCheckUpdates && manualCheck) {
-        btnCheckUpdates.textContent = "Up to date";
-        setTimeout(() => {
-          if (btnCheckUpdates) btnCheckUpdates.textContent = "Check for updates";
-        }, 2000);
-      }
     }
   } catch (err) {
     console.warn("[checkForUpdates] Could not check for updates:", err);
-    if (btnCheckUpdates && manualCheck) btnCheckUpdates.textContent = "Check Updates";
   }
 }
 
 async function triggerUpdate() {
   // The update log lives on the Setup tab, so make sure it is visible
   switchTab("tab-setup");
-  closeAboutPopover();
-  if (btnCheckUpdates) btnCheckUpdates.textContent = "Updating...";
   if (updateBanner) updateBanner.style.display = "none";
   if (updatePill) updatePill.style.display = "none";
 
@@ -305,11 +237,6 @@ async function triggerUpdate() {
       "Update started successfully! Please CLOSE this application to allow the update to apply, then open it again.",
       "success"
     );
-    if (btnCheckUpdates) {
-      btnCheckUpdates.textContent = "Done - Please Restart";
-      btnCheckUpdates.classList.replace("btn-primary", "btn-success");
-      btnCheckUpdates.disabled = true;
-    }
 
     setTimeout(async () => {
       if (hasTauri) {
@@ -322,9 +249,6 @@ async function triggerUpdate() {
     }, 5000);
   } catch (err) {
     appendLog(terminalInstall, `ERROR: ${err}`, "error");
-    if (btnCheckUpdates) {
-      btnCheckUpdates.textContent = "Update Failed";
-    }
   } finally {
     unlistenLog();
   }
@@ -336,7 +260,6 @@ function showUpdateBanner() {
 }
 
 function applyUpdateAvailable(latest: string): void {
-  isUpdateAvailable = true;
   if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
   if (updateBannerLink) {
     updateBannerLink.textContent = "Update Now";
@@ -350,34 +273,21 @@ function applyUpdateAvailable(latest: string): void {
   showUpdateBanner();
 
   // Make the version chip glow amber
-  const versionChip = document.getElementById("btn-about");
+  const versionChip = document.getElementById("version-chip");
   const versionDot = document.querySelector(".version-dot");
   versionChip?.classList.add("has-update");
   versionDot?.classList.add("has-update");
-
-  if (btnCheckUpdates) {
-    btnCheckUpdates.textContent = "Update Now";
-    btnCheckUpdates.classList.add("btn-primary");
-    btnCheckUpdates.classList.remove("btn-ghost");
-  }
 }
 
 function clearUpdateAvailable(): void {
-  isUpdateAvailable = false;
   if (updateBanner) updateBanner.style.display = "none";
   if (updatePill) updatePill.style.display = "none";
 
   // Remove amber glow
-  const versionChip = document.getElementById("btn-about");
+  const versionChip = document.getElementById("version-chip");
   const versionDot = document.querySelector(".version-dot");
   versionChip?.classList.remove("has-update");
   versionDot?.classList.remove("has-update");
-
-  if (btnCheckUpdates) {
-    btnCheckUpdates.textContent = "Check for updates";
-    btnCheckUpdates.classList.remove("btn-primary");
-    btnCheckUpdates.classList.add("btn-ghost");
-  }
 }
 
 function finishBoot() {
@@ -435,11 +345,9 @@ async function syncLocalVersion() {
   try {
     const localVersion = await invoke<string>("get_local_version_command");
     const appVersion = document.getElementById("app-version");
-    const aboutVersionLabel = document.getElementById("about-version-label");
     const displayVersion = localVersion.startsWith("v") ? localVersion : `v${localVersion}`;
 
     if (appVersion) appVersion.textContent = displayVersion;
-    if (aboutVersionLabel) aboutVersionLabel.textContent = displayVersion;
 
     // Compare with latest online version if we know it
     if (latestOnlineVersion) {
@@ -460,10 +368,8 @@ async function syncLocalVersion() {
 function initializeAppHeaderAndOptions(): void {
   const appLogo = document.getElementById("app-logo") as HTMLImageElement | null;
   const appTitle = document.getElementById("app-title");
-  const aboutLogo = document.getElementById("about-logo") as HTMLImageElement | null;
 
   if (appLogo) appLogo.src = BRAND_CONFIG.logo;
-  if (aboutLogo) aboutLogo.src = BRAND_CONFIG.logo;
   if (appTitle) appTitle.textContent = BRAND_CONFIG.appTitle;
   document.title = BRAND_CONFIG.appTitle;
 }

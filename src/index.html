@@ -140,40 +140,13 @@
           </nav>
 
           <div class="sidebar-footer">
-            <!-- Clickable version chip — triggers About popover -->
-            <button id="btn-about" class="version-chip" type="button" aria-haspopup="dialog">
+            <!-- Version chip -->
+            <div id="version-chip" class="version-chip">
               <span class="version-dot"></span>
               <span id="app-version"></span>
-            </button>
+            </div>
             <!-- Hidden "Update available" pill shown by JS when a newer version is found -->
             <button class="update-pill" id="update-pill" type="button" style="display: none">↑ Update available</button>
-
-            <!-- ========== About Popover ========== -->
-            <dialog id="about-popover" class="about-popover" aria-label="About">
-              <div class="about-popover-inner">
-                <div class="about-header">
-                  <img id="about-logo" class="about-logo" src="" alt="Adorsys logo" />
-                  <div>
-                    <div class="about-app-name">Wazuh Agent Installer</div>
-                    <div class="about-version" id="about-version-label"></div>
-                  </div>
-                </div>
-                <div class="about-divider"></div>
-                <div class="about-row">
-                  <span class="about-label">Publisher</span>
-                  <span class="about-value">Adorsys GIS</span>
-                </div>
-                <div class="about-row">
-                  <span class="about-label">License</span>
-                  <span class="about-value">MIT</span>
-                </div>
-                <div class="about-divider"></div>
-                <button id="btn-check-updates" class="about-update-btn" type="button">
-                  <span id="about-update-icon">↻</span>
-                  <span id="about-update-label">Check for updates</span>
-                </button>
-              </div>
-            </dialog>
           </div>
         </aside>
 
