@@ -39,6 +39,11 @@ interface AppConfig {
   netbird_management_url: string;
 }
 
+interface UpdateInfo {
+  update_available: boolean;
+  latest_version: string | null;
+}
+
 declare global {
   interface Window {
     __TAURI__?: {
@@ -51,6 +56,7 @@ declare global {
       window: {
         getCurrentWindow(): {
           hide(): Promise<void>;
+          close(): Promise<void>;
         };
       };
     };
@@ -135,6 +141,14 @@ const terminalNetbirdArea = document.getElementById("netbird-terminal-area");
 const terminalNetbird = document.getElementById("netbird-terminal");
 const netbirdStatusBanner = document.getElementById("netbird-status-banner");
 
+// Update notification
+const updateBanner = document.getElementById("update-banner");
+const updateBannerText = document.getElementById("update-banner-text");
+const updateBannerLink = document.getElementById("update-banner-link") as HTMLAnchorElement | null;
+const updateBannerDismiss = document.getElementById("update-banner-dismiss") as HTMLButtonElement | null;
+const updatePill = document.getElementById("update-pill") as HTMLButtonElement | null;
+let latestOnlineVersion: string | null = null;
+
 // ---- Initialization ----
 
 let appConfig: AppConfig | null = null;
@@ -154,7 +168,7 @@ navItems.forEach((item) => {
   item.addEventListener("click", () => {
     if (item.classList.contains("nav-accordion-toggle")) {
       const accordion = item.closest(".nav-group-accordion");
-      if (accordion) accordion.classList.toggle("expanded");
+      accordion?.classList.toggle("expanded");
       return;
     }
     if (item.dataset.target) {
@@ -172,7 +186,109 @@ btnStartNetbird?.addEventListener("click", startNetbirdConnection);
 btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
 btnRefreshComponents?.addEventListener("click", refreshComponents);
 
+updatePill?.addEventListener("click", () => {
+  switchTab("tab-setup");
+  showUpdateBanner();
+});
+updateBannerDismiss?.addEventListener("click", () => {
+  if (updateBanner) updateBanner.style.display = "none";
+});
 finishBoot();
+
+async function checkForUpdates() {
+  try {
+    const info = await invoke<UpdateInfo>("check_for_updates");
+    if (info.latest_version) latestOnlineVersion = info.latest_version;
+
+    if (info.update_available) {
+      applyUpdateAvailable(info.latest_version ?? "new version");
+    } else {
+      clearUpdateAvailable();
+    }
+  } catch (err) {
+    console.warn("[checkForUpdates] Could not check for updates:", err);
+  }
+}
+
+async function triggerUpdate() {
+  // The update log lives on the Setup tab, so make sure it is visible
+  switchTab("tab-setup");
+  if (updateBanner) updateBanner.style.display = "none";
+  if (updatePill) updatePill.style.display = "none";
+
+  const welcomeCard = document.getElementById("welcome-card");
+  if (welcomeCard) welcomeCard.style.display = "none";
+  if (installLogCard) installLogCard.style.display = "block";
+
+  const terminalInstall = document.getElementById("terminal");
+  if (terminalInstall) {
+    terminalInstall.innerHTML = "";
+    appendLog(terminalInstall, "Starting auto-update process...", "info");
+  }
+
+  const unlistenLog = await listen<LogLine>("install-log", (e) => {
+    appendLog(terminalInstall, e.payload.line, e.payload.level);
+  });
+
+  try {
+    await invoke("run_app_update");
+    appendLog(
+      terminalInstall,
+      "Update started successfully! Please CLOSE this application to allow the update to apply, then open it again.",
+      "success"
+    );
+
+    setTimeout(async () => {
+      if (hasTauri) {
+        try {
+          await window.__TAURI__!.window.getCurrentWindow().close();
+        } catch (e) {
+          console.error("Could not auto-close:", e);
+        }
+      }
+    }, 5000);
+  } catch (err) {
+    appendLog(terminalInstall, `ERROR: ${err}`, "error");
+  } finally {
+    unlistenLog();
+  }
+}
+
+function showUpdateBanner() {
+  if (updateBanner) updateBanner.style.display = "flex";
+  if (updatePill) updatePill.style.display = "inline-block";
+}
+
+function applyUpdateAvailable(latest: string): void {
+  if (updateBannerText) updateBannerText.textContent = `A new version (${latest}) is available.`;
+  if (updateBannerLink) {
+    updateBannerLink.textContent = "Update Now";
+    updateBannerLink.href = "#";
+    updateBannerLink.removeAttribute("target");
+    updateBannerLink.onclick = async (e) => {
+      e.preventDefault();
+      await triggerUpdate();
+    };
+  }
+  showUpdateBanner();
+
+  // Make the version chip glow amber
+  const versionChip = document.getElementById("version-chip");
+  const versionDot = document.querySelector(".version-dot");
+  versionChip?.classList.add("has-update");
+  versionDot?.classList.add("has-update");
+}
+
+function clearUpdateAvailable(): void {
+  if (updateBanner) updateBanner.style.display = "none";
+  if (updatePill) updatePill.style.display = "none";
+
+  // Remove amber glow
+  const versionChip = document.getElementById("version-chip");
+  const versionDot = document.querySelector(".version-dot");
+  versionChip?.classList.remove("has-update");
+  versionDot?.classList.remove("has-update");
+}
 
 function finishBoot() {
   if (appContainer) appContainer.style.display = "block";
@@ -182,10 +298,13 @@ function finishBoot() {
   refreshComponents(); // Initial load
   checkEnrollmentState(); // Check if already enrolled on startup
   checkNetbirdState(); // Check if already connected to Netbird on startup
+  syncLocalVersion(); // Sync local version file
+  checkForUpdates(); // Check for a newer version on startup
 
-  // Keep the enrolled card in sync while the app is open
+  // Keep the enrolled card and version in sync while the app is open
   setInterval(() => checkEnrollmentState(), 15_000);
   setInterval(() => checkNetbirdState(), 15_000);
+  setInterval(() => syncLocalVersion(), 10_000);
 }
 
 function switchTab(targetId: string) {
@@ -222,14 +341,36 @@ function applyBrandTheme(): void {
   root.style.setProperty("--brand-status-info", "#60a5fa");
 }
 
+async function syncLocalVersion() {
+  try {
+    const localVersion = await invoke<string>("get_local_version_command");
+    const appVersion = document.getElementById("app-version");
+    const displayVersion = localVersion.startsWith("v") ? localVersion : `v${localVersion}`;
+
+    if (appVersion) appVersion.textContent = displayVersion;
+
+    // Compare with latest online version if we know it
+    if (latestOnlineVersion) {
+      const cmp = displayVersion
+        .replace(/^v/, "")
+        .localeCompare(latestOnlineVersion.replace(/^v/, ""), undefined, { numeric: true, sensitivity: "base" });
+      if (cmp >= 0) {
+        clearUpdateAvailable();
+      } else {
+        applyUpdateAvailable(latestOnlineVersion);
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to sync local version:", err);
+  }
+}
+
 function initializeAppHeaderAndOptions(): void {
   const appLogo = document.getElementById("app-logo") as HTMLImageElement | null;
   const appTitle = document.getElementById("app-title");
-  const appVersion = document.getElementById("app-version");
 
   if (appLogo) appLogo.src = BRAND_CONFIG.logo;
   if (appTitle) appTitle.textContent = BRAND_CONFIG.appTitle;
-  if (appVersion) appVersion.textContent = BRAND_CONFIG.appVersion;
   document.title = BRAND_CONFIG.appTitle;
 }
 
@@ -311,7 +452,7 @@ function stripAnsi(str: string): string {
 function appendLog(term: HTMLElement | null, line: string, level: string): void {
   if (!term) return;
   const placeholder = term.querySelector(".terminal-placeholder");
-  if (placeholder) placeholder.remove();
+  placeholder?.remove();
 
   const div = document.createElement("div");
   div.className = `log-line ${level}`;
@@ -323,8 +464,16 @@ function appendLog(term: HTMLElement | null, line: string, level: string): void 
 function showStatusBanner(banner: HTMLElement | null, type: "running" | "success" | "error", message: string) {
   if (!banner) return;
   banner.className = `status-banner visible ${type}`;
-  const icon = type === "running" ? '<span class="spinner"></span>' : type === "success" ? "✓" : "✕";
-  banner.innerHTML = `${icon} ${message}`;
+  banner.textContent = "";
+  if (type === "running") {
+    const spinner = document.createElement("span");
+    spinner.className = "spinner";
+    banner.appendChild(spinner);
+    banner.appendChild(document.createTextNode(" "));
+  } else {
+    banner.appendChild(document.createTextNode(type === "success" ? "✓ " : "✕ "));
+  }
+  banner.appendChild(document.createTextNode(message));
 }
 
 async function startInstall() {
@@ -670,19 +819,39 @@ async function refreshComponents() {
       const card = document.createElement("div");
       card.className = "comp-card";
 
-      const isOk = comp.installed;
-      const badgeClass = isOk ? "installed" : "missing";
-      const badgeText = isOk ? "Installed" : "Missing";
+      const header = document.createElement("div");
+      header.className = "comp-header";
 
-      card.innerHTML = `
-        <div class="comp-header">
-          <div class="comp-name">${comp.name}</div>
-          <div class="comp-badge ${badgeClass}">${badgeText}</div>
-        </div>
-        <div class="comp-desc">${getComponentDescription(comp.name)}</div>
-        ${comp.version ? `<div class="comp-version">📦 ${comp.version}</div>` : ""}
-        <div class="comp-path">${comp.path}</div>
-      `;
+      const name = document.createElement("div");
+      name.className = "comp-name";
+      name.textContent = comp.name;
+
+      const badge = document.createElement("div");
+      badge.className = `comp-badge ${comp.installed ? "installed" : "missing"}`;
+      badge.textContent = comp.installed ? "Installed" : "Missing";
+
+      header.appendChild(name);
+      header.appendChild(badge);
+
+      const desc = document.createElement("div");
+      desc.className = "comp-desc";
+      desc.textContent = getComponentDescription(comp.name);
+
+      card.appendChild(header);
+      card.appendChild(desc);
+
+      if (comp.version) {
+        const version = document.createElement("div");
+        version.className = "comp-version";
+        version.textContent = `📦 ${comp.version}`;
+        card.appendChild(version);
+      }
+
+      const path = document.createElement("div");
+      path.className = "comp-path";
+      path.textContent = comp.path;
+      card.appendChild(path);
+
       grid.appendChild(card);
     });
   } catch (err) {
@@ -708,7 +877,7 @@ function enableSaveLogs(buttonId: string, terminalId: string, prefix: string) {
   btn.onclick = async () => {
     const clone = term.cloneNode(true) as HTMLElement;
     const placeholder = clone.querySelector(".terminal-placeholder");
-    if (placeholder) placeholder.remove();
+    placeholder?.remove();
 
     const logs = clone.innerText.trim();
     if (!logs) return;

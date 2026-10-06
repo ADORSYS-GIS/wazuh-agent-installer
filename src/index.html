@@ -140,7 +140,13 @@
           </nav>
 
           <div class="sidebar-footer">
-            <span class="version" id="app-version">—</span>
+            <!-- Version chip -->
+            <div id="version-chip" class="version-chip">
+              <span class="version-dot"></span>
+              <span id="app-version"></span>
+            </div>
+            <!-- Hidden "Update available" pill shown by JS when a newer version is found -->
+            <button class="update-pill" id="update-pill" type="button" style="display: none">↑ Update available</button>
           </div>
         </aside>
 
@@ -152,6 +158,16 @@
             <p class="toggle-desc" style="margin-bottom: 16px">
               Install and configure the necessary tools to keep your device secure.
             </p>
+
+            <output id="update-banner" class="update-banner" style="display: none">
+              <span id="update-banner-text"></span>
+              <div class="update-banner-actions">
+                <a id="update-banner-link" class="btn btn-primary btn-sm" href="#" target="_blank" rel="noopener"
+                  >View Release</a
+                >
+                <button id="update-banner-dismiss" class="btn btn-ghost btn-sm" type="button">Dismiss</button>
+              </div>
+            </output>
 
             <div class="card compact" style="margin-top: 16px">
               <div class="toggle-row compact">
@@ -182,12 +198,12 @@
                   ⬇ Save Logs
                 </button>
               </div>
-              <div class="terminal" id="terminal">
+              <div class="terminal" id="terminal" role="log" aria-live="polite">
                 <div class="terminal-placeholder" id="terminal-placeholder">
                   <span class="spinner"></span> Waiting to start…
                 </div>
               </div>
-              <div class="status-banner" id="status-banner"></div>
+              <output class="status-banner" id="status-banner"></output>
             </div>
 
             <div id="result-screen" style="display: none; margin-top: 24px">
@@ -265,12 +281,12 @@
                   ⬇ Save Logs
                 </button>
               </div>
-              <div class="terminal" id="enroll-terminal">
+              <div class="terminal" id="enroll-terminal" role="log" aria-live="polite">
                 <div class="terminal-placeholder" id="enroll-terminal-placeholder">
                   <span class="spinner"></span> Running enrollment…
                 </div>
               </div>
-              <div class="status-banner" id="enroll-status-banner"></div>
+              <output class="status-banner" id="enroll-status-banner"></output>
               <button
                 class="btn btn-ghost"
                 id="btn-retry-enroll"
@@ -355,12 +371,12 @@
                   ⬇ Save Logs
                 </button>
               </div>
-              <div class="terminal" id="netbird-terminal">
+              <div class="terminal" id="netbird-terminal" role="log" aria-live="polite">
                 <div class="terminal-placeholder" id="netbird-terminal-placeholder">
                   <span class="spinner"></span> Connecting NetBird…
                 </div>
               </div>
-              <div class="status-banner" id="netbird-status-banner"></div>
+              <output class="status-banner" id="netbird-status-banner"></output>
               <button
                 class="btn btn-ghost"
                 id="btn-retry-netbird"
