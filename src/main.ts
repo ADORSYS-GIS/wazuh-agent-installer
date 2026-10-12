@@ -69,7 +69,7 @@ const hasTauri = typeof window !== "undefined" && window.__TAURI__ !== undefined
 const invoke = hasTauri
   ? window.__TAURI__!.core.invoke
   : async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
-      console.log(`[Mock Invoke] ${cmd}`, args);
+      console.log("[Mock Invoke]", cmd, args);
       if (cmd === "get_platform") return "linux" as unknown as T;
       if (cmd === "is_root") return false as unknown as T;
       if (cmd === "run_install") {
