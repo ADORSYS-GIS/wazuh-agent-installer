@@ -64,7 +64,7 @@ declare global {
 }
 
 // ---- Tauri Core Bindings ----
-const hasTauri = typeof window !== "undefined" && typeof window.__TAURI__ !== "undefined";
+const hasTauri = typeof window !== "undefined" && window.__TAURI__ !== undefined;
 
 const invoke = hasTauri
   ? window.__TAURI__!.core.invoke

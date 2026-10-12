@@ -461,7 +461,7 @@ fn resolve_bundled_script(app: &AppHandle, script_name: &str) -> Result<String, 
                 // Already executable — use in place
                 return resource_path
                     .to_str()
-                    .map(|s| s.to_string())
+                    .map(str::to_string)
                     .ok_or_else(|| "Script path contains invalid UTF-8".to_string());
             }
         }
@@ -491,14 +491,14 @@ fn resolve_bundled_script(app: &AppHandle, script_name: &str) -> Result<String, 
             .map_err(|e| format!("Failed to flush script to temp dir: {}", e))?;
         tmp_path
             .to_str()
-            .map(|s| s.to_string())
+            .map(str::to_string)
             .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
     }
 
     #[cfg(not(unix))]
     resource_path
         .to_str()
-        .map(|s| s.to_string())
+        .map(str::to_string)
         .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
 }
 
@@ -1222,11 +1222,11 @@ async fn check_netbird() -> Result<NetbirdState, String> {
     let json_str = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
 
-    let daemon_status = parsed["daemonStatus"].as_str().map(|s| s.to_string());
+    let daemon_status = parsed["daemonStatus"].as_str().map(str::to_string);
     let netbird_ip = parsed["netbirdIp"]
         .as_str()
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
+        .map(str::to_string);
     let management_connected = parsed["management"]["connected"].as_bool().unwrap_or(false);
 
     Ok(NetbirdState {
@@ -1251,7 +1251,7 @@ fn parse_enrollment_agent_name(content: &str) -> Option<String> {
         .lines()
         .find(|l| !l.trim().is_empty())
         .and_then(|line| line.split_whitespace().nth(1))
-        .map(|s| s.to_string())
+        .map(str::to_string)
 }
 
 fn parse_enrollment_manager(content: &str) -> Option<String> {
@@ -1275,7 +1275,9 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let keys_path = "/var/ossec/etc/client.keys";
 
-    let keys_content = std::fs::read_to_string(keys_path).unwrap_or_default();
+    let keys_content = tokio::fs::read_to_string(keys_path)
+        .await
+        .unwrap_or_default();
     let agent_name = parse_enrollment_agent_name(&keys_content);
 
     if agent_name.is_none() {
@@ -1293,7 +1295,8 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let conf_path = "/var/ossec/etc/ossec.conf";
 
-    let manager = std::fs::read_to_string(conf_path)
+    let manager = tokio::fs::read_to_string(conf_path)
+        .await
         .ok()
         .and_then(|content| parse_enrollment_manager(&content));
 
@@ -1317,7 +1320,9 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
     let filename = format!("wazuh-{}-logs.txt", prefix);
     path.push(filename);
 
-    std::fs::write(&path, logs).map_err(|e| e.to_string())?;
+    tokio::fs::write(&path, logs)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }
 
