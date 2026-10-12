@@ -20,6 +20,9 @@ fi
 VER="${TAG#v}"
 TAG="v${VER}"
 
+# Tauri builds the artifact using the base version from tauri.conf.json
+PKG_VER="${VER%%-rc.*}"
+
 ARCH=$(uname -m)
 if [[ "$ARCH" = "x86_64" ]]; then
   PKG_ARCH="amd64"
@@ -30,7 +33,7 @@ else
   exit 1
 fi
 
-DL_URL="https://github.com/$REPO/releases/download/${TAG}/Wazuh.Agent.Installer_${VER}_${PKG_ARCH}.deb"
+DL_URL="https://github.com/$REPO/releases/download/${TAG}/Wazuh.Agent.Installer_${PKG_VER}_${PKG_ARCH}.deb"
 
 # Verify URL exists before downloading
 if ! curl -sI -f "$DL_URL" > /dev/null; then
@@ -45,7 +48,16 @@ trap 'rm -rf "$TMP"' EXIT
 echo "Downloading from: $DL_URL"
 curl -fsSL "$DL_URL" -o "$TMP/installer.deb"
 
-echo "📦 Installing package..."
-sudo dpkg -i "$TMP/installer.deb" || sudo apt-get install -f -y
+echo "Installing package..."
+if command -v pkexec >/dev/null 2>&1; then
+  SUDO="pkexec"
+else
+  SUDO="sudo"
+  echo "Warning: Using sudo. If this script is running in the background without a terminal, it may hang waiting for a password."
+fi
 
-echo "✅ Wazuh Agent Installer installed successfully!"
+if ! $SUDO dpkg -i "$TMP/installer.deb"; then
+  $SUDO apt-get install -f -y
+fi
+
+echo "Success: Wazuh Agent Installer installed successfully!"

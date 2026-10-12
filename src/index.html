@@ -140,7 +140,13 @@
           </nav>
 
           <div class="sidebar-footer">
-            <span class="version" id="app-version">—</span>
+            <!-- Version chip -->
+            <div id="version-chip" class="version-chip">
+              <span class="version-dot"></span>
+              <span id="app-version"></span>
+            </div>
+            <!-- Hidden "Update available" pill shown by JS when a newer version is found -->
+            <button class="update-pill" id="update-pill" type="button" style="display: none">↑ Update available</button>
           </div>
         </aside>
 
@@ -153,34 +159,15 @@
               Install and configure the necessary tools to keep your device secure.
             </p>
 
-            <div class="card compact" style="margin-top: 16px; opacity: 0.6; pointer-events: none">
-              <div class="toggle-row compact">
-                <div class="toggle-info">
-                  <div class="toggle-title">
-                    Install Trivy
-                    <span
-                      class="badge"
-                      style="
-                        background: var(--brand-status-warn-dim);
-                        color: var(--brand-status-warn);
-                        font-size: 10px;
-                        padding: 2px 6px;
-                        border-radius: 4px;
-                        margin-left: 8px;
-                      "
-                      >Upcoming</span
-                    >
-                  </div>
-                  <div class="toggle-desc">
-                    Comprehensive vulnerability scanner for containers, filesystems, and dependencies.
-                  </div>
-                </div>
-                <label class="toggle-switch">
-                  <input type="checkbox" id="install-trivy" disabled />
-                  <span class="slider"></span>
-                </label>
+            <output id="update-banner" class="update-banner" style="display: none">
+              <span id="update-banner-text"></span>
+              <div class="update-banner-actions">
+                <a id="update-banner-link" class="btn btn-primary btn-sm" href="#" target="_blank" rel="noopener"
+                  >View Release</a
+                >
+                <button id="update-banner-dismiss" class="btn btn-ghost btn-sm" type="button">Dismiss</button>
               </div>
-            </div>
+            </output>
 
             <div class="card compact" style="margin-top: 16px">
               <div class="toggle-row compact">
@@ -188,9 +175,10 @@
                   <div class="toggle-title">Install NetBird</div>
                   <div class="toggle-desc">WireGuard-based overlay VPN client for secure mesh networking.</div>
                 </label>
-                <label class="toggle-switch">
+                <label class="toggle-switch" for="install-netbird" aria-label="Install NetBird">
                   <input type="checkbox" id="install-netbird" checked />
-                  <span class="slider"></span>
+                  <span class="slider" aria-hidden="true"></span>
+                  <span class="visually-hidden">Install NetBird</span>
                 </label>
               </div>
             </div>
@@ -211,12 +199,12 @@
                   ⬇ Save Logs
                 </button>
               </div>
-              <div class="terminal" id="terminal">
+              <div class="terminal" id="terminal" role="log" aria-live="polite">
                 <div class="terminal-placeholder" id="terminal-placeholder">
                   <span class="spinner"></span> Waiting to start…
                 </div>
               </div>
-              <div class="status-banner" id="status-banner"></div>
+              <output class="status-banner" id="status-banner"></output>
             </div>
 
             <div id="result-screen" style="display: none; margin-top: 24px">
@@ -294,12 +282,12 @@
                   ⬇ Save Logs
                 </button>
               </div>
-              <div class="terminal" id="enroll-terminal">
+              <div class="terminal" id="enroll-terminal" role="log" aria-live="polite">
                 <div class="terminal-placeholder" id="enroll-terminal-placeholder">
                   <span class="spinner"></span> Running enrollment…
                 </div>
               </div>
-              <div class="status-banner" id="enroll-status-banner"></div>
+              <output class="status-banner" id="enroll-status-banner"></output>
               <button
                 class="btn btn-ghost"
                 id="btn-retry-enroll"
@@ -384,12 +372,12 @@
                   ⬇ Save Logs
                 </button>
               </div>
-              <div class="terminal" id="netbird-terminal">
+              <div class="terminal" id="netbird-terminal" role="log" aria-live="polite">
                 <div class="terminal-placeholder" id="netbird-terminal-placeholder">
                   <span class="spinner"></span> Connecting NetBird…
                 </div>
               </div>
-              <div class="status-banner" id="netbird-status-banner"></div>
+              <output class="status-banner" id="netbird-status-banner"></output>
               <button
                 class="btn btn-ghost"
                 id="btn-retry-netbird"

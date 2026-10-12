@@ -32,7 +32,6 @@ A desktop GUI application that provides a guided interface for installing and co
 **Configurable (user choice)**
 
 - **Suricata** (IDS or IPS mode) — network intrusion detection/prevention
-- **Trivy** _(optional, Linux/macOS only)_ — vulnerability and misconfiguration scanner
 
 ---
 
