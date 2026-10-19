@@ -66,7 +66,7 @@ jobs:
 
       - name: Run tests with coverage
         working-directory: ./src-tauri
-        run: cargo llvm-cov nextest --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --lcov --output-path lcov.info --remap-path-prefix
 
       - name: Check unused dependencies
         if: matrix.platform == 'ubuntu-22.04'

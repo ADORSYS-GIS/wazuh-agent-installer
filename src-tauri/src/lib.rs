@@ -1860,7 +1860,7 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: InstallConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.wazuh_manager, "wazuh.local");
-        assert_eq!(deserialized.install_netbird, true);
+        assert!(deserialized.install_netbird);
     }
 
     #[test]
