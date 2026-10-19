@@ -1814,3 +1814,292 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_config_default() {
+        let config = AppConfig::default();
+        assert_eq!(config.wazuh_manager_url, "manager.wazuh.adorsys.team");
+        assert_eq!(
+            config.wazuh_oauth_issuer,
+            "https://login.wazuh.adorsys.team/realms/adorsys"
+        );
+        assert_eq!(
+            config.wazuh_cert_endpoint,
+            "https://cert.wazuh.adorsys.team/api/register-agent"
+        );
+        assert_eq!(
+            config.netbird_management_url,
+            "https://netbird.guard.adorsys.com"
+        );
+    }
+
+    #[test]
+    fn test_app_config_serialization() {
+        let config = AppConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.wazuh_manager_url, config.wazuh_manager_url);
+    }
+
+    #[test]
+    fn test_install_config_serialization() {
+        let config = InstallConfig {
+            wazuh_manager: "wazuh.local".to_string(),
+            wazuh_agent_name: "test-agent".to_string(),
+            log_level: "debug".to_string(),
+            ids_engine: "suricata".to_string(),
+            suricata_mode: "ips".to_string(),
+            install_netbird: true,
+            oauth_issuer: "https://auth.local".to_string(),
+            cert_endpoint: "https://cert.local".to_string(),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: InstallConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.wazuh_manager, "wazuh.local");
+        assert_eq!(deserialized.install_netbird, true);
+    }
+
+    #[test]
+    fn test_parse_version() {
+        assert_eq!(parse_version("1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_version("v1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_version("v2.1"), Some((2, 1, 0)));
+        assert_eq!(parse_version("3"), Some((3, 0, 0)));
+        assert_eq!(parse_version("v1.2.3-rc.1"), Some((1, 2, 3)));
+        assert_eq!(parse_version("   v4.5.6   "), Some((4, 5, 6)));
+        assert_eq!(parse_version("invalid"), None);
+        assert_eq!(parse_version(""), None);
+        assert_eq!(parse_version("v"), None);
+    }
+
+    #[test]
+    fn test_parse_yara_version() {
+        assert_eq!(
+            parse_yara_version("4.3.2\nCopyright 2023"),
+            Some("4.3.2".to_string())
+        );
+        assert_eq!(parse_yara_version("  4.2.0  "), Some("4.2.0".to_string()));
+        assert_eq!(parse_yara_version(""), Some("".to_string()));
+    }
+
+    #[test]
+    fn test_parse_suricata_version() {
+        assert_eq!(
+            parse_suricata_version("This is Suricata version 7.0.2 RELEASE"),
+            Some("7.0.2".to_string())
+        );
+        assert_eq!(
+            parse_suricata_version("suricata 6.0.10"),
+            Some("6.0.10".to_string())
+        );
+        assert_eq!(
+            parse_suricata_version("suricata version 7.0.0-dev"),
+            Some("7.0.0-dev".to_string())
+        );
+        assert_eq!(
+            parse_suricata_version("Unknown scanner 1.0"),
+            Some("Unknown scanner 1.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_wazuh_agent_version() {
+        assert_eq!(
+            parse_wazuh_agent_version("WAZUH_VERSION=\"v4.8.0\"\nWAZUH_REVISION=\"123\""),
+            Some("v4.8.0".to_string())
+        );
+        assert_eq!(
+            parse_wazuh_agent_version("Wazuh v4.7.2 (installed)"),
+            Some("4.7.2".to_string())
+        );
+        #[cfg(not(windows))]
+        assert_eq!(parse_wazuh_agent_version("No match"), None);
+        #[cfg(windows)]
+        assert_eq!(
+            parse_wazuh_agent_version("Some Windows output"),
+            Some("Some Windows output".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_netbird_version() {
+        assert_eq!(
+            parse_netbird_version("0.26.1\ncommit hash: abc"),
+            Some("0.26.1".to_string())
+        );
+        assert_eq!(
+            parse_netbird_version("  0.25.0  "),
+            Some("0.25.0".to_string())
+        );
+        assert_eq!(parse_netbird_version(""), None);
+        assert_eq!(parse_netbird_version("   \n   "), None);
+    }
+
+    #[test]
+    fn test_parse_default_version() {
+        assert_eq!(
+            parse_default_version("Tool version 2.34.1"),
+            Some("2.34.1".to_string())
+        );
+        assert_eq!(
+            parse_default_version("Release 1.0 (2024-01-01)"),
+            Some("1.0".to_string())
+        );
+        assert_eq!(parse_default_version("no numbers here"), None);
+    }
+
+    #[test]
+    fn test_parse_component_version() {
+        assert_eq!(
+            parse_component_version("YARA", "4.3.0\n"),
+            Some("4.3.0".to_string())
+        );
+        assert_eq!(
+            parse_component_version("Suricata", "Suricata version 7.0.1"),
+            Some("7.0.1".to_string())
+        );
+        assert_eq!(
+            parse_component_version("Wazuh Agent", "WAZUH_VERSION=\"4.8.1\""),
+            Some("4.8.1".to_string())
+        );
+        assert_eq!(
+            parse_component_version("NetBird", "0.27.0"),
+            Some("0.27.0".to_string())
+        );
+        assert_eq!(
+            parse_component_version("Other", "Utility 5.6.7"),
+            Some("5.6.7".to_string())
+        );
+    }
+
+    #[test]
+    fn test_classify_line() {
+        assert_eq!(classify_line("Installation [ERROR] failed"), "error");
+        assert_eq!(classify_line("error: missing dependency"), "error");
+        assert_eq!(classify_line("bash: command not found"), "error");
+        assert_eq!(classify_line("Task completed [SUCCESS]"), "success");
+        assert_eq!(classify_line("Agent installed successfully"), "success");
+        assert_eq!(classify_line("All steps completed"), "success");
+        assert_eq!(classify_line("Downloading package 45%"), "info");
+    }
+
+    #[test]
+    fn test_is_safe_url() {
+        assert!(is_safe_url("https://adorsys.com"));
+        assert!(is_safe_url(
+            "https://login.wazuh.adorsys.team/auth?code=123"
+        ));
+        assert!(is_safe_url("http://localhost:8080/register"));
+        assert!(!is_safe_url("ftp://malicious.com"));
+        assert!(!is_safe_url("javascript:alert(1)"));
+        assert!(!is_safe_url("https://example.com/has space"));
+        assert!(!is_safe_url("https://example.com\nnew-arg"));
+        assert!(!is_safe_url(""));
+    }
+
+    #[test]
+    fn test_parse_enrollment_agent_name() {
+        let content = "001 agent-charlie 192.168.1.100 89abcdef\n";
+        assert_eq!(
+            parse_enrollment_agent_name(content),
+            Some("agent-charlie".to_string())
+        );
+
+        let multi_line = "\n\n002 prod-worker 10.0.0.5 token123\n";
+        assert_eq!(
+            parse_enrollment_agent_name(multi_line),
+            Some("prod-worker".to_string())
+        );
+
+        assert_eq!(parse_enrollment_agent_name(""), None);
+        assert_eq!(parse_enrollment_agent_name("single_word"), None);
+    }
+
+    #[test]
+    fn test_parse_enrollment_manager() {
+        let xml = "
+<ossec_config>
+  <client>
+    <server>
+      <address>wazuh-manager.adorsys.team</address>
+      <port>1514</port>
+    </server>
+  </client>
+</ossec_config>";
+        assert_eq!(
+            parse_enrollment_manager(xml),
+            Some("wazuh-manager.adorsys.team".to_string())
+        );
+
+        let invalid = "<ossec_config><no_address>none</no_address></ossec_config>";
+        assert_eq!(parse_enrollment_manager(invalid), None);
+    }
+
+    #[test]
+    fn test_build_netbird_up_command() {
+        let cmd = build_netbird_up_command("key-12345", "https://netbird.custom.com");
+        let debug = format!("{:?}", cmd);
+        assert!(debug.contains("netbird"));
+        assert!(debug.contains("https://netbird.custom.com"));
+        assert!(debug.contains("key-12345"));
+
+        // Default management URL fallback
+        let default_cmd = build_netbird_up_command("", "");
+        let default_debug = format!("{:?}", default_cmd);
+        assert!(default_debug.contains("https://api.netbird.io:443"));
+    }
+
+    #[test]
+    fn test_build_enroll_command() {
+        let cmd = build_enroll_command("https://issuer.com", "https://cert.com", true);
+        let debug = format!("{:?}", cmd);
+        assert!(debug.contains("o-auth2"));
+        assert!(debug.contains("--issuer"));
+        assert!(debug.contains("https://issuer.com"));
+        assert!(debug.contains("--endpoint"));
+        assert!(debug.contains("https://cert.com"));
+        assert!(debug.contains("--overwrite"));
+
+        let no_overwrite_cmd =
+            build_enroll_command("https://issuer.com", "https://cert.com", false);
+        let no_overwrite_debug = format!("{:?}", no_overwrite_cmd);
+        assert!(!no_overwrite_debug.contains("--overwrite"));
+    }
+
+    #[test]
+    fn test_build_install_command() {
+        let config = InstallConfig {
+            wazuh_manager: "mgr.wazuh.team".to_string(),
+            wazuh_agent_name: "test-node".to_string(),
+            log_level: "info".to_string(),
+            ids_engine: "suricata".to_string(),
+            suricata_mode: "ids".to_string(),
+            install_netbird: true,
+            oauth_issuer: "https://issuer.com".to_string(),
+            cert_endpoint: "https://cert.com".to_string(),
+        };
+        let cmd = build_install_command(&config, "/path/to/install.sh");
+        let debug = format!("{:?}", cmd);
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert!(debug.contains("bash"));
+            assert!(debug.contains("-b"));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert!(debug.contains("powershell"));
+            assert!(debug.contains("-InstallNetBird"));
+        }
+    }
+
+    #[test]
+    fn test_get_platform() {
+        let platform = get_platform();
+        assert!(!platform.is_empty());
+        assert_eq!(platform, std::env::consts::OS);
+    }
+}
