@@ -78,7 +78,7 @@ jobs:
     uses: ADORSYS-GIS/adorsys-ci-cd-templates/.github/workflows/sonarqube.yml@1566ed0da26bd29f41625655dd7171a5464762fd # main
     with:
       project-key: wazuh-agent-installer
-      exclusions: "**/target/**,**/node_modules/**,**/dist/**"
+      exclusions: "**/target/**,**/node_modules/**,**/dist/**,**/coverage/**"
     secrets:
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
