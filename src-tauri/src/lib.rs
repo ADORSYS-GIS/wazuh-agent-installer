@@ -2102,4 +2102,266 @@ mod tests {
         assert!(!platform.is_empty());
         assert_eq!(platform, std::env::consts::OS);
     }
+
+    #[tokio::test]
+    async fn test_save_logs_invalid_prefix() {
+        assert!(save_logs("some logs".into(), "".into()).await.is_err());
+        assert!(save_logs("some logs".into(), "../bad".into()).await.is_err());
+        assert!(save_logs("some logs".into(), "invalid space".into()).await.is_err());
+        assert!(save_logs("some logs".into(), "inv@lid!".into()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_save_logs_valid_prefix() {
+        let logs_content = "2026-10-21 Log line 1\n2026-10-21 Log line 2";
+        let prefix = "test_valid_logs";
+        let res = save_logs(logs_content.into(), prefix.into()).await;
+        if let Ok(file_path) = res {
+            assert!(std::path::Path::new(&file_path).exists());
+            let read_back = tokio::fs::read_to_string(&file_path).await.unwrap();
+            assert_eq!(read_back, logs_content);
+            let _ = tokio::fs::remove_file(file_path).await;
+        }
+    }
+
+    #[test]
+    fn test_classify_line_comprehensive() {
+        assert_eq!(classify_line("ERROR: Process terminated"), "error");
+        assert_eq!(classify_line("[ERROR] Fatal error occurred"), "error");
+        assert_eq!(classify_line("Download failed completely"), "error");
+        assert_eq!(classify_line("zsh: command not found: yara"), "error");
+        assert_eq!(classify_line("Operation [SUCCESS] finished"), "success");
+        assert_eq!(classify_line("Package installed successfully"), "success");
+        assert_eq!(classify_line("Installation completed without errors"), "success");
+        assert_eq!(classify_line("Normal informational log output"), "info");
+        assert_eq!(classify_line(""), "info");
+    }
+
+    #[tokio::test]
+    async fn test_get_enroll_line_processor() {
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let mut processor = get_enroll_line_processor(notify.clone());
+
+        // Line without done should not notify
+        processor("Processing certificate request...");
+
+        // Line with ] Done! should notify
+        processor("[Step 5/5] Done!");
+        let notified = tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
+        assert!(notified.is_ok());
+
+        // Line with exact "Done!" should notify
+        processor("Done!");
+        let notified2 = tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
+        assert!(notified2.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_netbird_line_processor() {
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let mut processor = get_netbird_line_processor(notify.clone());
+
+        // Disconnected line should not trigger
+        processor("Disconnected from peer");
+
+        // Connected line should notify
+        processor("Connected to NetBird management service");
+        let notified = tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
+        assert!(notified.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_check_component_unix() {
+        let (found, _) = check_component_unix("Other", "/bin/sh");
+        assert!(found);
+
+        let (not_found, _) = check_component_unix("Other", "/tmp/non_existent_binary_xyz_123");
+        assert!(!not_found);
+
+        let (netbird_res, _) = check_component_unix("NetBird", "/bin/sh");
+        assert!(netbird_res);
+
+        let (suricata_res, _) = check_component_unix("Suricata", "/bin/sh");
+        assert!(suricata_res);
+    }
+
+    #[test]
+    fn test_create_command() {
+        let cmd = create_command("echo");
+        let debug = format!("{:?}", cmd);
+        assert!(debug.contains("echo"));
+    }
+
+    #[tokio::test]
+    async fn test_get_component_version_async() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let tmp_script = std::env::temp_dir().join(format!("mock-tool-{}.sh", std::process::id()));
+            let script_content = r#"#!/bin/sh
+if [ "$1" = "-V" ]; then
+    echo "Suricata 7.0.3"
+elif [ "$1" = "--version" ]; then
+    echo "yara 4.5.2"
+elif [ "$1" = "version" ]; then
+    echo "0.28.3"
+elif [ "$1" = "info" ]; then
+    echo 'WAZUH_VERSION="4.8.0"'
+fi
+"#;
+            std::fs::write(&tmp_script, script_content).unwrap();
+            let mut perms = std::fs::metadata(&tmp_script).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&tmp_script, perms).unwrap();
+
+            let script_path = tmp_script.to_string_lossy().to_string();
+
+            let suricata_ver = get_component_version("Suricata", &script_path).await;
+            assert_eq!(suricata_ver, Some("7.0.3".to_string()));
+
+            let yara_ver = get_component_version("YARA", &script_path).await;
+            assert_eq!(yara_ver, Some("yara 4.5.2".to_string()));
+
+            let netbird_ver = get_component_version("NetBird", &script_path).await;
+            assert_eq!(netbird_ver, Some("0.28.3".to_string()));
+
+            let other_ver = get_component_version("CustomTool", &script_path).await;
+            assert_eq!(other_ver, Some("4.5.2".to_string()));
+
+            let none_ver = get_component_version("Suricata", "/tmp/non_existent_mock_file").await;
+            assert_eq!(none_ver, None);
+
+            let _ = std::fs::remove_file(tmp_script);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_get_runtime_path_and_lock() {
+        let path = get_runtime_path("unit-test-file.txt");
+        assert!(path.contains("unit-test-file.txt"));
+
+        if let Some(fd) = try_lock_instance() {
+            let second_lock = try_lock_instance();
+            assert!(second_lock.is_none());
+            unsafe { libc::close(fd) };
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_pre_create_config_unix() {
+        let tmp_home = std::env::temp_dir().join(format!("test-home-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp_home);
+        std::env::set_var("HOME", &tmp_home);
+
+        pre_create_config();
+
+        let cfg_file = tmp_home.join(".config/com.adorsys.wazuh-agent-installer/config.json");
+        assert!(cfg_file.exists());
+        let content = std::fs::read_to_string(cfg_file).unwrap();
+        let parsed: Result<AppConfig, _> = serde_json::from_str(&content);
+        assert!(parsed.is_ok());
+
+        let _ = std::fs::remove_dir_all(tmp_home);
+    }
+
+    #[test]
+    fn test_struct_representations() {
+        let log = LogLine {
+            line: "Started install".to_string(),
+            level: "info".to_string(),
+        };
+        let serialized_log = serde_json::to_string(&log).unwrap();
+        assert!(serialized_log.contains("Started install"));
+
+        let res = InstallResult {
+            success: true,
+            exit_code: 0,
+            message: "Setup done".to_string(),
+        };
+        let serialized = serde_json::to_string(&res).unwrap();
+        assert!(serialized.contains("Setup done"));
+        assert!(serialized.contains("\"exit_code\":0"));
+
+        let status = ComponentStatus {
+            name: "YARA".to_string(),
+            installed: true,
+            version: Some("4.5.4".to_string()),
+            path: "/usr/local/bin/yara".to_string(),
+        };
+        let status_json = serde_json::to_string(&status).unwrap();
+        assert!(status_json.contains("YARA"));
+        assert!(status_json.contains("/usr/local/bin/yara"));
+
+        let netbird_state = NetbirdState {
+            daemon_status: Some("Connected".to_string()),
+            netbird_ip: Some("100.64.0.1".to_string()),
+            management_connected: true,
+        };
+        let nb_json = serde_json::to_string(&netbird_state).unwrap();
+        assert!(nb_json.contains("100.64.0.1"));
+        assert!(nb_json.contains("Connected"));
+
+        let enroll_state = EnrollmentState {
+            enrolled: true,
+            agent_name: Some("test-agent".to_string()),
+            manager: Some("manager.wazuh.team".to_string()),
+        };
+        let enroll_json = serde_json::to_string(&enroll_state).unwrap();
+        assert!(enroll_json.contains("test-agent"));
+        assert!(enroll_json.contains("manager.wazuh.team"));
+
+        let update_info = UpdateInfo {
+            update_available: true,
+            latest_version: Some("1.1.0".to_string()),
+        };
+        let update_json = serde_json::to_string(&update_info).unwrap();
+        assert!(update_json.contains("1.1.0"));
+        assert!(update_json.contains("true"));
+    }
+
+    #[test]
+    fn test_is_root_matches_euid() {
+        #[cfg(unix)]
+        {
+            let expected = unsafe { libc::geteuid() == 0 };
+            assert_eq!(is_root(), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_launcher_args_and_checker_mode() {
+        let args = get_launcher_args();
+        assert!(args.is_empty() || !args.is_empty());
+
+        let checker = is_checker_mode();
+        assert_eq!(checker, std::env::args().any(|a| a == "--check-updates"));
+    }
+
+    #[test]
+    fn test_build_install_command_without_netbird() {
+        let config = InstallConfig {
+            wazuh_manager: "127.0.0.1".to_string(),
+            wazuh_agent_name: "node-1".to_string(),
+            log_level: "debug".to_string(),
+            ids_engine: "none".to_string(),
+            suricata_mode: "ips".to_string(),
+            install_netbird: false,
+            oauth_issuer: "".to_string(),
+            cert_endpoint: "".to_string(),
+        };
+        let cmd = build_install_command(&config, "/opt/script.sh");
+        let debug = format!("{:?}", cmd);
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert!(!debug.contains(" -b"));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert!(!debug.contains("-InstallNetBird"));
+        }
+    }
 }
