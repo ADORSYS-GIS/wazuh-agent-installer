@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: matrix.platform == 'ubuntu-22.04'
-        uses: actions/upload-artifact@ea165f4d156d6be4b4a6891eb10aef5b6d9da490 # v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: rust-coverage
           path: src-tauri/lcov.info
