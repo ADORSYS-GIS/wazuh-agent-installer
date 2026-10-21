@@ -91,6 +91,7 @@ jobs:
       rust-coverage-report-paths: src-tauri/lcov.info
       coverage-artifact-name: rust-coverage
       coverage-artifact-path: src-tauri
+      extra-sonar-args: "-Dsonar.coverage.exclusions=install-scripts/**/*"
     secrets:
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

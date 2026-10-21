@@ -2377,4 +2377,79 @@ fi
             assert!(!debug.contains("-InstallNetBird"));
         }
     }
+
+    #[tokio::test]
+    async fn test_check_components_execution() {
+        let res = check_components().await;
+        assert!(res.is_ok());
+        let components = res.unwrap();
+        assert_eq!(components.len(), 6);
+        let names: Vec<String> = components.into_iter().map(|c| c.name).collect();
+        assert!(names.contains(&"Wazuh Agent".to_string()));
+        assert!(names.contains(&"NetBird".to_string()));
+        assert!(names.contains(&"Suricata".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_check_enrollment_execution() {
+        let state = check_enrollment().await;
+        assert!(state.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_check_netbird_execution() {
+        let state = check_netbird().await;
+        assert!(state.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_check_components_helpers_unix() {
+        let (found, path) = check_netbird_unix("/bin/sh");
+        assert!(found);
+        assert_eq!(path, "/bin/sh");
+
+        let (not_found, _) = check_netbird_unix("/non_existent_path_xyz_123");
+        let _ = not_found;
+
+        let (s_found, s_path) = check_suricata_unix("/bin/sh");
+        assert!(s_found);
+        assert_eq!(s_path, "/bin/sh");
+
+        let (s_not_found, _) = check_suricata_unix("/non_existent_suricata_path");
+        let _ = s_not_found;
+
+        let fallback = fallback_netbird_cmd_unix();
+        let _ = fallback;
+    }
+
+    #[test]
+    fn test_open_browser_safe_and_unsafe() {
+        open_browser("ftp://unsafe.com");
+        open_browser("javascript:alert(1)");
+        open_browser("   ");
+
+        std::env::set_var("SUDO_USER", "nobody");
+        open_browser("https://valid-example-domain-123.com");
+        std::env::remove_var("SUDO_USER");
+    }
+
+    #[test]
+    fn test_get_gtk_theme_and_parent_pid() {
+        let _ = get_gtk_theme();
+        #[cfg(unix)]
+        {
+            let pid = get_parent_pid_from_args();
+            assert_eq!(pid, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_enroll_line_processor_url_detection() {
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let mut processor = get_enroll_line_processor(notify.clone());
+
+        processor("Navigate to https://auth.company.com/realms/corp/device to authenticate");
+        processor("https://auth.company.com/realms/corp/direct");
+    }
 }
