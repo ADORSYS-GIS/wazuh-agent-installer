@@ -66,7 +66,16 @@ jobs:
 
       - name: Run tests with coverage
         working-directory: ./src-tauri
-        run: cargo llvm-cov nextest --lcov --output-path lcov.info --remap-path-prefix
+        run: |
+          cargo llvm-cov nextest --lcov --output-path lcov.info --remap-path-prefix
+          sed -i 's|^SF:src/|SF:src-tauri/src/|' lcov.info
+
+      - name: Upload coverage artifact
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/upload-artifact@ea165f4d156d6be4b4a6891eb10aef5b6d9da490 # v4.6.2
+        with:
+          name: rust-coverage
+          path: src-tauri/lcov.info
 
       - name: Check unused dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -75,11 +84,13 @@ jobs:
 
   scan:
     needs: ci
-    uses: ADORSYS-GIS/adorsys-ci-cd-templates/.github/workflows/sonarqube.yml@5a3a29714bffa4c74ede7d8831c5ae7103e790b4 # main
+    uses: ADORSYS-GIS/adorsys-ci-cd-templates/.github/workflows/sonarqube.yml@8617a17cfc5f5a8897c2a3806bb543c20b4b57e0 # main
     with:
       project-key: wazuh-agent-installer
       exclusions: "**/target/**,**/node_modules/**,**/dist/**,**/coverage/**"
       rust-coverage-report-paths: src-tauri/lcov.info
+      coverage-artifact-name: rust-coverage
+      coverage-artifact-path: src-tauri
     secrets:
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
