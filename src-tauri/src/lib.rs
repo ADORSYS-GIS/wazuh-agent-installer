@@ -2106,9 +2106,15 @@ mod tests {
     #[tokio::test]
     async fn test_save_logs_invalid_prefix() {
         assert!(save_logs("some logs".into(), "".into()).await.is_err());
-        assert!(save_logs("some logs".into(), "../bad".into()).await.is_err());
-        assert!(save_logs("some logs".into(), "invalid space".into()).await.is_err());
-        assert!(save_logs("some logs".into(), "inv@lid!".into()).await.is_err());
+        assert!(save_logs("some logs".into(), "../bad".into())
+            .await
+            .is_err());
+        assert!(save_logs("some logs".into(), "invalid space".into())
+            .await
+            .is_err());
+        assert!(save_logs("some logs".into(), "inv@lid!".into())
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -2132,7 +2138,10 @@ mod tests {
         assert_eq!(classify_line("zsh: command not found: yara"), "error");
         assert_eq!(classify_line("Operation [SUCCESS] finished"), "success");
         assert_eq!(classify_line("Package installed successfully"), "success");
-        assert_eq!(classify_line("Installation completed without errors"), "success");
+        assert_eq!(
+            classify_line("Installation completed without errors"),
+            "success"
+        );
         assert_eq!(classify_line("Normal informational log output"), "info");
         assert_eq!(classify_line(""), "info");
     }
@@ -2147,12 +2156,14 @@ mod tests {
 
         // Line with ] Done! should notify
         processor("[Step 5/5] Done!");
-        let notified = tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
+        let notified =
+            tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
         assert!(notified.is_ok());
 
         // Line with exact "Done!" should notify
         processor("Done!");
-        let notified2 = tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
+        let notified2 =
+            tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
         assert!(notified2.is_ok());
     }
 
@@ -2166,7 +2177,8 @@ mod tests {
 
         // Connected line should notify
         processor("Connected to NetBird management service");
-        let notified = tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
+        let notified =
+            tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
         assert!(notified.is_ok());
     }
 
@@ -2198,7 +2210,8 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let tmp_script = std::env::temp_dir().join(format!("mock-tool-{}.sh", std::process::id()));
+            let tmp_script =
+                std::env::temp_dir().join(format!("mock-tool-{}.sh", std::process::id()));
             let script_content = r#"#!/bin/sh
 if [ "$1" = "-V" ]; then
     echo "Suricata 7.0.3"
