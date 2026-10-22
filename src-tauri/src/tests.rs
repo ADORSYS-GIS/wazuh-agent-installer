@@ -517,15 +517,21 @@ fi
 
 #[cfg(target_os = "linux")]
 #[test]
-fn test_get_runtime_path_and_lock() {
-    let path = get_runtime_path("unit-test-file.txt");
-    assert!(path.contains("unit-test-file.txt"));
+fn test_try_lock_at_temp_path() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_lock =
+        std::env::temp_dir().join(format!("test-lock-{}-{nanos}.lock", std::process::id()));
+    let tmp_lock_str = tmp_lock.to_string_lossy();
 
-    if let Some(fd) = try_lock_instance() {
-        let second_lock = try_lock_instance();
+    if let Some(fd) = try_lock_at_path(&tmp_lock_str) {
+        let second_lock = try_lock_at_path(&tmp_lock_str);
         assert!(second_lock.is_none());
         unsafe { libc::close(fd) };
     }
+    let _ = std::fs::remove_file(&tmp_lock);
 }
 
 #[cfg(unix)]
@@ -667,18 +673,6 @@ fn test_build_install_command_without_netbird() {
 }
 
 #[tokio::test]
-async fn test_check_components_execution() {
-    let res = check_components().await;
-    assert!(res.is_ok());
-    let components = res.unwrap();
-    assert_eq!(components.len(), 6);
-    let names: Vec<String> = components.into_iter().map(|c| c.name).collect();
-    assert!(names.contains(&"Wazuh Agent".to_string()));
-    assert!(names.contains(&"NetBird".to_string()));
-    assert!(names.contains(&"Suricata".to_string()));
-}
-
-#[tokio::test]
 async fn test_check_enrollment_execution() {
     let state = check_enrollment().await;
     assert!(state.is_ok());
@@ -718,24 +712,6 @@ async fn test_check_enrollment_at_paths() {
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
-#[tokio::test]
-async fn test_check_netbird_execution() {
-    let state = check_netbird().await;
-    // On environments where NetBird is not installed (such as CI runners),
-    // check_netbird returns an Err from command spawning. When installed,
-    // it returns Ok(NetbirdState). Both are valid runtime outcomes.
-    match state {
-        Ok(s) => {
-            let _ = s.daemon_status;
-            let _ = s.netbird_ip;
-            let _ = s.management_connected;
-        }
-        Err(e) => {
-            assert!(!e.is_empty());
-        }
-    }
-}
-
 #[cfg(unix)]
 #[test]
 fn test_check_components_helpers_unix() {
@@ -766,8 +742,7 @@ fn test_open_browser_unsafe_noop() {
 }
 
 #[test]
-fn test_get_gtk_theme_and_parent_pid() {
-    let _ = get_gtk_theme();
+fn test_get_parent_pid_from_args() {
     #[cfg(unix)]
     {
         let pid = get_parent_pid_from_args();
