@@ -24,7 +24,7 @@ jobs:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         with:
-          components: rustfmt
+          components: rustfmt, llvm-tools-preview
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
@@ -35,7 +35,7 @@ jobs:
       - name: Install CI tools
         uses: taiki-e/install-action@d9be7d8cda89035c9c843f78bd44d4f72d8403d4
         with:
-          tool: cargo-machete, cargo-nextest
+          tool: cargo-machete, cargo-nextest, cargo-llvm-cov
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -64,9 +64,18 @@ jobs:
         working-directory: ./src-tauri
         run: cargo fmt --all --check
 
-      - name: Run tests
+      - name: Run tests with coverage
         working-directory: ./src-tauri
-        run: cargo nextest run --no-tests pass
+        run: |
+          cargo llvm-cov nextest --lcov --output-path lcov.info --remap-path-prefix
+          sed -i 's|^SF:src/|SF:src-tauri/src/|' lcov.info
+
+      - name: Upload coverage artifact
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-coverage
+          path: src-tauri/lcov.info
 
       - name: Check unused dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -75,10 +84,14 @@ jobs:
 
   scan:
     needs: ci
-    uses: ADORSYS-GIS/adorsys-ci-cd-templates/.github/workflows/sonarqube.yml@1566ed0da26bd29f41625655dd7171a5464762fd # main
+    uses: ADORSYS-GIS/adorsys-ci-cd-templates/.github/workflows/sonarqube.yml@8617a17cfc5f5a8897c2a3806bb543c20b4b57e0 # main
     with:
       project-key: wazuh-agent-installer
-      exclusions: "**/target/**,**/node_modules/**,**/dist/**"
+      exclusions: "**/target/**,**/node_modules/**,**/dist/**,**/coverage/**"
+      rust-coverage-report-paths: src-tauri/lcov.info
+      coverage-artifact-name: rust-coverage
+      coverage-artifact-path: src-tauri
+      extra-sonar-args: "-Dsonar.coverage.exclusions=install-scripts/**/*,src/**/*"
     secrets:
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
