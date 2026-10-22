@@ -121,15 +121,20 @@ async fn fetch_latest_version() -> Option<String> {
     }
 }
 
+fn get_local_version_at_path(config_dir: &std::path::Path) -> String {
+    let version_path = config_dir.join("version.txt");
+    if let Ok(content) = std::fs::read_to_string(version_path) {
+        let trimmed = content.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 fn get_local_version(app: &AppHandle) -> String {
     if let Ok(config_dir) = app.path().app_config_dir() {
-        let version_path = config_dir.join("version.txt");
-        if let Ok(content) = std::fs::read_to_string(version_path) {
-            let trimmed = content.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
+        return get_local_version_at_path(&config_dir);
     }
     env!("CARGO_PKG_VERSION").to_string()
 }
@@ -139,19 +144,25 @@ fn get_local_version_command(app: tauri::AppHandle) -> String {
     get_local_version(&app)
 }
 
+fn evaluate_update_available(current: &str, latest: Option<&str>) -> UpdateInfo {
+    let update_available = match (latest, parse_version(current)) {
+        (Some(latest_ver), Some(cur)) => {
+            parse_version(latest_ver).map(|l| l > cur).unwrap_or(false)
+        }
+        _ => false,
+    };
+
+    UpdateInfo {
+        update_available,
+        latest_version: latest.map(str::to_string),
+    }
+}
+
 #[tauri::command]
 async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     let current = get_local_version(&app);
     let latest = fetch_latest_version().await;
-    let update_available = match (&latest, parse_version(&current)) {
-        (Some(latest), Some(cur)) => parse_version(latest).map(|l| l > cur).unwrap_or(false),
-        _ => false,
-    };
-
-    Ok(UpdateInfo {
-        update_available,
-        latest_version: latest,
-    })
+    Ok(evaluate_update_available(&current, latest.as_deref()))
 }
 
 #[tauri::command]
@@ -248,15 +259,20 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn notify_update_linux(latest: &str) {
+    let _ = std::process::Command::new("notify-send")
+        .arg("-a")
+        .arg("Wazuh")
+        .arg("Wazuh Agent Installer")
+        .arg(format!("A new version ({}) is available.", latest))
+        .spawn();
+}
+
 fn notify_update(#[allow(unused_variables)] app: &AppHandle, latest: &str) {
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("notify-send")
-            .arg("-a")
-            .arg("Wazuh")
-            .arg("Wazuh Agent Installer")
-            .arg(format!("A new version ({}) is available.", latest))
-            .spawn();
+        notify_update_linux(latest);
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -445,6 +461,49 @@ fn classify_line(line: &str) -> &'static str {
 
 // ---- Commands ----
 
+#[cfg(unix)]
+fn make_script_executable_unix(resource_path: &std::path::Path) -> Result<String, String> {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(resource_path) {
+        let mode = meta.permissions().mode();
+        if mode & 0o111 != 0 {
+            // Already executable — use in place
+            return resource_path
+                .to_str()
+                .map(str::to_string)
+                .ok_or_else(|| "Script path contains invalid UTF-8".to_string());
+        }
+    }
+    // Not executable — write to a random, unpredictable temp file using O_EXCL
+    // (create_new) so a local attacker cannot pre-plant a symlink or race the path.
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = std::env::temp_dir().join(format!(
+        "wazuh-bundled-script-{}-{nanos}.sh",
+        std::process::id()
+    ));
+    let bytes = std::fs::read(resource_path)
+        .map_err(|e| format!("Failed to read bundled script: {}", e))?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(&tmp_path)
+        .map_err(|e| format!("Failed to create script in temp dir: {}", e))?;
+    file.write_all(&bytes)
+        .map_err(|e| format!("Failed to write script to temp dir: {}", e))?;
+    file.flush()
+        .map_err(|e| format!("Failed to flush script to temp dir: {}", e))?;
+    tmp_path
+        .to_str()
+        .map(str::to_string)
+        .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
+}
+
 fn resolve_bundled_script(app: &AppHandle, script_name: &str) -> Result<String, String> {
     let resource_path = app
         .path()
@@ -454,45 +513,7 @@ fn resolve_bundled_script(app: &AppHandle, script_name: &str) -> Result<String, 
     // If the file is already executable, use it directly (installed .deb case)
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(&resource_path) {
-            let mode = meta.permissions().mode();
-            if mode & 0o111 != 0 {
-                // Already executable — use in place
-                return resource_path
-                    .to_str()
-                    .map(str::to_string)
-                    .ok_or_else(|| "Script path contains invalid UTF-8".to_string());
-            }
-        }
-        // Not executable — write to a random, unpredictable temp file using O_EXCL
-        // (create_new) so a local attacker cannot pre-plant a symlink or race the path.
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let tmp_path = std::env::temp_dir().join(format!(
-            "wazuh-bundled-script-{}-{nanos}.sh",
-            std::process::id()
-        ));
-        let bytes = std::fs::read(&resource_path)
-            .map_err(|e| format!("Failed to read bundled script: {}", e))?;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o700)
-            .open(&tmp_path)
-            .map_err(|e| format!("Failed to create script in temp dir: {}", e))?;
-        file.write_all(&bytes)
-            .map_err(|e| format!("Failed to write script to temp dir: {}", e))?;
-        file.flush()
-            .map_err(|e| format!("Failed to flush script to temp dir: {}", e))?;
-        tmp_path
-            .to_str()
-            .map(str::to_string)
-            .ok_or_else(|| "Script path contains invalid UTF-8".to_string())
+        make_script_executable_unix(&resource_path)
     }
 
     #[cfg(not(unix))]
@@ -1220,7 +1241,11 @@ async fn check_netbird() -> Result<NetbirdState, String> {
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+    parse_netbird_status_json(&json_str)
+}
+
+fn parse_netbird_status_json(json_str: &str) -> Result<NetbirdState, String> {
+    let parsed: serde_json::Value = serde_json::from_str(json_str).map_err(|e| e.to_string())?;
 
     let daemon_status = parsed["daemonStatus"].as_str().map(str::to_string);
     let netbird_ip = parsed["netbirdIp"]
@@ -1266,6 +1291,27 @@ fn parse_enrollment_manager(content: &str) -> Option<String> {
         })
 }
 
+fn parse_enrollment_from_content(
+    keys_content: &str,
+    conf_content: Option<&str>,
+) -> EnrollmentState {
+    let agent_name = parse_enrollment_agent_name(keys_content);
+    if agent_name.is_none() {
+        return EnrollmentState {
+            enrolled: false,
+            agent_name: None,
+            manager: None,
+        };
+    }
+
+    let manager = conf_content.and_then(parse_enrollment_manager);
+    EnrollmentState {
+        enrolled: true,
+        agent_name,
+        manager,
+    }
+}
+
 #[tauri::command]
 async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(target_os = "windows")]
@@ -1278,15 +1324,6 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
     let keys_content = tokio::fs::read_to_string(keys_path)
         .await
         .unwrap_or_default();
-    let agent_name = parse_enrollment_agent_name(&keys_content);
-
-    if agent_name.is_none() {
-        return Ok(EnrollmentState {
-            enrolled: false,
-            agent_name: None,
-            manager: None,
-        });
-    }
 
     #[cfg(target_os = "windows")]
     let conf_path = r"C:\Program Files (x86)\ossec-agent\ossec.conf";
@@ -1295,16 +1332,11 @@ async fn check_enrollment() -> Result<EnrollmentState, String> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let conf_path = "/var/ossec/etc/ossec.conf";
 
-    let manager = tokio::fs::read_to_string(conf_path)
-        .await
-        .ok()
-        .and_then(|content| parse_enrollment_manager(&content));
-
-    Ok(EnrollmentState {
-        enrolled: true,
-        agent_name,
-        manager,
-    })
+    let manager_conf = tokio::fs::read_to_string(conf_path).await.ok();
+    Ok(parse_enrollment_from_content(
+        &keys_content,
+        manager_conf.as_deref(),
+    ))
 }
 
 #[tauri::command]
@@ -1326,22 +1358,26 @@ async fn save_logs(logs: String, prefix: String) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+fn parse_app_config_from_str(content: &str) -> AppConfig {
+    match serde_json::from_str(content) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!(
+                "Failed to parse config.json, falling back to defaults: {}",
+                e
+            );
+            AppConfig::default()
+        }
+    }
+}
+
 #[tauri::command]
 fn get_app_config(app: AppHandle) -> Result<AppConfig, String> {
     let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let config_path = config_dir.join("config.json");
     if config_path.exists() {
         let content = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
-        match serde_json::from_str(&content) {
-            Ok(config) => Ok(config),
-            Err(e) => {
-                eprintln!(
-                    "Failed to parse config.json, falling back to defaults: {}",
-                    e
-                );
-                Ok(AppConfig::default())
-            }
-        }
+        Ok(parse_app_config_from_str(&content))
     } else {
         Ok(AppConfig::default())
     }
@@ -1371,8 +1407,8 @@ fn pre_create_config() {
 }
 
 #[cfg(unix)]
-fn get_launcher_args() -> Vec<String> {
-    let mut raw = std::env::args().skip(1).peekable();
+fn get_launcher_args_from<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
+    let mut raw = args.into_iter().peekable();
     let mut out = Vec::new();
     while let Some(a) = raw.next() {
         if a == "--parent-pid" {
@@ -1384,6 +1420,20 @@ fn get_launcher_args() -> Vec<String> {
     out
 }
 
+#[cfg(unix)]
+fn get_launcher_args() -> Vec<String> {
+    get_launcher_args_from(std::env::args().skip(1))
+}
+
+fn parse_gtk_theme(output_str: &str) -> Option<String> {
+    let theme = output_str.trim().trim_matches('\'').to_string();
+    if !theme.is_empty() {
+        Some(theme)
+    } else {
+        None
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn get_gtk_theme() -> Option<String> {
     std::process::Command::new("gsettings")
@@ -1392,15 +1442,11 @@ fn get_gtk_theme() -> Option<String> {
         .ok()
         .and_then(|output| {
             if output.status.success() {
-                let theme = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .trim_matches('\'')
-                    .to_string();
-                if !theme.is_empty() {
-                    return Some(theme);
-                }
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                parse_gtk_theme(&stdout)
+            } else {
+                None
             }
-            None
         })
 }
 
@@ -1575,8 +1621,12 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn check_is_checker_mode<I: IntoIterator<Item = S>, S: AsRef<str>>(args: I) -> bool {
+    args.into_iter().any(|a| a.as_ref() == "--check-updates")
+}
+
 fn is_checker_mode() -> bool {
-    env::args().any(|a| a == "--check-updates")
+    check_is_checker_mode(env::args())
 }
 
 /// Non-elevated background checker: launched at login, reads version.txt once,
@@ -1600,11 +1650,8 @@ fn start_background_checker(app: AppHandle) {
     });
 }
 
-fn init_config_dir(app: &tauri::App) {
-    let Ok(config_dir) = app.path().app_config_dir() else {
-        return;
-    };
-    let _ = std::fs::create_dir_all(&config_dir);
+fn init_config_dir_at_path(config_dir: &std::path::Path) {
+    let _ = std::fs::create_dir_all(config_dir);
 
     let config_path = config_dir.join("config.json");
     if !config_path.exists() {
@@ -1627,6 +1674,13 @@ fn init_config_dir(app: &tauri::App) {
     } else {
         let _ = std::fs::write(&version_path, cargo_version);
     }
+}
+
+fn init_config_dir(app: &tauri::App) {
+    let Ok(config_dir) = app.path().app_config_dir() else {
+        return;
+    };
+    init_config_dir_at_path(&config_dir);
 }
 
 fn start_update_poller(app_handle: tauri::AppHandle) {
@@ -1816,652 +1870,4 @@ pub fn run() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_app_config_default() {
-        let config = AppConfig::default();
-        assert_eq!(config.wazuh_manager_url, "manager.wazuh.adorsys.team");
-        assert_eq!(
-            config.wazuh_oauth_issuer,
-            "https://login.wazuh.adorsys.team/realms/adorsys"
-        );
-        assert_eq!(
-            config.wazuh_cert_endpoint,
-            "https://cert.wazuh.adorsys.team/api/register-agent"
-        );
-        assert_eq!(
-            config.netbird_management_url,
-            "https://netbird.guard.adorsys.com"
-        );
-    }
-
-    #[test]
-    fn test_app_config_serialization() {
-        let config = AppConfig::default();
-        let json = serde_json::to_string(&config).unwrap();
-        let deserialized: AppConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.wazuh_manager_url, config.wazuh_manager_url);
-    }
-
-    #[test]
-    fn test_install_config_serialization() {
-        let config = InstallConfig {
-            wazuh_manager: "wazuh.local".to_string(),
-            wazuh_agent_name: "test-agent".to_string(),
-            log_level: "debug".to_string(),
-            ids_engine: "suricata".to_string(),
-            suricata_mode: "ips".to_string(),
-            install_netbird: true,
-            oauth_issuer: "https://auth.local".to_string(),
-            cert_endpoint: "https://cert.local".to_string(),
-        };
-        let json = serde_json::to_string(&config).unwrap();
-        let deserialized: InstallConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.wazuh_manager, "wazuh.local");
-        assert!(deserialized.install_netbird);
-    }
-
-    #[test]
-    fn test_parse_version() {
-        assert_eq!(parse_version("1.2.3"), Some((1, 2, 3)));
-        assert_eq!(parse_version("v1.2.3"), Some((1, 2, 3)));
-        assert_eq!(parse_version("v2.1"), Some((2, 1, 0)));
-        assert_eq!(parse_version("3"), Some((3, 0, 0)));
-        assert_eq!(parse_version("v1.2.3-rc.1"), Some((1, 2, 3)));
-        assert_eq!(parse_version("   v4.5.6   "), Some((4, 5, 6)));
-        assert_eq!(parse_version("invalid"), None);
-        assert_eq!(parse_version(""), None);
-        assert_eq!(parse_version("v"), None);
-    }
-
-    #[test]
-    fn test_parse_yara_version() {
-        assert_eq!(
-            parse_yara_version("4.3.2\nCopyright 2023"),
-            Some("4.3.2".to_string())
-        );
-        assert_eq!(parse_yara_version("  4.2.0  "), Some("4.2.0".to_string()));
-        assert_eq!(parse_yara_version(""), Some("".to_string()));
-    }
-
-    #[test]
-    fn test_parse_suricata_version() {
-        assert_eq!(
-            parse_suricata_version("This is Suricata version 7.0.2 RELEASE"),
-            Some("7.0.2".to_string())
-        );
-        assert_eq!(
-            parse_suricata_version("suricata 6.0.10"),
-            Some("6.0.10".to_string())
-        );
-        assert_eq!(
-            parse_suricata_version("suricata version 7.0.0-dev"),
-            Some("7.0.0-dev".to_string())
-        );
-        assert_eq!(
-            parse_suricata_version("Unknown scanner 1.0"),
-            Some("Unknown scanner 1.0".to_string())
-        );
-    }
-
-    #[test]
-    fn test_parse_wazuh_agent_version() {
-        assert_eq!(
-            parse_wazuh_agent_version("WAZUH_VERSION=\"v4.8.0\"\nWAZUH_REVISION=\"123\""),
-            Some("v4.8.0".to_string())
-        );
-        assert_eq!(
-            parse_wazuh_agent_version("Wazuh v4.7.2 (installed)"),
-            Some("4.7.2".to_string())
-        );
-        #[cfg(not(windows))]
-        assert_eq!(parse_wazuh_agent_version("No match"), None);
-        #[cfg(windows)]
-        assert_eq!(
-            parse_wazuh_agent_version("Some Windows output"),
-            Some("Some Windows output".to_string())
-        );
-    }
-
-    #[test]
-    fn test_parse_netbird_version() {
-        assert_eq!(
-            parse_netbird_version("0.26.1\ncommit hash: abc"),
-            Some("0.26.1".to_string())
-        );
-        assert_eq!(
-            parse_netbird_version("  0.25.0  "),
-            Some("0.25.0".to_string())
-        );
-        assert_eq!(parse_netbird_version(""), None);
-        assert_eq!(parse_netbird_version("   \n   "), None);
-    }
-
-    #[test]
-    fn test_parse_default_version() {
-        assert_eq!(
-            parse_default_version("Tool version 2.34.1"),
-            Some("2.34.1".to_string())
-        );
-        assert_eq!(
-            parse_default_version("Release 1.0 (2024-01-01)"),
-            Some("1.0".to_string())
-        );
-        assert_eq!(parse_default_version("no numbers here"), None);
-    }
-
-    #[test]
-    fn test_parse_component_version() {
-        assert_eq!(
-            parse_component_version("YARA", "4.3.0\n"),
-            Some("4.3.0".to_string())
-        );
-        assert_eq!(
-            parse_component_version("Suricata", "Suricata version 7.0.1"),
-            Some("7.0.1".to_string())
-        );
-        assert_eq!(
-            parse_component_version("Wazuh Agent", "WAZUH_VERSION=\"4.8.1\""),
-            Some("4.8.1".to_string())
-        );
-        assert_eq!(
-            parse_component_version("NetBird", "0.27.0"),
-            Some("0.27.0".to_string())
-        );
-        assert_eq!(
-            parse_component_version("Other", "Utility 5.6.7"),
-            Some("5.6.7".to_string())
-        );
-    }
-
-    #[test]
-    fn test_classify_line() {
-        assert_eq!(classify_line("Installation [ERROR] failed"), "error");
-        assert_eq!(classify_line("error: missing dependency"), "error");
-        assert_eq!(classify_line("bash: command not found"), "error");
-        assert_eq!(classify_line("Task completed [SUCCESS]"), "success");
-        assert_eq!(classify_line("Agent installed successfully"), "success");
-        assert_eq!(classify_line("All steps completed"), "success");
-        assert_eq!(classify_line("Downloading package 45%"), "info");
-    }
-
-    #[test]
-    fn test_is_safe_url() {
-        assert!(is_safe_url("https://adorsys.com"));
-        assert!(is_safe_url(
-            "https://login.wazuh.adorsys.team/auth?code=123"
-        ));
-        assert!(is_safe_url("http://localhost:8080/register"));
-        assert!(!is_safe_url("ftp://malicious.com"));
-        assert!(!is_safe_url("javascript:alert(1)"));
-        assert!(!is_safe_url("https://example.com/has space"));
-        assert!(!is_safe_url("https://example.com\nnew-arg"));
-        assert!(!is_safe_url(""));
-    }
-
-    #[test]
-    fn test_parse_enrollment_agent_name() {
-        let content = "001 agent-charlie 192.168.1.100 89abcdef\n";
-        assert_eq!(
-            parse_enrollment_agent_name(content),
-            Some("agent-charlie".to_string())
-        );
-
-        let multi_line = "\n\n002 prod-worker 10.0.0.5 token123\n";
-        assert_eq!(
-            parse_enrollment_agent_name(multi_line),
-            Some("prod-worker".to_string())
-        );
-
-        assert_eq!(parse_enrollment_agent_name(""), None);
-        assert_eq!(parse_enrollment_agent_name("single_word"), None);
-    }
-
-    #[test]
-    fn test_parse_enrollment_manager() {
-        let xml = "
-<ossec_config>
-  <client>
-    <server>
-      <address>wazuh-manager.adorsys.team</address>
-      <port>1514</port>
-    </server>
-  </client>
-</ossec_config>";
-        assert_eq!(
-            parse_enrollment_manager(xml),
-            Some("wazuh-manager.adorsys.team".to_string())
-        );
-
-        let invalid = "<ossec_config><no_address>none</no_address></ossec_config>";
-        assert_eq!(parse_enrollment_manager(invalid), None);
-    }
-
-    #[test]
-    fn test_build_netbird_up_command() {
-        let cmd = build_netbird_up_command("key-12345", "https://netbird.custom.com");
-        let debug = format!("{:?}", cmd);
-        assert!(debug.contains("netbird"));
-        assert!(debug.contains("https://netbird.custom.com"));
-        assert!(debug.contains("key-12345"));
-
-        // Default management URL fallback
-        let default_cmd = build_netbird_up_command("", "");
-        let default_debug = format!("{:?}", default_cmd);
-        assert!(default_debug.contains("https://api.netbird.io:443"));
-    }
-
-    #[test]
-    fn test_build_enroll_command() {
-        let cmd = build_enroll_command("https://issuer.com", "https://cert.com", true);
-        let debug = format!("{:?}", cmd);
-        assert!(debug.contains("o-auth2"));
-        assert!(debug.contains("--issuer"));
-        assert!(debug.contains("https://issuer.com"));
-        assert!(debug.contains("--endpoint"));
-        assert!(debug.contains("https://cert.com"));
-        assert!(debug.contains("--overwrite"));
-
-        let no_overwrite_cmd =
-            build_enroll_command("https://issuer.com", "https://cert.com", false);
-        let no_overwrite_debug = format!("{:?}", no_overwrite_cmd);
-        assert!(!no_overwrite_debug.contains("--overwrite"));
-    }
-
-    #[test]
-    fn test_build_install_command() {
-        let config = InstallConfig {
-            wazuh_manager: "mgr.wazuh.team".to_string(),
-            wazuh_agent_name: "test-node".to_string(),
-            log_level: "info".to_string(),
-            ids_engine: "suricata".to_string(),
-            suricata_mode: "ids".to_string(),
-            install_netbird: true,
-            oauth_issuer: "https://issuer.com".to_string(),
-            cert_endpoint: "https://cert.com".to_string(),
-        };
-        let cmd = build_install_command(&config, "/path/to/install.sh");
-        let debug = format!("{:?}", cmd);
-        #[cfg(not(target_os = "windows"))]
-        {
-            assert!(debug.contains("bash"));
-            assert!(debug.contains("-b"));
-        }
-        #[cfg(target_os = "windows")]
-        {
-            assert!(debug.contains("powershell"));
-            assert!(debug.contains("-InstallNetBird"));
-        }
-    }
-
-    #[test]
-    fn test_get_platform() {
-        let platform = get_platform();
-        assert!(!platform.is_empty());
-        assert_eq!(platform, std::env::consts::OS);
-    }
-
-    #[tokio::test]
-    async fn test_save_logs_invalid_prefix() {
-        assert!(save_logs("some logs".into(), "".into()).await.is_err());
-        assert!(save_logs("some logs".into(), "../bad".into())
-            .await
-            .is_err());
-        assert!(save_logs("some logs".into(), "invalid space".into())
-            .await
-            .is_err());
-        assert!(save_logs("some logs".into(), "inv@lid!".into())
-            .await
-            .is_err());
-    }
-
-    #[tokio::test]
-    async fn test_save_logs_valid_prefix() {
-        let logs_content = "2026-10-21 Log line 1\n2026-10-21 Log line 2";
-        let prefix = "test_valid_logs";
-        let res = save_logs(logs_content.into(), prefix.into()).await;
-        if let Ok(file_path) = res {
-            assert!(std::path::Path::new(&file_path).exists());
-            let read_back = tokio::fs::read_to_string(&file_path).await.unwrap();
-            assert_eq!(read_back, logs_content);
-            let _ = tokio::fs::remove_file(file_path).await;
-        }
-    }
-
-    #[test]
-    fn test_classify_line_comprehensive() {
-        assert_eq!(classify_line("ERROR: Process terminated"), "error");
-        assert_eq!(classify_line("[ERROR] Fatal error occurred"), "error");
-        assert_eq!(classify_line("Download failed completely"), "error");
-        assert_eq!(classify_line("zsh: command not found: yara"), "error");
-        assert_eq!(classify_line("Operation [SUCCESS] finished"), "success");
-        assert_eq!(classify_line("Package installed successfully"), "success");
-        assert_eq!(
-            classify_line("Installation completed without errors"),
-            "success"
-        );
-        assert_eq!(classify_line("Normal informational log output"), "info");
-        assert_eq!(classify_line(""), "info");
-    }
-
-    #[tokio::test]
-    async fn test_get_enroll_line_processor() {
-        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
-        let mut processor = get_enroll_line_processor(notify.clone());
-
-        // Line without done should not notify
-        processor("Processing certificate request...");
-
-        // Line with ] Done! should notify
-        processor("[Step 5/5] Done!");
-        let notified =
-            tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
-        assert!(notified.is_ok());
-
-        // Line with exact "Done!" should notify
-        processor("Done!");
-        let notified2 =
-            tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
-        assert!(notified2.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_get_netbird_line_processor() {
-        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
-        let mut processor = get_netbird_line_processor(notify.clone());
-
-        // Disconnected line should not trigger
-        processor("Disconnected from peer");
-
-        // Connected line should notify
-        processor("Connected to NetBird management service");
-        let notified =
-            tokio::time::timeout(std::time::Duration::from_millis(50), notify.notified()).await;
-        assert!(notified.is_ok());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_check_component_unix() {
-        let (found, _) = check_component_unix("Other", "/bin/sh");
-        assert!(found);
-
-        let (not_found, _) = check_component_unix("Other", "/tmp/non_existent_binary_xyz_123");
-        assert!(!not_found);
-
-        let (netbird_res, _) = check_component_unix("NetBird", "/bin/sh");
-        assert!(netbird_res);
-
-        let (suricata_res, _) = check_component_unix("Suricata", "/bin/sh");
-        assert!(suricata_res);
-    }
-
-    #[test]
-    fn test_create_command() {
-        let cmd = create_command("echo");
-        let debug = format!("{:?}", cmd);
-        assert!(debug.contains("echo"));
-    }
-
-    #[tokio::test]
-    async fn test_get_component_version_async() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let tmp_script =
-                std::env::temp_dir().join(format!("mock-tool-{}.sh", std::process::id()));
-            let script_content = r#"#!/bin/sh
-if [ "$1" = "-V" ]; then
-    echo "Suricata 7.0.3"
-elif [ "$1" = "--version" ]; then
-    echo "yara 4.5.2"
-elif [ "$1" = "version" ]; then
-    echo "0.28.3"
-elif [ "$1" = "info" ]; then
-    echo 'WAZUH_VERSION="4.8.0"'
-fi
-"#;
-            std::fs::write(&tmp_script, script_content).unwrap();
-            let mut perms = std::fs::metadata(&tmp_script).unwrap().permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&tmp_script, perms).unwrap();
-
-            let script_path = tmp_script.to_string_lossy().to_string();
-
-            let suricata_ver = get_component_version("Suricata", &script_path).await;
-            assert_eq!(suricata_ver, Some("7.0.3".to_string()));
-
-            let yara_ver = get_component_version("YARA", &script_path).await;
-            assert_eq!(yara_ver, Some("yara 4.5.2".to_string()));
-
-            let netbird_ver = get_component_version("NetBird", &script_path).await;
-            assert_eq!(netbird_ver, Some("0.28.3".to_string()));
-
-            let other_ver = get_component_version("CustomTool", &script_path).await;
-            assert_eq!(other_ver, Some("4.5.2".to_string()));
-
-            let none_ver = get_component_version("Suricata", "/tmp/non_existent_mock_file").await;
-            assert_eq!(none_ver, None);
-
-            let _ = std::fs::remove_file(tmp_script);
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn test_get_runtime_path_and_lock() {
-        let path = get_runtime_path("unit-test-file.txt");
-        assert!(path.contains("unit-test-file.txt"));
-
-        if let Some(fd) = try_lock_instance() {
-            let second_lock = try_lock_instance();
-            assert!(second_lock.is_none());
-            unsafe { libc::close(fd) };
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_pre_create_config_unix() {
-        let tmp_home = std::env::temp_dir().join(format!("test-home-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&tmp_home);
-        std::env::set_var("HOME", &tmp_home);
-
-        pre_create_config();
-
-        let cfg_file = tmp_home.join(".config/com.adorsys.wazuh-agent-installer/config.json");
-        assert!(cfg_file.exists());
-        let content = std::fs::read_to_string(cfg_file).unwrap();
-        let parsed: Result<AppConfig, _> = serde_json::from_str(&content);
-        assert!(parsed.is_ok());
-
-        let _ = std::fs::remove_dir_all(tmp_home);
-    }
-
-    #[test]
-    fn test_struct_representations() {
-        let log = LogLine {
-            line: "Started install".to_string(),
-            level: "info".to_string(),
-        };
-        let serialized_log = serde_json::to_string(&log).unwrap();
-        assert!(serialized_log.contains("Started install"));
-
-        let res = InstallResult {
-            success: true,
-            exit_code: 0,
-            message: "Setup done".to_string(),
-        };
-        let serialized = serde_json::to_string(&res).unwrap();
-        assert!(serialized.contains("Setup done"));
-        assert!(serialized.contains("\"exit_code\":0"));
-
-        let status = ComponentStatus {
-            name: "YARA".to_string(),
-            installed: true,
-            version: Some("4.5.4".to_string()),
-            path: "/usr/local/bin/yara".to_string(),
-        };
-        let status_json = serde_json::to_string(&status).unwrap();
-        assert!(status_json.contains("YARA"));
-        assert!(status_json.contains("/usr/local/bin/yara"));
-
-        let netbird_state = NetbirdState {
-            daemon_status: Some("Connected".to_string()),
-            netbird_ip: Some("100.64.0.1".to_string()),
-            management_connected: true,
-        };
-        let nb_json = serde_json::to_string(&netbird_state).unwrap();
-        assert!(nb_json.contains("100.64.0.1"));
-        assert!(nb_json.contains("Connected"));
-
-        let enroll_state = EnrollmentState {
-            enrolled: true,
-            agent_name: Some("test-agent".to_string()),
-            manager: Some("manager.wazuh.team".to_string()),
-        };
-        let enroll_json = serde_json::to_string(&enroll_state).unwrap();
-        assert!(enroll_json.contains("test-agent"));
-        assert!(enroll_json.contains("manager.wazuh.team"));
-
-        let update_info = UpdateInfo {
-            update_available: true,
-            latest_version: Some("1.1.0".to_string()),
-        };
-        let update_json = serde_json::to_string(&update_info).unwrap();
-        assert!(update_json.contains("1.1.0"));
-        assert!(update_json.contains("true"));
-    }
-
-    #[test]
-    fn test_is_root_matches_euid() {
-        #[cfg(unix)]
-        {
-            let expected = unsafe { libc::geteuid() == 0 };
-            assert_eq!(is_root(), expected);
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_launcher_args_and_checker_mode() {
-        let args = get_launcher_args();
-        assert!(args.is_empty() || !args.is_empty());
-
-        let checker = is_checker_mode();
-        assert_eq!(checker, std::env::args().any(|a| a == "--check-updates"));
-    }
-
-    #[test]
-    fn test_build_install_command_without_netbird() {
-        let config = InstallConfig {
-            wazuh_manager: "127.0.0.1".to_string(),
-            wazuh_agent_name: "node-1".to_string(),
-            log_level: "debug".to_string(),
-            ids_engine: "none".to_string(),
-            suricata_mode: "ips".to_string(),
-            install_netbird: false,
-            oauth_issuer: "".to_string(),
-            cert_endpoint: "".to_string(),
-        };
-        let cmd = build_install_command(&config, "/opt/script.sh");
-        let debug = format!("{:?}", cmd);
-        #[cfg(not(target_os = "windows"))]
-        {
-            assert!(!debug.contains(" -b"));
-        }
-        #[cfg(target_os = "windows")]
-        {
-            assert!(!debug.contains("-InstallNetBird"));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_check_components_execution() {
-        let res = check_components().await;
-        assert!(res.is_ok());
-        let components = res.unwrap();
-        assert_eq!(components.len(), 6);
-        let names: Vec<String> = components.into_iter().map(|c| c.name).collect();
-        assert!(names.contains(&"Wazuh Agent".to_string()));
-        assert!(names.contains(&"NetBird".to_string()));
-        assert!(names.contains(&"Suricata".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_check_enrollment_execution() {
-        let state = check_enrollment().await;
-        assert!(state.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_check_netbird_execution() {
-        let state = check_netbird().await;
-        // On environments where NetBird is not installed (such as CI runners),
-        // check_netbird returns an Err from command spawning. When installed,
-        // it returns Ok(NetbirdState). Both are valid runtime outcomes.
-        match state {
-            Ok(s) => {
-                let _ = s.daemon_status;
-                let _ = s.netbird_ip;
-                let _ = s.management_connected;
-            }
-            Err(e) => {
-                assert!(!e.is_empty());
-            }
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_check_components_helpers_unix() {
-        let (found, path) = check_netbird_unix("/bin/sh");
-        assert!(found);
-        assert_eq!(path, "/bin/sh");
-
-        let (not_found, _) = check_netbird_unix("/non_existent_path_xyz_123");
-        let _ = not_found;
-
-        let (s_found, s_path) = check_suricata_unix("/bin/sh");
-        assert!(s_found);
-        assert_eq!(s_path, "/bin/sh");
-
-        let (s_not_found, _) = check_suricata_unix("/non_existent_suricata_path");
-        let _ = s_not_found;
-
-        let fallback = fallback_netbird_cmd_unix();
-        let _ = fallback;
-    }
-
-    #[test]
-    fn test_open_browser_safe_and_unsafe() {
-        open_browser("ftp://unsafe.com");
-        open_browser("javascript:alert(1)");
-        open_browser("   ");
-
-        std::env::set_var("SUDO_USER", "nobody");
-        open_browser("https://valid-example-domain-123.com");
-        std::env::remove_var("SUDO_USER");
-    }
-
-    #[test]
-    fn test_get_gtk_theme_and_parent_pid() {
-        let _ = get_gtk_theme();
-        #[cfg(unix)]
-        {
-            let pid = get_parent_pid_from_args();
-            assert_eq!(pid, None);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_get_enroll_line_processor_url_detection() {
-        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
-        let mut processor = get_enroll_line_processor(notify.clone());
-
-        processor("Navigate to https://auth.company.com/realms/corp/device to authenticate");
-        processor("https://auth.company.com/realms/corp/direct");
-    }
-}
+mod tests;
