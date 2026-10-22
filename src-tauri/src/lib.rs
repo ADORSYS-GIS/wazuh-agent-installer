@@ -459,8 +459,6 @@ async fn get_component_version(name: &str, path: &str) -> Option<String> {
                 + String::from_utf8_lossy(&output.stderr).as_ref();
             return parse_component_version(name, &out_str);
         }
-    } else if cfg!(test) {
-        eprintln!("get_component_version: failed to spawn {cmd_target}");
     }
     None
 }
@@ -706,7 +704,7 @@ async fn wait_for_process_or_rx(
             (status.success(), status.code().unwrap_or(-1))
         }
         Some(_) = rx_done.recv() => {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let _ = child.kill().await;
             (true, 0)
         }
     };
@@ -742,6 +740,7 @@ async fn wait_for_process_or_notify(
             })
         },
         _ = notify.notified() => {
+            let _ = child.kill().await;
             Ok(InstallResult {
                 success: true,
                 exit_code: 0,

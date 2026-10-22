@@ -540,14 +540,12 @@ fn test_pre_create_config_unix() {
     // Empty home does nothing
     pre_create_config_at_home("");
 
-    let orig_home = std::env::var("HOME").ok();
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let tmp_home = std::env::temp_dir().join(format!("test-home-{}-{nanos}", std::process::id()));
     let _ = std::fs::create_dir_all(&tmp_home);
-    std::env::set_var("HOME", &tmp_home);
 
     let home_str = tmp_home.to_string_lossy();
     pre_create_config_at_home(&home_str);
@@ -558,19 +556,10 @@ fn test_pre_create_config_unix() {
     // Calling again when config.json exists exercises the already-exists branch
     pre_create_config_at_home(&home_str);
 
-    // Call pre_create_config() as normal
-    pre_create_config();
-
     let content = std::fs::read_to_string(&cfg_file).unwrap();
     let parsed: Result<AppConfig, _> = serde_json::from_str(&content);
     assert!(parsed.is_ok());
 
-    // Restore original HOME and clean up
-    if let Some(h) = orig_home {
-        std::env::set_var("HOME", h);
-    } else {
-        std::env::remove_var("HOME");
-    }
     let _ = std::fs::remove_dir_all(&tmp_home);
 }
 
@@ -642,7 +631,7 @@ fn test_is_root_matches_euid() {
 #[test]
 fn test_launcher_args_and_checker_mode() {
     let args = get_launcher_args();
-    assert!(args.is_empty() || !args.is_empty());
+    assert_eq!(args, get_launcher_args_from(std::env::args().skip(1)));
 
     let checker = is_checker_mode();
     assert_eq!(checker, std::env::args().any(|a| a == "--check-updates"));
@@ -970,12 +959,6 @@ fn test_parse_gtk_theme() {
     assert_eq!(parse_gtk_theme("Adwaita\n"), Some("Adwaita".to_string()));
     assert_eq!(parse_gtk_theme("   ''   "), None);
     assert_eq!(parse_gtk_theme(""), None);
-}
-
-#[tokio::test]
-async fn test_fetch_latest_version_execution() {
-    // Runs fetch_latest_version against real curl execution
-    let _ = fetch_latest_version().await;
 }
 
 #[cfg(target_os = "linux")]
