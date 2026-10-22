@@ -532,6 +532,12 @@ fn test_try_lock_at_temp_path() {
         unsafe { libc::close(fd) };
     }
     let _ = std::fs::remove_file(&tmp_lock);
+
+    assert_eq!(try_lock_at_path("invalid\0null\0path"), None);
+    assert_eq!(
+        try_lock_at_path("/non_existent_dir_xyz_987/nested/file.lock"),
+        None
+    );
 }
 
 #[cfg(unix)]
@@ -1630,5 +1636,174 @@ fn test_parse_component_version_default_fallback() {
         parse_wazuh_agent_version("Wazuh v4.7.2 (built on Linux)"),
         Some("4.7.2".to_string())
     );
+    assert_eq!(
+        parse_wazuh_agent_version("WAZUH_VERSION=\"4.8.0\"\nWAZUH_REVISION=\"1\""),
+        Some("4.8.0".to_string())
+    );
+    assert_eq!(
+        parse_wazuh_agent_version("WAZUH_VERSION=\"no_closing_quote"),
+        None
+    );
     assert_eq!(parse_wazuh_agent_version("completely unknown format"), None);
+
+    // Suricata with "suricata <version>"
+    assert_eq!(
+        parse_suricata_version("suricata 7.0.3-custom"),
+        Some("7.0.3-custom".to_string())
+    );
+    assert_eq!(
+        parse_suricata_version("plain raw banner"),
+        Some("plain raw banner".to_string())
+    );
+}
+
+#[test]
+fn test_get_update_script_name_direct() {
+    let script = get_update_script_name();
+    assert!(script.ends_with(".sh") || script.ends_with(".ps1"));
+}
+
+#[tokio::test]
+async fn test_check_components_execution() {
+    let res = check_components().await;
+    assert!(res.is_ok());
+    let list = res.unwrap();
+    assert!(!list.is_empty());
+    for item in list {
+        assert!(!item.name.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn test_check_netbird_execution() {
+    let _ = check_netbird().await;
+}
+
+#[tokio::test]
+async fn test_save_logs_command() {
+    let res = save_logs("sample logs\nline 2".to_string(), "unit-test".to_string()).await;
+    assert!(res.is_ok());
+    let path = res.unwrap();
+    assert!(path.contains("wazuh-unit-test-logs.txt"));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_pre_create_config_direct() {
+    pre_create_config();
+}
+
+#[test]
+fn test_get_gtk_theme_direct() {
+    let theme = get_gtk_theme();
+    if let Some(t) = theme {
+        assert!(!t.is_empty());
+    }
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn test_get_runtime_path_direct() {
+    let p = get_runtime_path("test-run.txt");
+    assert!(p.ends_with("test-run.txt"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_get_launcher_args_direct() {
+    let _ = get_launcher_args();
+}
+
+#[test]
+#[cfg(unix)]
+fn test_spawn_watchdog_direct() {
+    spawn_watchdog();
+}
+
+#[tokio::test]
+async fn test_fetch_version_from_cmd_success() {
+    let mut cmd = Command::new("echo");
+    cmd.arg("1.2.3");
+    let res = fetch_version_from_cmd(cmd).await;
+    assert_eq!(res, Some("1.2.3".to_string()));
+}
+
+#[tokio::test]
+async fn test_fetch_version_from_cmd_failure() {
+    let cmd = Command::new("false");
+    let res = fetch_version_from_cmd(cmd).await;
+    assert_eq!(res, None);
+}
+
+#[test]
+fn test_parse_tray_menu_action_all() {
+    assert_eq!(parse_tray_menu_action("show"), TrayMenuAction::Show);
+    assert_eq!(parse_tray_menu_action("quit"), TrayMenuAction::Quit);
+    assert_eq!(parse_tray_menu_action("custom"), TrayMenuAction::Unknown);
+
+    let mut showed = false;
+    let mut quitted = false;
+    execute_tray_menu_action(TrayMenuAction::Unknown, || showed = true, || quitted = true);
+    assert!(!showed && !quitted);
+}
+
+#[test]
+fn test_parse_netbird_status_json_partial() {
+    let partial_json = r#"{"netbirdIp":"100.64.0.5"}"#;
+    let partial_state = parse_netbird_status_json(partial_json).unwrap();
+    assert_eq!(partial_state.daemon_status, None);
+    assert_eq!(partial_state.netbird_ip, Some("100.64.0.5".to_string()));
+    assert!(!partial_state.management_connected);
+}
+
+#[test]
+fn test_parse_curl_version_output_whitespace() {
+    let out = std::process::Command::new("echo")
+        .arg("   v2.9.9\n\n")
+        .output()
+        .unwrap();
+    assert_eq!(parse_curl_version_output(&out), Some("v2.9.9".to_string()));
+}
+
+#[tokio::test]
+async fn test_get_component_version_spawn_failure() {
+    let res = get_component_version("CustomTool", "/non_existent_binary_xyz_123").await;
+    assert_eq!(res, None);
+}
+
+#[tokio::test]
+async fn test_write_rx_logs_to_file_open_error() {
+    let (_, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let res = write_rx_logs_to_file("/non_existent_dir_xyz_123/logs.txt", rx).await;
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_get_app_config_at_path_error() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_dir = std::env::temp_dir().join(format!("test_config_err_{nanos}"));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    std::fs::create_dir_all(tmp_dir.join("config.json")).unwrap();
+    assert!(get_app_config_at_path(&tmp_dir).is_err());
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_get_local_version_at_path_read_error() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_dir = std::env::temp_dir().join(format!("test_ver_err_{nanos}"));
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    std::fs::create_dir_all(tmp_dir.join("version.txt")).unwrap();
+    assert_eq!(
+        get_local_version_at_path(&tmp_dir),
+        env!("CARGO_PKG_VERSION")
+    );
+    let _ = std::fs::remove_dir_all(&tmp_dir);
 }

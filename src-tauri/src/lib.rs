@@ -96,9 +96,8 @@ fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
 
 /// Fetch version.txt over HTTPS using curl (present on all supported platforms,
 /// and already a dependency of the install scripts).
-async fn fetch_latest_version() -> Option<String> {
-    let child = Command::new("curl")
-        .args(["-fsSL", "--proto", "=https", "--tlsv1.2", VERSION_FILE_URL])
+async fn fetch_version_from_cmd(mut cmd: Command) -> Option<String> {
+    let child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -110,6 +109,12 @@ async fn fetch_latest_version() -> Option<String> {
         .ok()?
         .ok()?;
     parse_curl_version_output(&output)
+}
+
+async fn fetch_latest_version() -> Option<String> {
+    let mut cmd = Command::new("curl");
+    cmd.args(["-fsSL", "--proto", "=https", "--tlsv1.2", VERSION_FILE_URL]);
+    fetch_version_from_cmd(cmd).await
 }
 
 fn parse_curl_version_output(output: &std::process::Output) -> Option<String> {
