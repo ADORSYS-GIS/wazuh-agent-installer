@@ -101,3 +101,4 @@ Nothing to roll back.
 | Kind | Tracking | Status | What it covers |
 | :--- | :--- | :--- | :--- |
 | Issue | ADORSYS-GIS/wazuh-agent-installer#35 | Open | Requests SBOM generation in CI |
+| PR | ADORSYS-GIS/wazuh-agent-installer#39 | Open | Adds the `sbom` job and this ADR |
