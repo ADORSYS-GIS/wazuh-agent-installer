@@ -8,6 +8,13 @@ A desktop GUI application that provides a guided interface for installing and co
 
 ---
 
+## Documentation
+
+See [Documentation](./docs/README.md) for the repository's documentation index
+and the SDLC-based documentation structure.
+
+---
+
 ## Features
 
 - **Sidebar UI:** Intuitive layout with Setup, Enrollment, and Components tabs.
