@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml)
 [![Release](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/release.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/release.yml)
+[![Static Application Security Testing](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/sast.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/sast.yml)
 
 A desktop GUI application that provides a guided interface for installing and configuring a full Wazuh security agent stack on Linux, macOS, and Windows.
 
@@ -55,6 +56,7 @@ npm run tauri dev
 ## Branding & Customization
 
 All branding elements and preconfigured values are controlled from `src/config.ts`. This is the **single source of truth** for:
+
 - Company logo
 - Application title and version
 - Color themes (primary, secondary, backgrounds, borders, status highlights)
@@ -75,24 +77,27 @@ Download the latest release from the [**GitHub Releases page**](https://github.c
 Alternatively, use the one-liner installation scripts for UNIX environments:
 
 **macOS:**
+
 ```bash
 curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/macos.sh | bash -s latest
 ```
 
 **Linux (Ubuntu):**
+
 ```bash
 curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/ubuntu.sh | bash -s latest
 ```
 
 **Windows:**
+
 ```powershell
 irm https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/windows.ps1 | iex
 ```
 
-| Platform | Package                                     |
-| -------- | ------------------------------------------- |
-| Linux    | `.deb`, `.AppImage` (AMD64 and ARM64)       |
-| macOS    | `.dmg` (universal — Intel + Apple Silicon)  |
-| Windows  | `.msi`, `.exe`                              |
+| Platform | Package                                    |
+| -------- | ------------------------------------------ |
+| Linux    | `.deb`, `.AppImage` (AMD64 and ARM64)      |
+| macOS    | `.dmg` (universal — Intel + Apple Silicon) |
+| Windows  | `.msi`, `.exe`                             |
 
 > Releases are tagged as `v<major>.<minor>.<patch>` and built from the `main` branch. Artifacts are signed and their checksums are published alongside each release.
