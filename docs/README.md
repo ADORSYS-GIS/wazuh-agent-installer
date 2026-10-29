@@ -1,6 +1,6 @@
 # Wazuh Agent Installer Documentation
 
-Documentation for the Wazuh Agent Installer — a desktop GUI application that
+Documentation for the Wazuh Agent Installer, a desktop GUI application that
 provides a guided interface for installing and configuring a full Wazuh security
 agent stack on Linux, macOS, and Windows. This documentation is for developers,
 maintainers, and contributors.
