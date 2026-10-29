@@ -7,7 +7,7 @@
 | Field             | Value                                         |
 | :---------------- | :-------------------------------------------- |
 | **Document ID**   | ADR-0001                                      |
-| **Status**        | `Proposed`                                    |
+| **Status**        | `Accepted`                                    |
 | **Date**          | 2026-10-27                                    |
 | **Deciders**      | Wazuh maintainers                             |
 | **Governs**       | `.github/workflows/sast.yml` (the `sbom` job) |
@@ -72,9 +72,9 @@ The shared workflow reference is pinned to a commit SHA, like the other reusable
 
 ### Done when
 
-- [ ] The `sbom` job runs in the SAST workflow on push to the default branch and on pull requests.
-- [ ] The run uploads `sbom.json` as the `sbom` artifact.
-- [ ] The shared workflow reference is pinned to a commit SHA, not `@main`.
+- [x] The `sbom` job runs in the SAST workflow on push to the default branch and on pull requests.
+- [x] The run uploads `sbom.json` as the `sbom` artifact.
+- [x] The shared workflow reference is pinned to a commit SHA, not `@main`.
 
 ### Revisit when
 
@@ -101,7 +101,9 @@ Nothing to roll back.
 
 ## Solution implementation
 
-| Kind  | Tracking                             | Status | What it covers                   |
-| :---- | :----------------------------------- | :----- | :------------------------------- |
-| Issue | ADORSYS-GIS/wazuh-agent-installer#35 | Open   | Requests SBOM generation in CI   |
-| PR    | ADORSYS-GIS/wazuh-agent-installer#39 | Open   | Adds the `sbom` job and this ADR |
+| Kind   | Tracking                                                                                                        | Status            | What it covers                   |
+| :----- | :-------------------------------------------------------------------------------------------------------------- | :---------------- | :------------------------------- |
+| Issue  | [ADORSYS-GIS/wazuh-agent-installer#35](https://github.com/ADORSYS-GIS/wazuh-agent-installer/issues/35)          | Closed            | Requests SBOM generation in CI   |
+| PR     | [ADORSYS-GIS/wazuh-agent-installer#39](https://github.com/ADORSYS-GIS/wazuh-agent-installer/pull/39)            | Merged 2026-10-29 | Adds the `sbom` job and this ADR |
+| Commit | [8694627](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/8694627a8ef17cef0900d886c97c2c8d1a5607ab) | 2026-10-27        | Adds the `sbom` job and this ADR |
+| Commit | [04728aa](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/04728aae307aefa8ac223978aec3070196844979) | 2026-10-29        | Merge commit for PR #39          |
