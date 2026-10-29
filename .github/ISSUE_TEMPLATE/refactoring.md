@@ -1,6 +1,6 @@
 ---
 name: Refactoring
-about: Propose a code or infrastructure refactor
+about: Propose a code refactor
 title: ""
 labels: refactoring
 assignees: ""
