@@ -232,21 +232,18 @@ async function triggerUpdate() {
 
   try {
     await invoke("run_app_update");
-    appendLog(
-      terminalInstall,
-      "Update started successfully! Please CLOSE this application to allow the update to apply, then open it again.",
-      "success"
-    );
+    appendLog(terminalInstall, "Update completed successfully! Restarting the application now...", "success");
 
     setTimeout(async () => {
       if (hasTauri) {
         try {
-          await window.__TAURI__!.window.getCurrentWindow().close();
+          await invoke("restart_app");
         } catch (e) {
-          console.error("Could not auto-close:", e);
+          console.error("Could not auto-restart, attempting window close:", e);
+          await window.__TAURI__!.window.getCurrentWindow().close();
         }
       }
-    }, 5000);
+    }, 1500);
   } catch (err) {
     appendLog(terminalInstall, `ERROR: ${err}`, "error");
   } finally {
