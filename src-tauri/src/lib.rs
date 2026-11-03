@@ -293,6 +293,11 @@ async fn run_app_update(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    tauri::process::restart(&app.env());
+}
+
 #[cfg(target_os = "linux")]
 fn notify_update_linux(latest: &str) {
     let _ = std::process::Command::new("notify-send")
@@ -2135,6 +2140,7 @@ pub fn run() {
             get_app_config,
             check_for_updates,
             run_app_update,
+            restart_app,
             get_local_version_command
         ])
         .setup(setup_app)
