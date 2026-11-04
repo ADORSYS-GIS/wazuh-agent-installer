@@ -735,6 +735,7 @@ fn test_open_browser_unsafe_noop() {
     open_browser("ftp://unsafe.com");
     open_browser("javascript:alert(1)");
     open_browser("   ");
+    open_external_url("ftp://unsafe.com".to_string());
 }
 
 #[test]

@@ -46,13 +46,14 @@ We will implement post-execution key verification and upstream conflict intercep
 2. **Conflict Signature Detection**:
    The installer log reader (`enroll-log` listener) will inspect log lines for the upstream conflict signature: `Conflict: User already has an active certificate`. When detected, a dedicated state flag is activated.
 
-3. **Security Guidance and User-Confirmed Overwrite Option**:
+3. **Security Guidance and Direct Slack Support (No Self-Service Overwrite)**:
    When a certificate conflict is identified:
    - Suppress generic exit-code failure messages.
    - Display a prominent, styled notification banner and conflict card informing the user:
-     - **Contact Security Team (Recommended)**: Request existing client keys so the previous certificate remains valid.
-     - **Overwrite and Replace**: Re-enroll with overwrite enabled to generate new keys for this machine, with an explicit warning that the previous certificate will be invalidated.
-   - Provide an explicit `⚠️ Overwrite and Re-enroll` action button so authorized users can re-enroll directly without terminal commands.
+     - Their user account already has an active certificate registered in the Wazuh cluster.
+     - Self-service overwrite is deliberately disabled to prevent accidental certificate invalidation and protect cluster security boundaries.
+     - Direct users to contact the Security Team directly in the **#Wazuh-Support** Slack channel to retrieve their existing client keys or obtain next steps.
+   - Provide direct action buttons in the UI to open the Slack channel or copy the invite link.
 
 4. **Banner Typography Fix**:
    Remove the redundant hardcoded `"✓ "` from the message text in `src/main.ts` so `showStatusBanner()` renders a single checkmark cleanly.
@@ -63,7 +64,8 @@ We will implement post-execution key verification and upstream conflict intercep
 | :--------------------------------------------------------------------- | :------- | :--------------------------------------------------------------------------------------------------- |
 | Rely solely on process exit code (status quo)                          | Rejected | Upstream CLI bugs or silent zero exits result in false-positive success banners.                     |
 | Automatically pass `--overwrite` on conflict                           | Rejected | Violates security policy by silently invalidating active certificates without human authorization.    |
-| Atomic key verification + Security guidance + explicit overwrite action| Adopted  | Prevents false success states, upholds security policies, and empowers users to re-enroll securely.   |
+| Provide self-service overwrite button in UI                            | Rejected | Users habitually click overwrite to bypass friction, risking unintended certificate invalidation.   |
+| Key verification + Security guidance + direct #Wazuh-Support Slack link| Adopted  | Prevents false success states, upholds security policies, and connects users directly to the team.   |
 
 ## Consequences
 

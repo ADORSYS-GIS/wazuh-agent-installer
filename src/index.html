@@ -304,31 +304,26 @@
                     <p
                       style="margin: 0 0 10px 0; font-size: 13px; color: var(--brand-text-secondary); line-height: 1.5"
                     >
-                      Your user account already has an active certificate registered in the Wazuh cluster. You have two
-                      options:
+                      Your account already has an active certificate registered in the Wazuh cluster. To preserve
+                      cluster security and avoid breaking existing endpoints, self-service overwrite is disabled.
                     </p>
-                    <ul
-                      style="
-                        margin: 0 0 14px 0;
-                        padding-left: 18px;
-                        font-size: 13px;
-                        color: var(--brand-text-secondary);
-                        line-height: 1.5;
-                      "
+                    <p
+                      style="margin: 0 0 14px 0; font-size: 13px; color: var(--brand-text-secondary); line-height: 1.5"
                     >
-                      <li style="margin-bottom: 6px">
-                        <strong>Contact Security Team (Recommended):</strong> Request your existing client keys from the
-                        Security Team so your previous certificate remains valid.
-                      </li>
-                      <li>
-                        <strong>Overwrite and Replace:</strong> Re-enroll with overwrite enabled to generate new
-                        cryptographic keys for this device.
-                        <em>Warning: This will invalidate your previous certificate.</em>
-                      </li>
-                    </ul>
-                    <div class="action-row" style="display: flex; gap: 10px; flex-wrap: wrap">
-                      <button id="btn-conflict-overwrite" class="btn btn-danger" type="button">
-                        ⚠️ Overwrite and Re-enroll
+                      Please reach out to the Security Team in our <strong>#Wazuh-Support</strong> Slack channel to
+                      retrieve your existing client keys or obtain next steps:
+                    </p>
+                    <div class="action-row" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+                      <button id="btn-open-slack" class="btn btn-primary" type="button">
+                        💬 Open #Wazuh-Support on Slack
+                      </button>
+                      <button
+                        id="btn-copy-slack"
+                        class="btn btn-secondary"
+                        type="button"
+                        title="Copy Slack invite link"
+                      >
+                        📋 Copy Link
                       </button>
                     </div>
                   </div>

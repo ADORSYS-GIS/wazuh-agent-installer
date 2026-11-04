@@ -116,11 +116,15 @@ const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInput
 // IDS mode pills
 const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode-group .pill");
 
+const WAZUH_SUPPORT_SLACK_URL =
+  "https://join.slack.com/share/enQtMTE0MDU2NzgwNTk5MjEtM2U5YmEyZGVmYmNjNDdlOTYwYjQ4MzE4ZTg1MjM0MjZiODc0YzcyYWI3Y2UzMTFiMGE3OTU1MzBiZmQ3ZWQ5OA";
+
 // Install / Enroll Action Buttons
 const btnStartInstall = document.getElementById("btn-start-install") as HTMLButtonElement;
 const btnStartEnroll = document.getElementById("btn-start-enroll") as HTMLButtonElement;
 const btnRetryEnroll = document.getElementById("btn-retry-enroll") as HTMLButtonElement;
-const btnConflictOverwrite = document.getElementById("btn-conflict-overwrite") as HTMLButtonElement | null;
+const btnOpenSlack = document.getElementById("btn-open-slack") as HTMLButtonElement | null;
+const btnCopySlack = document.getElementById("btn-copy-slack") as HTMLButtonElement | null;
 
 const btnRefreshComponents = document.getElementById("btn-refresh-components") as HTMLButtonElement;
 
@@ -181,9 +185,23 @@ navItems.forEach((item) => {
 
 // Action listeners
 btnStartInstall?.addEventListener("click", startInstall);
-btnStartEnroll?.addEventListener("click", () => startEnrollment(false));
-btnRetryEnroll?.addEventListener("click", () => startEnrollment(false));
-btnConflictOverwrite?.addEventListener("click", () => startEnrollment(true));
+btnStartEnroll?.addEventListener("click", startEnrollment);
+btnRetryEnroll?.addEventListener("click", startEnrollment);
+btnOpenSlack?.addEventListener("click", () => {
+  invoke("open_external_url", { url: WAZUH_SUPPORT_SLACK_URL });
+});
+btnCopySlack?.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(WAZUH_SUPPORT_SLACK_URL);
+    const originalText = btnCopySlack.textContent;
+    btnCopySlack.textContent = "✓ Copied!";
+    setTimeout(() => {
+      btnCopySlack.textContent = originalText;
+    }, 2000);
+  } catch (err) {
+    console.error("Failed to copy link:", err);
+  }
+});
 
 btnStartNetbird?.addEventListener("click", startNetbirdConnection);
 btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
@@ -539,7 +557,7 @@ function showInstallResult(success: boolean, desc: string) {
 
 let hasCertConflict = false;
 
-async function startEnrollment(forceOverwrite = false) {
+async function startEnrollment() {
   if (isEnrolling) return;
 
   const issuer = getIssuerValue();
@@ -560,7 +578,7 @@ async function startEnrollment(forceOverwrite = false) {
 
   showStatusBanner(enrollStatusBanner, "running", "Enrollment in progress: check your browser...");
 
-  const shouldOverwrite = forceOverwrite || isReEnrolling;
+  const shouldOverwrite = isReEnrolling;
 
   const unlistenLog = await listen<LogLine>("enroll-log", (e) => {
     appendLog(terminalEnroll, e.payload.line, e.payload.level);
@@ -581,7 +599,11 @@ async function startEnrollment(forceOverwrite = false) {
     });
 
     if (hasCertConflict) {
-      showStatusBanner(enrollStatusBanner, "warn", "Active certificate conflict detected. See options below.");
+      showStatusBanner(
+        enrollStatusBanner,
+        "warn",
+        "Active certificate conflict detected. Please reach out to the Security Team."
+      );
       if (enrollConflictCard) enrollConflictCard.style.display = "block";
       if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
     } else if (result.success) {
@@ -605,7 +627,11 @@ async function startEnrollment(forceOverwrite = false) {
     }
   } catch (err: unknown) {
     if (hasCertConflict) {
-      showStatusBanner(enrollStatusBanner, "warn", "Active certificate conflict detected. See options below.");
+      showStatusBanner(
+        enrollStatusBanner,
+        "warn",
+        "Active certificate conflict detected. Please reach out to the Security Team."
+      );
       if (enrollConflictCard) enrollConflictCard.style.display = "block";
     } else {
       showStatusBanner(enrollStatusBanner, "error", `Enrollment error: ${err}`);

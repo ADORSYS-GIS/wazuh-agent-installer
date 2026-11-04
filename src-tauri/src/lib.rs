@@ -842,6 +842,12 @@ fn open_browser(url: &str) {
     // Fallback to Tauri opener for Windows or standard Linux
     let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
+
+#[tauri::command]
+fn open_external_url(url: String) {
+    open_browser(&url);
+}
+
 #[tauri::command]
 fn build_enroll_command(issuer: &str, endpoint: &str, overwrite: bool) -> Command {
     let mut oauth_args = vec![
@@ -2151,7 +2157,8 @@ pub fn run() {
             check_for_updates,
             run_app_update,
             restart_app,
-            get_local_version_command
+            get_local_version_command,
+            open_external_url
         ])
         .setup(setup_app)
         .run(tauri::generate_context!())
