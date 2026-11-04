@@ -116,8 +116,7 @@ const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInput
 // IDS mode pills
 const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode-group .pill");
 
-const WAZUH_SUPPORT_SLACK_URL =
-  "https://join.slack.com/share/enQtMTE0MDU2NzgwNTk5MjEtM2U5YmEyZGVmYmNjNDdlOTYwYjQ4MzE4ZTg1MjM0MjZiODc0YzcyYWI3Y2UzMTFiMGE3OTU1MzBiZmQ3ZWQ5OA";
+const WAZUH_SUPPORT_SLACK_URL = "https://app.slack.com/client/T02977GUH/C0B90EA7C02";
 
 // Install / Enroll Action Buttons
 const btnStartInstall = document.getElementById("btn-start-install") as HTMLButtonElement;
