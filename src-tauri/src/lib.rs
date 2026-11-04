@@ -2029,8 +2029,14 @@ fn determine_instance_action(lock_acquired: bool, is_root: bool, pid: u32) -> In
 fn try_lock_at_path(lock_path: &str) -> Option<i32> {
     let c_path = std::ffi::CString::new(lock_path).ok()?;
 
-    // Open the file. Use 0o666 so any user can open it.
-    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CREAT, 0o666) };
+    // Open the file with O_CLOEXEC so child processes don't inherit the lock fd. Use 0o666 so any user can open it.
+    let fd = unsafe {
+        libc::open(
+            c_path.as_ptr(),
+            libc::O_RDWR | libc::O_CREAT | libc::O_CLOEXEC,
+            0o666,
+        )
+    };
 
     if fd < 0 {
         return None;
