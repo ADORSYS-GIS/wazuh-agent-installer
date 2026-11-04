@@ -512,14 +512,14 @@ fn make_script_executable_unix(resource_path: &std::path::Path) -> Result<String
     if let Ok(meta) = std::fs::metadata(resource_path) {
         let mode = meta.permissions().mode();
         if mode & 0o111 != 0 {
-            // Already executable — use in place
+            // Already executable: use in place
             return resource_path
                 .to_str()
                 .map(str::to_string)
                 .ok_or_else(|| "Script path contains invalid UTF-8".to_string());
         }
     }
-    // Not executable — write to a random, unpredictable temp file using O_EXCL
+    // Not executable: write to a random, unpredictable temp file using O_EXCL
     // (create_new) so a local attacker cannot pre-plant a symlink or race the path.
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -599,7 +599,7 @@ fn is_root() -> bool {
     {
         // On Windows this always returns true. Actual elevation is handled by the OS UAC
         // prompt at process launch time. Callers should not treat this as a reliable
-        // indicator of real administrator status — it's a platform-level no-op.
+        // indicator of real administrator status: it's a platform-level no-op.
         true
     }
 }
@@ -934,7 +934,34 @@ async fn run_enroll(
         get_enroll_line_processor(enrolled.clone()),
     );
 
-    wait_for_process_or_notify(child, enrolled, "Enrollment complete", "Enrollment failed").await
+    let res = wait_for_process_or_notify(child, enrolled, "Enrollment complete", "Enrollment failed").await?;
+
+    if res.success {
+        // Atomic verification: confirm client.keys exists and contains valid credentials on disk
+        let mut verified = false;
+        for _ in 0..6 {
+            let state = check_enrollment().await.unwrap_or(EnrollmentState {
+                enrolled: false,
+                agent_name: None,
+                manager: None,
+            });
+            if state.enrolled {
+                verified = true;
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+        }
+
+        if !verified {
+            return Ok(InstallResult {
+                success: false,
+                exit_code: if res.exit_code == 0 { -1 } else { res.exit_code },
+                message: "Enrollment failed: client keys were not written to disk".into(),
+            });
+        }
+    }
+
+    Ok(res)
 }
 
 fn build_netbird_up_command(setup_key: &str, management_url: &str) -> Command {

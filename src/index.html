@@ -233,7 +233,7 @@
               <div class="enrolled-info-grid">
                 <div class="enrolled-info-row">
                   <span class="enrolled-info-label">Agent Name</span>
-                  <span class="enrolled-info-value" id="enroll-info-agent-name">—</span>
+                  <span class="enrolled-info-value" id="enroll-info-agent-name">-</span>
                 </div>
                 <div class="enrolled-info-row">
                   <span class="enrolled-info-label">Certificate Keys</span>
@@ -247,7 +247,7 @@
 
               <!-- Advanced: Re-enroll (collapsed by default, form section injected here by JS) -->
               <details class="danger-section" id="enroll-advanced-details">
-                <summary class="danger-summary">⚠️ Advanced — Re-enroll this device</summary>
+                <summary class="danger-summary">⚠️ Advanced: Re-enroll this device</summary>
                 <div class="danger-body" id="enroll-danger-body">
                   <p class="danger-warning">
                     Re-enrolling will <strong>overwrite your existing cryptographic keys</strong> and disconnect this
@@ -288,6 +288,53 @@
                 </div>
               </div>
               <output class="status-banner" id="enroll-status-banner"></output>
+
+              <!-- ===== ENROLLMENT CONFLICT CARD (shown when upstream cert conflict occurs) ===== -->
+              <div
+                id="enroll-conflict-card"
+                class="card compact"
+                style="display: none; margin-top: 16px; border-left: 4px solid var(--brand-status-warn, #fbbf24)"
+              >
+                <div style="display: flex; align-items: flex-start; gap: 12px">
+                  <div style="font-size: 24px; line-height: 1">⚠️</div>
+                  <div style="flex: 1">
+                    <h4 style="margin: 0 0 6px 0; font-size: 15px; font-weight: 600; color: var(--brand-text-primary)">
+                      Active Certificate Conflict Detected
+                    </h4>
+                    <p
+                      style="margin: 0 0 10px 0; font-size: 13px; color: var(--brand-text-secondary); line-height: 1.5"
+                    >
+                      Your user account already has an active certificate registered in the Wazuh cluster. You have two
+                      options:
+                    </p>
+                    <ul
+                      style="
+                        margin: 0 0 14px 0;
+                        padding-left: 18px;
+                        font-size: 13px;
+                        color: var(--brand-text-secondary);
+                        line-height: 1.5;
+                      "
+                    >
+                      <li style="margin-bottom: 6px">
+                        <strong>Contact Security Team (Recommended):</strong> Request your existing client keys from the
+                        Security Team so your previous certificate remains valid.
+                      </li>
+                      <li>
+                        <strong>Overwrite and Replace:</strong> Re-enroll with overwrite enabled to generate new
+                        cryptographic keys for this device.
+                        <em>Warning: This will invalidate your previous certificate.</em>
+                      </li>
+                    </ul>
+                    <div class="action-row" style="display: flex; gap: 10px; flex-wrap: wrap">
+                      <button id="btn-conflict-overwrite" class="btn btn-danger" type="button">
+                        ⚠️ Overwrite and Re-enroll
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <button
                 class="btn btn-ghost"
                 id="btn-retry-enroll"
@@ -316,7 +363,7 @@
               <div class="enrolled-info-grid">
                 <div class="enrolled-info-row">
                   <span class="enrolled-info-label">NetBird IP</span>
-                  <span class="enrolled-info-value" id="netbird-info-ip">—</span>
+                  <span class="enrolled-info-value" id="netbird-info-ip">-</span>
                 </div>
                 <div class="enrolled-info-row">
                   <span class="enrolled-info-label">Management API</span>
@@ -325,7 +372,7 @@
               </div>
 
               <details class="danger-section" id="netbird-advanced-details">
-                <summary class="danger-summary">⚠️ Advanced — Reconnect device</summary>
+                <summary class="danger-summary">⚠️ Advanced: Reconnect device</summary>
                 <div class="danger-body" id="netbird-danger-body">
                   <p class="danger-warning">
                     Reconnecting will force a new login session and may disconnect your current tunnel.

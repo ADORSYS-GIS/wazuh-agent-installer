@@ -292,6 +292,7 @@ fn test_build_enroll_command() {
     assert!(debug.contains("--endpoint"));
     assert!(debug.contains("https://cert.com"));
     assert!(debug.contains("--overwrite"));
+    assert!(debug.contains("true"));
 
     let no_overwrite_cmd = build_enroll_command("https://issuer.com", "https://cert.com", false);
     let no_overwrite_debug = format!("{:?}", no_overwrite_cmd);
