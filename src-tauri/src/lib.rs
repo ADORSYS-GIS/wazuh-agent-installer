@@ -934,40 +934,7 @@ async fn run_enroll(
         get_enroll_line_processor(enrolled.clone()),
     );
 
-    let res =
-        wait_for_process_or_notify(child, enrolled, "Enrollment complete", "Enrollment failed")
-            .await?;
-
-    if res.success {
-        // Atomic verification: confirm client.keys exists and contains valid credentials on disk
-        let mut verified = false;
-        for _ in 0..6 {
-            let state = check_enrollment().await.unwrap_or(EnrollmentState {
-                enrolled: false,
-                agent_name: None,
-                manager: None,
-            });
-            if state.enrolled {
-                verified = true;
-                break;
-            }
-            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-        }
-
-        if !verified {
-            return Ok(InstallResult {
-                success: false,
-                exit_code: if res.exit_code == 0 {
-                    -1
-                } else {
-                    res.exit_code
-                },
-                message: "Enrollment failed: client keys were not written to disk".into(),
-            });
-        }
-    }
-
-    Ok(res)
+    wait_for_process_or_notify(child, enrolled, "Enrollment complete", "Enrollment failed").await
 }
 
 fn build_netbird_up_command(setup_key: &str, management_url: &str) -> Command {

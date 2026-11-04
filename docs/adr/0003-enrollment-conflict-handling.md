@@ -40,8 +40,8 @@ The deciding forces are:
 
 We will implement post-execution key verification and upstream conflict intercept handling inside `wazuh-agent-installer`:
 
-1. **Atomic Filesystem Verification**:
-   In `src/main.ts`, the `startEnrollment` routine will not declare success based solely on `run_enroll` returning. It will immediately execute `check_enrollment`. Only if `client.keys` exists on disk and contains valid credentials will the green success banner be displayed. If keys are missing, the operation is treated as failed.
+1. **Conflict Intercept and Asynchronous Key Delivery**:
+   During enrollment, `wazuh-cert-oauth2-client` negotiates certificates (`sslagent.cert` and `sslagent.key`) with the CA and restarts the local agent. The agent then connects to the Wazuh manager using mutual TLS, and the manager delivers `client.keys` to the endpoint. If the upstream CA rejects enrollment due to an active certificate conflict, the installer log listener intercepts the conflict signature (`hasCertConflict = true`) and prevents success banners from displaying. Following a clean process exit without conflicts, the installer polls asynchronously for `client.keys` to be populated by the manager.
 
 2. **Conflict Signature Detection**:
    The installer log reader (`enroll-log` listener) will inspect log lines for the upstream conflict signature: `Conflict: User already has an active certificate`. When detected, a dedicated state flag is activated.

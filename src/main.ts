@@ -580,24 +580,24 @@ async function startEnrollment(forceOverwrite = false) {
       overwrite: shouldOverwrite,
     });
 
-    // Check enrollment state after enrollment finishes
-    await checkEnrollmentState();
-
-    let isEnrolledLocally = false;
-    try {
-      const state = await invoke<EnrollmentState>("check_enrollment");
-      isEnrolledLocally = state.enrolled;
-    } catch {
-      isEnrolledLocally = false;
-    }
-
-    if (result.success && isEnrolledLocally && !hasCertConflict) {
-      showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
-      if (enrollConflictCard) enrollConflictCard.style.display = "none";
-    } else if (hasCertConflict) {
+    if (hasCertConflict) {
       showStatusBanner(enrollStatusBanner, "warn", "Active certificate conflict detected. See options below.");
       if (enrollConflictCard) enrollConflictCard.style.display = "block";
       if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
+    } else if (result.success) {
+      showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
+      if (enrollConflictCard) enrollConflictCard.style.display = "none";
+      // Poll for client.keys to be populated by the Wazuh manager
+      let attempts = 0;
+      const poll = () => {
+        attempts++;
+        checkEnrollmentState().then(() => {
+          if (!isReEnrolling && attempts < 6) {
+            setTimeout(poll, 1500);
+          }
+        });
+      };
+      setTimeout(poll, 1000);
     } else {
       const errorMsg = result.message || `exit code ${result.exit_code}`;
       showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: ${errorMsg}`);
