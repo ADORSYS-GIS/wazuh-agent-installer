@@ -934,7 +934,9 @@ async fn run_enroll(
         get_enroll_line_processor(enrolled.clone()),
     );
 
-    let res = wait_for_process_or_notify(child, enrolled, "Enrollment complete", "Enrollment failed").await?;
+    let res =
+        wait_for_process_or_notify(child, enrolled, "Enrollment complete", "Enrollment failed")
+            .await?;
 
     if res.success {
         // Atomic verification: confirm client.keys exists and contains valid credentials on disk
@@ -955,7 +957,11 @@ async fn run_enroll(
         if !verified {
             return Ok(InstallResult {
                 success: false,
-                exit_code: if res.exit_code == 0 { -1 } else { res.exit_code },
+                exit_code: if res.exit_code == 0 {
+                    -1
+                } else {
+                    res.exit_code
+                },
                 message: "Enrollment failed: client keys were not written to disk".into(),
             });
         }
