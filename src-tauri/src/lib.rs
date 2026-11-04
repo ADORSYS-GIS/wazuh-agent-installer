@@ -684,8 +684,8 @@ fn spawn_log_reader<T>(
 {
     tokio::spawn(async move {
         read_log_lines(stream, move |raw_line, log_line| {
-            process_line(raw_line);
             let _ = app.emit(event_name, log_line);
+            process_line(raw_line);
         })
         .await;
     });
@@ -812,7 +812,9 @@ fn open_browser(url: &str) {
                 .arg(format!("#{}", uid))
                 .arg("xdg-open")
                 .arg(url)
-                .status();
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
             return;
         } else if let Ok(sudo_user) = std::env::var("SUDO_USER") {
             let _ = std::process::Command::new("sudo")
@@ -820,7 +822,9 @@ fn open_browser(url: &str) {
                 .arg(&sudo_user)
                 .arg("xdg-open")
                 .arg(url)
-                .status();
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
             return;
         }
     }
