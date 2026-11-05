@@ -17,7 +17,7 @@ flowchart TD
     CHECK -->|"Another instance running"| LOCK["Application Lock Error"]
     LOCK --> LOCK_ACTION["Kill stale process or remove /tmp/wazuh-agent-installer.lock"]
     
-    CHECK -->|"Network error / timeout"| NET["Network / Gateway Unreachable"]
+    CHECK -->|"Network error / timeout"| NET["Network / Server Unreachable"]
     NET --> NET_ACTION["Check VPN or corporate proxy<br/>Verify outbound ports 1514, 1515, 55000, 443"]
 ```
 
@@ -35,8 +35,7 @@ The user or email address already has an active, valid client certificate regist
 #### Resolution
 Per **ADR-0003**, self-service certificate overwriting is disabled to prevent accidental invalidation of active endpoint certificates across the fleet.
 1. Open the application's **Help & Support** tab in the sidebar.
-2. Click **Open #Wazuh-Support in Slack** or visit:
-   `https://adorsys.slack.com/archives/C08M6LK5FCM`
+2. Click **Open #Wazuh-Support in Slack** to join the internal security support channel.
 3. Request the Security Team to either re-issue existing keys or revoke the stale certificate so re-enrollment can proceed.
 
 ---
@@ -86,19 +85,19 @@ A previous instance of the installer is still active in the background, or an un
 
 ---
 
-### 4. Network and Gateway Connectivity Failures
+### 4. Network and Server Connectivity Failures
 
 #### Symptom
-Enrollment fails with `Network Error`, `Failed to connect to Gateway`, or connection timeouts.
+Enrollment fails with `Network Error`, `Failed to connect to Certificate Server`, or connection timeouts.
 
 #### Cause
-- Firewall blocking outbound HTTPS traffic to the Wazuh Gateway or Manager.
+- Firewall blocking outbound HTTPS traffic to the Certificate Server (`cert-server`) or Manager.
 - Corporate VPN or proxy intercepting SSL/TLS traffic.
 
 #### Resolution
-- Verify DNS resolution and reachability of the Wazuh Gateway:
+- Verify DNS resolution and reachability of the Certificate Server:
   ```bash
-  curl -vk https://<wazuh-gateway-endpoint>/health
+  curl -vk https://<cert-server-endpoint>/health
   ```
 - Verify communication ports with the Wazuh Manager:
   - `1514/TCP`: Wazuh agent communication
@@ -143,5 +142,5 @@ sudo /Library/Ossec/bin/wazuh-control status
 ## Escalation and Support Channels
 
 For issues requiring Security Team intervention:
-- **Slack Support Channel**: `#Wazuh-Support` (`https://adorsys.slack.com/archives/C08M6LK5FCM`)
+- **Slack Support Channel**: Access `#Wazuh-Support` via the in-app **Help & Support** tab.
 - **Help Tab**: The in-app **Help & Support** tab provides one-click links to Slack and self-service troubleshooting FAQs.

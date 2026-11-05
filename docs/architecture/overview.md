@@ -30,16 +30,16 @@ flowchart TD
     end
 
     subgraph CloudInfra["Security Infrastructure"]
-        GATEWAY["Wazuh Gateway (OAuth2 & Certificate Issuance)"]
+        CERTSERVER["Certificate Server (cert-server / wazuh-cert-oauth2)"]
         IDP["Corporate Identity Provider (OAuth2 PKCE)"]
         MANAGER["Wazuh Manager Cluster"]
-        SLACK["Slack Workspace (#Wazuh-Support)"]
+        SLACK["Support Channel (#Wazuh-Support in Slack)"]
     end
 
-    Frontend -->|Tauri invoke & event listeners| TauriCore
-    TauriCore -->|Privileged command execution| SystemServices
-    TauriCore -->|OAuth2 PKCE & Cert Exchange| CloudInfra
-    Frontend -->|Direct Help & Support links| SLACK
+    Frontend -->|"Tauri invoke & event listeners"| TauriCore
+    TauriCore -->|"Privileged command execution"| SystemServices
+    TauriCore -->|"OAuth2 PKCE & Cert Exchange"| CloudInfra
+    Frontend -->|"Direct Help & Support links"| SLACK
 ```
 
 ## Layered Architecture
@@ -58,7 +58,7 @@ The Rust backend exposes strongly typed commands to the webview via Tauri's IPC 
 | Command | Purpose | Code Reference |
 | :--- | :--- | :--- |
 | `run_install` | Executes `setup-agent.sh` or `setup-agent.ps1` with secure stdin password piping. | `src-tauri/src/lib.rs` |
-| `run_enroll` | Performs certificate-based enrollment against the Wazuh Gateway. | `src-tauri/src/lib.rs` |
+| `run_enroll` | Performs certificate-based enrollment against the Certificate Server (`cert-server`). | `src-tauri/src/lib.rs` |
 | `run_netbird_up` | Executes `netbird up` with management URL and setup key. | `src-tauri/src/lib.rs` |
 | `check_components` | Probes system filesystem paths to verify installed binaries and versions. | `src-tauri/src/lib.rs` |
 | `check_enrollment` | Verifies existence and validity of agent client keys (`client.keys`). | `src-tauri/src/lib.rs` |
@@ -110,8 +110,8 @@ flowchart LR
         NETBIRD["NetBird VPN Client"]
     end
 
-    CoreStack -->|Configured by default| ENDPOINT["Protected Endpoint"]
-    OptionalStack -.->|Toggled via Setup tab (-b)| ENDPOINT
+    CoreStack -->|"Configured by default"| ENDPOINT["Protected Endpoint"]
+    OptionalStack -.->|"Toggled via Setup tab (-b)"| ENDPOINT
 ```
 
 ### Core Components (Installed by Default)
@@ -130,7 +130,7 @@ flowchart LR
 
 ## Enrollment and Conflict Handling Flow
 
-The enrollment process utilizes OAuth2 PKCE verification followed by certificate negotiation with the Wazuh Gateway.
+The enrollment process utilizes OAuth2 PKCE verification followed by certificate negotiation with the Certificate Server (`cert-server`).
 
 ```mermaid
 sequenceDiagram
@@ -139,26 +139,26 @@ sequenceDiagram
     participant UI as Installer UI
     participant Backend as Rust Backend
     participant IdP as Identity Provider
-    participant Gateway as Wazuh Gateway
+    participant CertServer as Certificate Server
     participant Manager as Wazuh Manager
 
     User->>UI: Enter corporate email & click Enroll
-    UI->>Backend: run_enroll(email, gateway_url)
+    UI->>Backend: run_enroll(email, cert_endpoint)
     Backend->>IdP: Initiate OAuth2 PKCE flow
     IdP-->>Backend: Return authorization token
-    Backend->>Gateway: POST /api/register-agent (Bearer token)
+    Backend->>CertServer: POST /api/register-agent (Bearer token)
     
     alt Certificate Conflict (HTTP 409)
-        Gateway-->>Backend: 409 Conflict (Active certificate exists)
+        CertServer-->>Backend: 409 Conflict (Active certificate exists)
         Backend-->>UI: Return error indicating active certificate
         UI->>User: Display guidance to contact Security Team in #Wazuh-Support (ADR-0003)
         User->>UI: Click Open #Wazuh-Support in Slack
     else Registration Succeeded (HTTP 200)
-        Gateway-->>Backend: 200 OK (Issue client certificate & keys)
+        CertServer-->>Backend: 200 OK (Issue client certificate & keys)
         Backend->>Manager: Inject client.keys & restart agent
         Backend-->>UI: Enrollment succeeded
         UI->>User: Display green verification status
     end
 ```
 
-Per **ADR-0003**, self-service certificate overwriting is disabled in the UI to prevent accidental invalidation of active fleet certificates without security team review. Users encountering active certificate conflicts are routed directly to `#Wazuh-Support` (`https://adorsys.slack.com/archives/C08M6LK5FCM`).
+Per **ADR-0003**, self-service certificate overwriting is disabled in the UI to prevent accidental invalidation of active fleet certificates without security team review. Users encountering active certificate conflicts are routed directly to `#Wazuh-Support` via the in-app Help & Support action.

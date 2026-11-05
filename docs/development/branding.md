@@ -11,11 +11,11 @@ The primary configuration file for visual presentation is `src/config.ts`. It ex
 Defines application titles, corporate logos, and color tokens:
 
 ```typescript
-import logoUrl from "./assets/adorsys-logo.png";
+import logoUrl from "./assets/logo.png";
 
 export const BRAND_CONFIG = {
   // Brand Metadata
-  companyName: "Adorsys",
+  companyName: "Your Organization",
   appTitle: "Wazuh Agent Installer",
   logo: logoUrl,
 
@@ -75,10 +75,10 @@ Default network infrastructure URLs are managed via `AppConfig` in the Rust back
 
 ```rust
 pub struct AppConfig {
-    pub wazuh_manager_url: String,       // Default: "manager.wazuh.adorsys.team"
-    pub wazuh_oauth_issuer: String,      // Default: "https://login.wazuh.adorsys.team/realms/adorsys"
-    pub wazuh_cert_endpoint: String,     // Default: "https://cert.wazuh.adorsys.team/api/register-agent"
-    pub netbird_management_url: String,  // Default: "https://netbird.guard.adorsys.com"
+    pub wazuh_manager_url: String,       // Default: "manager.wazuh.example.com"
+    pub wazuh_oauth_issuer: String,      // Default: "https://login.wazuh.example.com/realms/<realm>"
+    pub wazuh_cert_endpoint: String,     // Default: "https://cert.wazuh.example.com/api/register-agent"
+    pub netbird_management_url: String,  // Default: "https://netbird.example.com"
 }
 ```
 
@@ -88,6 +88,6 @@ The frontend fetches these defaults on startup via the `get_app_config` Tauri co
 
 The Slack support channel URL routed to by the **Help & Support** tab and the certificate conflict resolution dialog is defined as:
 ```typescript
-const WAZUH_SUPPORT_SLACK_URL = "https://adorsys.slack.com/archives/C08M6LK5FCM";
+const WAZUH_SUPPORT_SLACK_URL = "https://<workspace>.slack.com/archives/<channel-id>";
 ```
-To route support inquiries to a different internal Slack channel or IT help desk, update this constant in `src/main.ts`.
+To route support inquiries to your internal Slack channel or IT help desk, update this constant in `src/main.ts`.

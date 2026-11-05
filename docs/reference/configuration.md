@@ -8,21 +8,21 @@ This document provides a comprehensive reference of configuration settings, data
 
 | Setting | Type | Description |
 | :--- | :--- | :--- |
-| `companyName` | `string` | Organization name displayed in window subtitles (`"Adorsys"`). |
-| `appTitle` | `string` | Display title shown in header and window frame (`"Wazuh Agent Installer"`). |
-| `logo` | `string` | Imported image asset bundled into webview (`./assets/adorsys-logo.png`). |
-| `colors.primary` | `string` | Main brand accent color (`"#1a73e8"`). |
-| `colors.primaryHover` | `string` | Hover state for primary buttons (`"#4d9af5"`). |
+| `companyName` | `string` | Organization name displayed in window subtitles. |
+| `appTitle` | `string` | Display title shown in header and window frame. |
+| `logo` | `string` | Imported image asset bundled into webview. |
+| `colors.primary` | `string` | Main brand accent color. |
+| `colors.primaryHover` | `string` | Hover state for primary buttons. |
 | `colors.primaryGhost` | `string` | Semi-transparent highlight for active navigation tabs. |
-| `colors.bgRoot` | `string` | Main window background color (`"#0b0e14"`). |
-| `colors.bgCard` | `string` | Card container background (`"#12161f"`). |
-| `colors.bgInput` | `string` | Form input field background (`"#161b26"`). |
-| `colors.bgTerminal` | `string` | Terminal console log output background (`"#090c10"`). |
-| `colors.textPrimary` | `string` | Primary body text color (`"#e8ecf1"`). |
-| `colors.textSecondary` | `string` | Subtitle and secondary text color (`"#8b95a5"`). |
-| `colors.statusSuccess` | `string` | Color for success checkmarks and badges (`"#34d399"`). |
-| `colors.statusError` | `string` | Color for error banners and warnings (`"#f87171"`). |
-| `colors.statusWarn` | `string` | Color for warning highlights (`"#fbbf24"`). |
+| `colors.bgRoot` | `string` | Main window background color. |
+| `colors.bgCard` | `string` | Card container background. |
+| `colors.bgInput` | `string` | Form input field background. |
+| `colors.bgTerminal` | `string` | Terminal console log output background. |
+| `colors.textPrimary` | `string` | Primary body text color. |
+| `colors.textSecondary` | `string` | Subtitle and secondary text color. |
+| `colors.statusSuccess` | `string` | Color for success checkmarks and badges. |
+| `colors.statusError` | `string` | Color for error banners and warnings. |
+| `colors.statusWarn` | `string` | Color for warning highlights. |
 
 ### `COMPONENT_DESCRIPTIONS`
 
@@ -38,12 +38,12 @@ Key-value dictionary in `src/config.ts` mapping component names to descriptions 
 
 Configured in Rust and exposed via the `get_app_config` IPC command:
 
-| Field | Default Value | Description |
+| Field | Example Placeholder | Description |
 | :--- | :--- | :--- |
-| `wazuh_manager_url` | `"manager.wazuh.adorsys.team"` | Default Wazuh Manager hostname for agent communication. |
-| `wazuh_oauth_issuer` | `"https://login.wazuh.adorsys.team/realms/adorsys"` | Identity Provider (IdP) OIDC / OAuth2 token issuer. |
-| `wazuh_cert_endpoint` | `"https://cert.wazuh.adorsys.team/api/register-agent"` | Wazuh Gateway API endpoint for certificate exchange. |
-| `netbird_management_url` | `"https://netbird.guard.adorsys.com"` | Central management server URL for optional NetBird overlay network. |
+| `wazuh_manager_url` | `"manager.wazuh.example.com"` | Default Wazuh Manager hostname for agent communication. |
+| `wazuh_oauth_issuer` | `"https://login.wazuh.example.com/realms/<realm>"` | Identity Provider (IdP) OIDC / OAuth2 token issuer. |
+| `wazuh_cert_endpoint` | `"https://cert.wazuh.example.com/api/register-agent"` | Certificate Server (`cert-server`) API endpoint for certificate exchange. |
+| `netbird_management_url` | `"https://netbird.example.com"` | Central management server URL for optional NetBird overlay network. |
 
 ## Installer Parameter Model (`InstallConfig` in `src-tauri/src/lib.rs`)
 
@@ -61,9 +61,9 @@ Parameters passed from the frontend to `run_install`:
 
 ## Support & Channel Links (`src/main.ts`)
 
-| Setting | Value | Description |
+| Setting | Value Pattern | Description |
 | :--- | :--- | :--- |
-| `WAZUH_SUPPORT_SLACK_URL` | `"https://adorsys.slack.com/archives/C08M6LK5FCM"` | Direct channel link to `#Wazuh-Support` in Adorsys Slack workspace. |
+| `WAZUH_SUPPORT_SLACK_URL` | `"https://<workspace>.slack.com/archives/<channel-id>"` | Direct channel link to `#Wazuh-Support` in organization Slack workspace. |
 
 ## Network Ports and Endpoints
 
@@ -72,7 +72,7 @@ Parameters passed from the frontend to `run_install`:
 | **Wazuh Agent Events** | `1514 / TCP` | Outbound | Secure agent-to-manager event ingestion and log streaming. |
 | **Wazuh Agent Auth** | `1515 / TCP` | Outbound | Direct agent registration daemon. |
 | **Wazuh Cluster API** | `55000 / TCP` | Outbound | Administrative API querying agent health. |
-| **Wazuh Gateway** | `443 / TCP` | Outbound | HTTPS endpoint for OAuth2 token validation and certificate issuance. |
+| **Certificate Server (`cert-server`)** | `443 / TCP` | Outbound | HTTPS endpoint for OAuth2 token validation and certificate issuance. |
 | **Identity Provider (IdP)**| `443 / TCP` | Outbound | HTTPS endpoint for user OAuth2 PKCE login. |
 | **NetBird Management** | `443 / TCP` | Outbound | NetBird control plane coordination. |
 | **NetBird WireGuard** | `51820 / UDP` | Inbound / Outbound | WireGuard peer-to-peer encrypted mesh tunnel. |
