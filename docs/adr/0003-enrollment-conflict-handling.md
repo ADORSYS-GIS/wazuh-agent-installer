@@ -7,7 +7,7 @@
 | Field             | Value                                                          |
 | :---------------- | :------------------------------------------------------------- |
 | **Document ID**   | ADR-0003                                                       |
-| **Status**        | `Proposed`                                                     |
+| **Status**        | `Accepted`                                                     |
 | **Date**          | 2026-11-04                                                     |
 | **Deciders**      | Wazuh maintainers                                              |
 | **Governs**       | `src/main.ts`, `src-tauri/src/lib.rs`, `index.html`             |
@@ -94,11 +94,11 @@ We will implement post-execution key verification and upstream conflict intercep
 
 ### Done when
 
-- [ ] `startEnrollment` confirms valid `client.keys` presence before rendering success.
-- [ ] Log stream intercepts `Conflict: User already has an active certificate` and flags conflict state.
-- [ ] UI displays explicit notice directing users to contact the Security Team.
-- [ ] Double checkmark (`✓ ✓`) formatting glitch is eliminated.
-- [ ] Build and unit tests pass across all platforms.
+- [x] `startEnrollment` confirms valid `client.keys` presence before rendering success.
+- [x] Log stream intercepts `Conflict: User already has an active certificate` and flags conflict state.
+- [x] UI displays explicit notice directing users to contact the Security Team.
+- [x] Double checkmark (`✓ ✓`) formatting glitch is eliminated.
+- [x] Build and unit tests pass across all platforms.
 
 ### Revisit when
 
@@ -124,6 +124,8 @@ To roll back this decision, revert the log inspection and verification guards in
 
 ## Solution implementation
 
-| Kind   | Tracking                                                                                                        | Status   | What it covers                                                          |
-| :----- | :-------------------------------------------------------------------------------------------------------------- | :------- | :---------------------------------------------------------------------- |
-| Issue  | [ADORSYS-GIS/wazuh-agent-installer#50](https://github.com/ADORSYS-GIS/wazuh-agent-installer/issues/50)          | Open     | Handle active certificate conflict and guide user to security team     |
+| Kind   | Tracking                                                                                                        | Status            | What it covers                                                          |
+| :----- | :-------------------------------------------------------------------------------------------------------------- | :---------------- | :---------------------------------------------------------------------- |
+| Issue  | [ADORSYS-GIS/wazuh-agent-installer#50](https://github.com/ADORSYS-GIS/wazuh-agent-installer/issues/50)          | Closed            | Handle active certificate conflict and guide user to security team     |
+| PR     | [ADORSYS-GIS/wazuh-agent-installer#51](https://github.com/ADORSYS-GIS/wazuh-agent-installer/pull/51)            | Merged 2026-11-05 | Implements conflict handling, Help tab, bumps v1.3.2, adds ADR-0003     |
+| Commit | [6b29505](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/6b29505)                                 | 2026-11-05        | Merge PR #51 into `develop`                                             |
