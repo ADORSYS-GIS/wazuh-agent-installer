@@ -28,7 +28,7 @@ See [Documentation](./docs/README.md) for the repository's documentation index a
 - **Sidebar UI:** Intuitive layout with Setup, Enrollment, and Components tabs.
 - **Cross-platform support:** Native installation on Linux, macOS, and Windows.
 - **Modular branding:** Customize logo, color palette, preconfigured manager addresses, and endpoints using a single configuration file.
-- **Secure Privileges:** Validates `sudo` authentication upfront and securely pipes it via `stdin` across installation sub-processes (no plaintext password caching to disk).
+- **Native OS Elevation:** Elevates privileges upfront using native OS authentication (PolicyKit pkexec on Linux, administrator prompt on macOS, UAC on Windows) without capturing or caching passwords to disk.
 - **Component Auditing:** Detects and verifies the presence of security binaries and active-response scripts across root-owned directories.
 - **Real-time log streaming:** Terminal-style view during installation and enrollment.
 - **OAuth2 enrollment:** Guided certificate-based authentication flow from within the app using PKCE.

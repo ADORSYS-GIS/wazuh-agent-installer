@@ -53,11 +53,12 @@ Parameters passed from the frontend to `run_install`:
 | :--- | :--- | :--- |
 | `wazuh_manager` | `String` | Hostname or IP of the Wazuh Manager. |
 | `wazuh_agent_name` | `String` | Unique hostname or identifier for the registering agent. |
-| `install_netbird` | `bool` | User toggle controlling whether NetBird VPN client is installed (`-b` flag). |
-| `netbird_url` | `String` | NetBird management server URL. |
-| `netbird_key` | `String` | NetBird setup key. |
+| `log_level` | `String` | Desired logging verbosity (e.g. `"info"`). |
 | `ids_engine` | `String` | Network intrusion engine selection (`"suricata"`). |
 | `suricata_mode` | `String` | Suricata operating mode (`"ids"` or `"ips"`). |
+| `install_netbird` | `bool` | User toggle controlling whether NetBird VPN client is installed (`-b` flag). |
+| `oauth_issuer` | `String` | OIDC / OAuth2 identity provider issuer URL. |
+| `cert_endpoint` | `String` | Certificate Server (`cert-server`) registration endpoint. |
 
 ## Support & Channel Links (`src/main.ts`)
 
@@ -82,7 +83,7 @@ Parameters passed from the frontend to `run_install`:
 
 | Platform | Component | Path |
 | :--- | :--- | :--- |
-| **Linux** | Installer Lock File | `/tmp/wazuh-agent-installer.lock` |
+| **Linux** | Installer Lock File | `$HOME/.config/wazuh-agent-installer/.lock` |
 | | Wazuh Agent Home | `/var/ossec/` |
 | | Wazuh Agent Binary | `/var/ossec/bin/wazuh-agentd` |
 | | Wazuh Agent Config | `/var/ossec/etc/ossec.conf` |
@@ -92,7 +93,7 @@ Parameters passed from the frontend to `run_install`:
 | | YARA Binary | `/opt/wazuh/yara/bin/yara` |
 | | Status Daemon | `/usr/local/bin/wazuh-agent-status` |
 | | NetBird Binary | `/usr/bin/netbird` or `/usr/local/bin/netbird` |
-| **macOS** | Installer Lock File | `/tmp/wazuh-agent-installer.lock` |
+| **macOS** | Installer Lock File | `$HOME/.config/wazuh-agent-installer/.lock` |
 | | Wazuh Agent Home | `/Library/Ossec/` |
 | | Wazuh Agent Binary | `/Library/Ossec/bin/wazuh-agentd` |
 | | Wazuh Agent Config | `/Library/Ossec/etc/ossec.conf` |

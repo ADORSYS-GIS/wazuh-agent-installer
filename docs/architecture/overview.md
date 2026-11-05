@@ -57,7 +57,7 @@ The Rust backend exposes strongly typed commands to the webview via Tauri's IPC 
 
 | Command | Purpose | Code Reference |
 | :--- | :--- | :--- |
-| `run_install` | Executes `setup-agent.sh` or `setup-agent.ps1` with secure stdin password piping. | `src-tauri/src/lib.rs` |
+| `run_install` | Executes `setup-agent.sh` or `setup-agent.ps1` with arguments and environment configuration. | `src-tauri/src/lib.rs` |
 | `run_enroll` | Performs certificate-based enrollment against the Certificate Server (`cert-server`). | `src-tauri/src/lib.rs` |
 | `run_netbird_up` | Executes `netbird up` with management URL and setup key. | `src-tauri/src/lib.rs` |
 | `check_components` | Probes system filesystem paths to verify installed binaries and versions. | `src-tauri/src/lib.rs` |
@@ -65,22 +65,25 @@ The Rust backend exposes strongly typed commands to the webview via Tauri's IPC 
 | `check_netbird` | Reads NetBird daemon status via CLI JSON output. | `src-tauri/src/lib.rs` |
 | `get_app_config` | Returns preconfigured manager, OAuth2, and NetBird URLs. | `src-tauri/src/lib.rs` |
 | `open_external_url` | Safely validates and launches external links (`http`, `https`, `slack`). | `src-tauri/src/lib.rs` |
-| `restart_application` | Performs in-place binary relaunch after application updates (ADR-0002). | `src-tauri/src/lib.rs` |
+| `restart_app` | Performs in-place binary relaunch after application updates (ADR-0002). | `src-tauri/src/lib.rs` |
 
 ## Security and Privilege Model
 
 Installing security monitoring tools and kernel-level network filters requires root or administrator privileges. The installer adheres to the following security guarantees:
 
-### 1. Sudo Authentication via Standard Input
-- The application prompts for administrator credentials upfront through a secure password input field.
-- Passwords are **never written to disk**, environment variables, or temporary configuration files.
-- Credentials are piped directly through standard input (`stdin`) to privileged processes (e.g., `sudo -S`).
-- Process stdin streams are flushed and closed immediately after authentication.
+### 1. Native OS Privilege Elevation
+- The application elevates upfront during launch using native platform mechanisms:
+  - **Linux**: Elevates via PolicyKit (`pkexec`) using `build_pkexec_command`.
+  - **macOS**: Elevates via native AppleScript administrator prompt (`osascript -e 'do shell script ... with administrator privileges'`).
+  - **Windows**: Elevated via standard Windows User Account Control (UAC) at process launch.
+- Subprocesses (such as `setup-agent.sh` and `setup-agent.ps1`) are executed with disconnected standard input (`.stdin(Stdio::null())`).
+- The application does not prompt for, capture, or store user credentials in the webview.
 
 ### 2. Single-Instance Execution Lock
 - To prevent race conditions or corrupted package installations, the installer enforces single-instance execution.
-- On Unix platforms, the lock file (`/tmp/wazuh-agent-installer.lock`) is acquired via `flock`.
+- On Linux, the lock file (`$HOME/.config/wazuh-agent-installer/.lock`) is acquired via `flock`.
 - The lock file descriptor is opened with `O_CLOEXEC` to guarantee that file handles are not inherited by child processes.
+- Secondary instances communicate with the running instance by writing a signal to `$HOME/.config/wazuh-agent-installer/.show`, unminimizing and focusing the active window.
 
 ### 3. Safe External URL Dispatch
 - External links opened from within the application (documentation links, Slack channels) are strictly validated by `is_safe_url`.

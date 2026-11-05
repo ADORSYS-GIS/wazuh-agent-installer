@@ -15,7 +15,7 @@ flowchart TD
     SUDO --> SUDO_ACTION["Enter local machine password (not SSO)<br/>Verify user has sudo/wheel privileges"]
     
     CHECK -->|"Another instance running"| LOCK["Application Lock Error"]
-    LOCK --> LOCK_ACTION["Kill stale process or remove /tmp/wazuh-agent-installer.lock"]
+    LOCK --> LOCK_ACTION["Kill stale process or remove $HOME/.config/wazuh-agent-installer/.lock"]
     
     CHECK -->|"Network error / timeout"| NET["Network / Server Unreachable"]
     NET --> NET_ACTION["Check VPN or corporate proxy<br/>Verify outbound ports 1514, 1515, 55000, 443"]
@@ -40,22 +40,22 @@ Per **ADR-0003**, self-service certificate overwriting is disabled to prevent ac
 
 ---
 
-### 2. Sudo Authentication Failed
+### 2. Privilege Elevation Denied or Failed
 
 #### Symptom
-Installation fails immediately with `Incorrect sudo password` or `Failed to authenticate with sudo`.
+The application exits at startup with `pkexec failed to launch` or fails to elevate administrator privileges.
 
 #### Cause
-- The entered password does not match the local user's account password.
-- The user account does not have sudo privileges (not in `sudo` or `wheel` group).
+- The administrator prompt was dismissed or cancelled by the user.
+- The user account does not have administrative rights on the operating system (not in `sudo` or `wheel` group on Linux/macOS, or non-admin account on Windows).
 
 #### Resolution
-- Ensure you enter your local machine password, not your enterprise SSO or email password.
+- Ensure you authenticate with your local administrator credentials when prompted by the operating system dialog.
 - Verify your account has administrative rights:
   ```bash
   sudo whoami
   ```
-- If prompted that the user is not in the sudoers file, contact your IT administrator to grant administrator privileges.
+- If prompted that the user is not in the sudoers file or lacks admin rights, contact your IT administrator to grant privileges.
 
 ---
 
@@ -80,7 +80,7 @@ A previous instance of the installer is still active in the background, or an un
   ```
 - If no process is running, remove the stale lock file:
   ```bash
-  rm -f /tmp/wazuh-agent-installer.lock
+  rm -f "$HOME/.config/wazuh-agent-installer/.lock"
   ```
 
 ---
