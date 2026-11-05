@@ -10,8 +10,16 @@ A desktop GUI application that provides a guided interface for installing and co
 
 ## Documentation
 
-See [Documentation](./docs/README.md) for the repository's documentation index
-and the SDLC-based documentation structure.
+See [Documentation](./docs/README.md) for the repository's documentation index and the SDLC-based documentation structure:
+
+- [Architecture Overview](./docs/architecture/overview.md) - System topology, IPC model, and security architecture
+- [Architecture Decision Records (ADRs)](./docs/adr/README.md) - Record of architectural decisions
+- [Development Setup](./docs/development/setup.md) - Prerequisites, build steps, and quality gates
+- [Branding & Customization](./docs/development/branding.md) - Single source of truth configuration
+- [Testing & Quality Assurance](./docs/testing/test-plan.md) - Test suites, linting, and CI pipelines
+- [Packaging & Distribution](./docs/operations/packaging.md) - Release artifacts and automated installers
+- [Troubleshooting & Support](./docs/operations/troubleshooting.md) - Common issues and support routing
+- [Configuration Reference](./docs/reference/configuration.md) - Config schema, ports, and file locations
 
 ---
 
