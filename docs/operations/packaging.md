@@ -81,7 +81,7 @@ sequenceDiagram
         User->>App: Click Install Update
         App->>GitHub: Download updated binary & verify signature
         App->>OS: Replace running executable
-        App->>OS: invoke("restart_application")
+        App->>OS: invoke("restart_app")
         Note over App,OS: ADR-0002: In-place relaunch without user manual restart
         OS-->>User: Relaunch updated application vX.Y.Z
     else Up to Date
@@ -92,4 +92,4 @@ sequenceDiagram
 
 - **Update Checks**: On startup, the application queries the GitHub Releases endpoint for a new release manifest.
 - **Background Download**: If a newer version is available, the user is prompted to install the update.
-- **In-Place Relaunch (ADR-0002)**: Once the update binary is applied, the application automatically restarts itself via `restart_application` so users immediately run the updated client without manual intervention.
+- **In-Place Relaunch (ADR-0002)**: Once the update binary is applied, the application automatically restarts itself via `restart_app` so users immediately run the updated client without manual intervention.
