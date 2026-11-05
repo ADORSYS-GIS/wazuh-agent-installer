@@ -790,9 +790,12 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
 
 fn is_safe_url(url: &str) -> bool {
     let trimmed = url.trim();
-    // Only ever open http(s) URLs, and reject any whitespace/control characters
+    // Only ever open http(s) or slack:// URLs, and reject any whitespace/control characters
     // that could inject schemes or argument-splitting when passed to a browser opener.
-    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+    if !(trimmed.starts_with("https://")
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("slack://"))
+    {
         return false;
     }
     !trimmed.chars().any(|c| c.is_whitespace() || c.is_control())

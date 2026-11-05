@@ -222,6 +222,7 @@ fn test_is_safe_url() {
         "https://login.wazuh.adorsys.team/auth?code=123"
     ));
     assert!(is_safe_url("http://localhost:8080/register"));
+    assert!(is_safe_url("slack://channel?team=T02977GUH&id=C0B90EA7C02"));
     assert!(!is_safe_url("ftp://malicious.com"));
     assert!(!is_safe_url("javascript:alert(1)"));
     assert!(!is_safe_url("https://example.com/has space"));

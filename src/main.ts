@@ -116,7 +116,8 @@ const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInput
 // IDS mode pills
 const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode-group .pill");
 
-const WAZUH_SUPPORT_SLACK_URL = "https://app.slack.com/client/T02977GUH/C0B90EA7C02";
+const WAZUH_SUPPORT_SLACK_APP_URL = "slack://channel?team=T02977GUH&id=C0B90EA7C02";
+const WAZUH_SUPPORT_SLACK_WEB_URL = "https://app.slack.com/client/T02977GUH/C0B90EA7C02";
 
 // Install / Enroll Action Buttons
 const btnStartInstall = document.getElementById("btn-start-install") as HTMLButtonElement;
@@ -189,11 +190,11 @@ btnStartInstall?.addEventListener("click", startInstall);
 btnStartEnroll?.addEventListener("click", startEnrollment);
 btnRetryEnroll?.addEventListener("click", startEnrollment);
 btnOpenSlack?.addEventListener("click", () => {
-  invoke("open_external_url", { url: WAZUH_SUPPORT_SLACK_URL });
+  invoke("open_external_url", { url: WAZUH_SUPPORT_SLACK_APP_URL });
 });
 btnCopySlack?.addEventListener("click", async () => {
   try {
-    await navigator.clipboard.writeText(WAZUH_SUPPORT_SLACK_URL);
+    await navigator.clipboard.writeText(WAZUH_SUPPORT_SLACK_WEB_URL);
     const originalText = btnCopySlack.textContent;
     btnCopySlack.textContent = "✓ Copied!";
     setTimeout(() => {
@@ -205,11 +206,11 @@ btnCopySlack?.addEventListener("click", async () => {
 });
 
 btnHelpOpenSlack?.addEventListener("click", () => {
-  invoke("open_external_url", { url: WAZUH_SUPPORT_SLACK_URL });
+  invoke("open_external_url", { url: WAZUH_SUPPORT_SLACK_APP_URL });
 });
 btnHelpCopySlack?.addEventListener("click", async () => {
   try {
-    await navigator.clipboard.writeText(WAZUH_SUPPORT_SLACK_URL);
+    await navigator.clipboard.writeText(WAZUH_SUPPORT_SLACK_WEB_URL);
     const originalText = btnHelpCopySlack.textContent;
     btnHelpCopySlack.textContent = "✓ Copied!";
     setTimeout(() => {
