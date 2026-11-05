@@ -124,6 +124,8 @@ const btnStartEnroll = document.getElementById("btn-start-enroll") as HTMLButton
 const btnRetryEnroll = document.getElementById("btn-retry-enroll") as HTMLButtonElement;
 const btnOpenSlack = document.getElementById("btn-open-slack") as HTMLButtonElement | null;
 const btnCopySlack = document.getElementById("btn-copy-slack") as HTMLButtonElement | null;
+const btnHelpOpenSlack = document.getElementById("btn-help-open-slack") as HTMLButtonElement | null;
+const btnHelpCopySlack = document.getElementById("btn-help-copy-slack") as HTMLButtonElement | null;
 
 const btnRefreshComponents = document.getElementById("btn-refresh-components") as HTMLButtonElement;
 
@@ -196,6 +198,22 @@ btnCopySlack?.addEventListener("click", async () => {
     btnCopySlack.textContent = "✓ Copied!";
     setTimeout(() => {
       btnCopySlack.textContent = originalText;
+    }, 2000);
+  } catch (err) {
+    console.error("Failed to copy link:", err);
+  }
+});
+
+btnHelpOpenSlack?.addEventListener("click", () => {
+  invoke("open_external_url", { url: WAZUH_SUPPORT_SLACK_URL });
+});
+btnHelpCopySlack?.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(WAZUH_SUPPORT_SLACK_URL);
+    const originalText = btnHelpCopySlack.textContent;
+    btnHelpCopySlack.textContent = "✓ Copied!";
+    setTimeout(() => {
+      btnHelpCopySlack.textContent = originalText;
     }, 2000);
   } catch (err) {
     console.error("Failed to copy link:", err);
