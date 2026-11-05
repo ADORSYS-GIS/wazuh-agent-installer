@@ -1,5 +1,5 @@
 // ============================================================
-// Wazuh Agent Installer — Brand & Dynamic Configuration
+// Wazuh Agent Installer: Brand & Dynamic Configuration
 // ============================================================
 import logoUrl from "./assets/adorsys-logo.png";
 

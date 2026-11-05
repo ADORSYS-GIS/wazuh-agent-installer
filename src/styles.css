@@ -598,6 +598,11 @@ input:checked + .slider:before {
   color: var(--brand-status-error);
 }
 
+.status-banner.warn {
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--brand-status-warn);
+}
+
 /* Result Screen */
 .result-icon {
   font-size: 48px;

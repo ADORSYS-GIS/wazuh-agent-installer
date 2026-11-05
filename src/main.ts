@@ -99,7 +99,7 @@ const listen = hasTauri
 
 let isInstalling = false;
 let isEnrolling = false;
-let isReEnrolling = false; // true when the user is already enrolled — passes --overwrite to the client
+let isReEnrolling = false; // true when the user is already enrolled: passes --overwrite to the client
 let isNetbirding = false;
 
 // ---- DOM refs ----
@@ -116,10 +116,16 @@ const elNetbirdInstall = document.getElementById("install-netbird") as HTMLInput
 // IDS mode pills
 const suricataModePills = document.querySelectorAll<HTMLElement>("#suricata-mode-group .pill");
 
+const WAZUH_SUPPORT_SLACK_URL = "https://adorsys.slack.com/archives/C08M6LK5FCM";
+
 // Install / Enroll Action Buttons
 const btnStartInstall = document.getElementById("btn-start-install") as HTMLButtonElement;
 const btnStartEnroll = document.getElementById("btn-start-enroll") as HTMLButtonElement;
 const btnRetryEnroll = document.getElementById("btn-retry-enroll") as HTMLButtonElement;
+const btnOpenSlack = document.getElementById("btn-open-slack") as HTMLButtonElement | null;
+const btnCopySlack = document.getElementById("btn-copy-slack") as HTMLButtonElement | null;
+const btnHelpOpenSlack = document.getElementById("btn-help-open-slack") as HTMLButtonElement | null;
+const btnHelpCopySlack = document.getElementById("btn-help-copy-slack") as HTMLButtonElement | null;
 
 const btnRefreshComponents = document.getElementById("btn-refresh-components") as HTMLButtonElement;
 
@@ -132,6 +138,7 @@ const resultScreen = document.getElementById("result-screen");
 const terminalEnrollArea = document.getElementById("enroll-terminal-area");
 const terminalEnroll = document.getElementById("enroll-terminal");
 const enrollStatusBanner = document.getElementById("enroll-status-banner");
+const enrollConflictCard = document.getElementById("enroll-conflict-card");
 
 // NetBird
 const elNetbirdSetupKey = document.getElementById("netbird-setup-key") as HTMLInputElement | null;
@@ -181,6 +188,37 @@ navItems.forEach((item) => {
 btnStartInstall?.addEventListener("click", startInstall);
 btnStartEnroll?.addEventListener("click", startEnrollment);
 btnRetryEnroll?.addEventListener("click", startEnrollment);
+btnOpenSlack?.addEventListener("click", () => {
+  invoke("open_external_url", { url: WAZUH_SUPPORT_SLACK_URL });
+});
+btnCopySlack?.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(WAZUH_SUPPORT_SLACK_URL);
+    const originalText = btnCopySlack.textContent;
+    btnCopySlack.textContent = "✓ Copied!";
+    setTimeout(() => {
+      btnCopySlack.textContent = originalText;
+    }, 2000);
+  } catch (err) {
+    console.error("Failed to copy link:", err);
+  }
+});
+
+btnHelpOpenSlack?.addEventListener("click", () => {
+  invoke("open_external_url", { url: WAZUH_SUPPORT_SLACK_URL });
+});
+btnHelpCopySlack?.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(WAZUH_SUPPORT_SLACK_URL);
+    const originalText = btnHelpCopySlack.textContent;
+    btnHelpCopySlack.textContent = "✓ Copied!";
+    setTimeout(() => {
+      btnHelpCopySlack.textContent = originalText;
+    }, 2000);
+  } catch (err) {
+    console.error("Failed to copy link:", err);
+  }
+});
 
 btnStartNetbird?.addEventListener("click", startNetbirdConnection);
 btnRetryNetbird?.addEventListener("click", startNetbirdConnection);
@@ -458,7 +496,7 @@ function appendLog(term: HTMLElement | null, line: string, level: string): void 
   term.scrollTop = term.scrollHeight;
 }
 
-function showStatusBanner(banner: HTMLElement | null, type: "running" | "success" | "error", message: string) {
+function showStatusBanner(banner: HTMLElement | null, type: "running" | "success" | "error" | "warn", message: string) {
   if (!banner) return;
   banner.className = `status-banner visible ${type}`;
   banner.textContent = "";
@@ -468,7 +506,8 @@ function showStatusBanner(banner: HTMLElement | null, type: "running" | "success
     banner.appendChild(spinner);
     banner.appendChild(document.createTextNode(" "));
   } else {
-    banner.appendChild(document.createTextNode(type === "success" ? "✓ " : "✕ "));
+    const icon = type === "success" ? "✓ " : type === "warn" ? "⚠️ " : "✕ ";
+    banner.appendChild(document.createTextNode(icon));
   }
   banner.appendChild(document.createTextNode(message));
 }
@@ -533,6 +572,8 @@ function showInstallResult(success: boolean, desc: string) {
 
 // ---- Enrollment Flow ----
 
+let hasCertConflict = false;
+
 async function startEnrollment() {
   if (isEnrolling) return;
 
@@ -541,47 +582,77 @@ async function startEnrollment() {
   if (!issuer || !endpoint) return;
 
   isEnrolling = true;
+  hasCertConflict = false;
+  if (enrollConflictCard) enrollConflictCard.style.display = "none";
   updateEnrollButtonState();
 
   if (terminalEnrollArea) terminalEnrollArea.style.display = "block";
   if (btnRetryEnroll) btnRetryEnroll.style.display = "none";
   if (terminalEnroll) {
     terminalEnroll.innerHTML =
-      '<div class="terminal-placeholder"><span class="spinner"></span> Running enrollment…</div>';
+      '<div class="terminal-placeholder"><span class="spinner"></span> Running enrollment...</div>';
   }
 
-  showStatusBanner(enrollStatusBanner, "running", "Enrollment in progress — check your browser…");
+  showStatusBanner(enrollStatusBanner, "running", "Enrollment in progress: check your browser...");
+
+  const shouldOverwrite = isReEnrolling;
 
   const unlistenLog = await listen<LogLine>("enroll-log", (e) => {
     appendLog(terminalEnroll, e.payload.line, e.payload.level);
+    const line = e.payload.line;
+    if (
+      line.includes("Conflict: User already has an active certificate") ||
+      line.includes("Upstream error: Conflict")
+    ) {
+      hasCertConflict = true;
+    }
   });
 
   try {
     const result = await invoke<InstallResult>("run_enroll", {
       issuer,
       endpoint,
-      overwrite: isReEnrolling,
+      overwrite: shouldOverwrite,
     });
 
-    if (result.success) {
-      showStatusBanner(enrollStatusBanner, "success", "✓ Agent enrolled successfully!");
-      // Poll 3 times at 1s intervals for client.keys to be written
+    if (hasCertConflict) {
+      showStatusBanner(
+        enrollStatusBanner,
+        "warn",
+        "Active certificate conflict detected. Please reach out to the Security Team."
+      );
+      if (enrollConflictCard) enrollConflictCard.style.display = "block";
+      if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
+    } else if (result.success) {
+      showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
+      if (enrollConflictCard) enrollConflictCard.style.display = "none";
+      // Poll for client.keys to be populated by the Wazuh manager
       let attempts = 0;
       const poll = () => {
         attempts++;
         checkEnrollmentState().then(() => {
-          if (!isReEnrolling && attempts < 3) {
-            setTimeout(poll, 1000);
+          if (!isReEnrolling && attempts < 6) {
+            setTimeout(poll, 1500);
           }
         });
       };
       setTimeout(poll, 1000);
     } else {
-      showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: exit code ${result.exit_code}`);
+      const errorMsg = result.message || `exit code ${result.exit_code}`;
+      showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: ${errorMsg}`);
       if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
     }
   } catch (err: unknown) {
-    showStatusBanner(enrollStatusBanner, "error", `Enrollment error: ${err}`);
+    if (hasCertConflict) {
+      showStatusBanner(
+        enrollStatusBanner,
+        "warn",
+        "Active certificate conflict detected. Please reach out to the Security Team."
+      );
+      if (enrollConflictCard) enrollConflictCard.style.display = "block";
+    } else {
+      showStatusBanner(enrollStatusBanner, "error", `Enrollment error: ${err}`);
+    }
     if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
   } finally {
     unlistenLog();
@@ -649,6 +720,7 @@ function handleEnrolledState(
   agentNameEl: HTMLElement | null
 ) {
   if (activeCard) activeCard.style.display = "block";
+  if (enrollConflictCard) enrollConflictCard.style.display = "none";
 
   if (dangerBody && formSection && formSection.parentElement !== dangerBody) {
     dangerBody.appendChild(formSection);

@@ -222,6 +222,7 @@ fn test_is_safe_url() {
         "https://login.wazuh.adorsys.team/auth?code=123"
     ));
     assert!(is_safe_url("http://localhost:8080/register"));
+    assert!(is_safe_url("slack://channel?team=T02977GUH&id=C0B90EA7C02"));
     assert!(!is_safe_url("ftp://malicious.com"));
     assert!(!is_safe_url("javascript:alert(1)"));
     assert!(!is_safe_url("https://example.com/has space"));
@@ -292,6 +293,7 @@ fn test_build_enroll_command() {
     assert!(debug.contains("--endpoint"));
     assert!(debug.contains("https://cert.com"));
     assert!(debug.contains("--overwrite"));
+    assert!(debug.contains("true"));
 
     let no_overwrite_cmd = build_enroll_command("https://issuer.com", "https://cert.com", false);
     let no_overwrite_debug = format!("{:?}", no_overwrite_cmd);
@@ -734,6 +736,7 @@ fn test_open_browser_unsafe_noop() {
     open_browser("ftp://unsafe.com");
     open_browser("javascript:alert(1)");
     open_browser("   ");
+    open_external_url("ftp://unsafe.com".to_string());
 }
 
 #[test]

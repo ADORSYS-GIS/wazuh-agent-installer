@@ -10,8 +10,16 @@ A desktop GUI application that provides a guided interface for installing and co
 
 ## Documentation
 
-See [Documentation](./docs/README.md) for the repository's documentation index
-and the SDLC-based documentation structure.
+See [Documentation](./docs/README.md) for the repository's documentation index and the SDLC-based documentation structure:
+
+- [Architecture Overview](./docs/architecture/overview.md) - System topology, IPC model, and security architecture
+- [Architecture Decision Records (ADRs)](./docs/adr/README.md) - Record of architectural decisions
+- [Development Setup](./docs/development/setup.md) - Prerequisites, build steps, and quality gates
+- [Branding & Customization](./docs/development/branding.md) - Single source of truth configuration
+- [Testing & Quality Assurance](./docs/testing/test-plan.md) - Test suites, linting, and CI pipelines
+- [Packaging & Distribution](./docs/operations/packaging.md) - Release artifacts and automated installers
+- [Troubleshooting & Support](./docs/operations/troubleshooting.md) - Common issues and support routing
+- [Configuration Reference](./docs/reference/configuration.md) - Config schema, ports, and file locations
 
 ---
 
@@ -20,7 +28,7 @@ and the SDLC-based documentation structure.
 - **Sidebar UI:** Intuitive layout with Setup, Enrollment, and Components tabs.
 - **Cross-platform support:** Native installation on Linux, macOS, and Windows.
 - **Modular branding:** Customize logo, color palette, preconfigured manager addresses, and endpoints using a single configuration file.
-- **Secure Privileges:** Validates `sudo` authentication upfront and securely pipes it via `stdin` across installation sub-processes (no plaintext password caching to disk).
+- **Native OS Elevation:** Elevates privileges upfront using native OS authentication (PolicyKit pkexec on Linux, administrator prompt on macOS, UAC on Windows) without capturing or caching passwords to disk.
 - **Component Auditing:** Detects and verifies the presence of security binaries and active-response scripts across root-owned directories.
 - **Real-time log streaming:** Terminal-style view during installation and enrollment.
 - **OAuth2 enrollment:** Guided certificate-based authentication flow from within the app using PKCE.
@@ -31,15 +39,16 @@ and the SDLC-based documentation structure.
 
 **Core (always installed)**
 
-- [Wazuh Agent](https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html) — security monitoring agent
-- [wazuh-cert-oauth2-client](https://github.com/ADORSYS-GIS/wazuh-cert-oauth2) — certificate-based OAuth2 authentication
-- [wazuh-agent-status](https://github.com/ADORSYS-GIS/wazuh-agent-status) — agent health monitoring daemon
-- [YARA](https://virustotal.github.io/yara/) — malware detection via YARA rules
-- USB DLP active response scripts — blocks/alerts on unauthorized USB storage and HID devices
+- [Wazuh Agent](https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html) - security monitoring agent
+- [wazuh-cert-oauth2-client](https://github.com/ADORSYS-GIS/wazuh-cert-oauth2) - certificate-based OAuth2 authentication
+- [wazuh-agent-status](https://github.com/ADORSYS-GIS/wazuh-agent-status) - agent health monitoring daemon
+- [YARA](https://virustotal.github.io/yara/) - malware detection via YARA rules
+- [Suricata](https://suricata.io/) - network intrusion detection and prevention engine (IDS/IPS mode)
+- USB DLP active response scripts - blocks/alerts on unauthorized USB storage and HID devices
 
-**Configurable (user choice)**
+**Optional (user toggle)**
 
-- **Suricata** (IDS or IPS mode) — network intrusion detection/prevention
+- [NetBird](https://netbird.io/) - WireGuard-based overlay mesh VPN client (configurable in Setup tab)
 
 ---
 
@@ -104,7 +113,7 @@ irm https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/
 | Platform | Package                                    |
 | -------- | ------------------------------------------ |
 | Linux    | `.deb`, `.AppImage` (AMD64 and ARM64)      |
-| macOS    | `.dmg` (universal — Intel + Apple Silicon) |
+| macOS    | `.dmg` (universal - Intel + Apple Silicon) |
 | Windows  | `.msi`, `.exe`                             |
 
 > Releases are tagged as `v<major>.<minor>.<patch>` and built from the `main` branch. Artifacts are signed and their checksums are published alongside each release.
