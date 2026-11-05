@@ -31,15 +31,15 @@ and the SDLC-based documentation structure.
 
 **Core (always installed)**
 
-- [Wazuh Agent](https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html) — security monitoring agent
-- [wazuh-cert-oauth2-client](https://github.com/ADORSYS-GIS/wazuh-cert-oauth2) — certificate-based OAuth2 authentication
-- [wazuh-agent-status](https://github.com/ADORSYS-GIS/wazuh-agent-status) — agent health monitoring daemon
-- [YARA](https://virustotal.github.io/yara/) — malware detection via YARA rules
-- USB DLP active response scripts — blocks/alerts on unauthorized USB storage and HID devices
+- [Wazuh Agent](https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html) - security monitoring agent
+- [wazuh-cert-oauth2-client](https://github.com/ADORSYS-GIS/wazuh-cert-oauth2) - certificate-based OAuth2 authentication
+- [wazuh-agent-status](https://github.com/ADORSYS-GIS/wazuh-agent-status) - agent health monitoring daemon
+- [YARA](https://virustotal.github.io/yara/) - malware detection via YARA rules
+- USB DLP active response scripts - blocks/alerts on unauthorized USB storage and HID devices
 
 **Configurable (user choice)**
 
-- **Suricata** (IDS or IPS mode) — network intrusion detection/prevention
+- **Suricata** (IDS or IPS mode) - network intrusion detection/prevention
 
 ---
 
@@ -104,7 +104,7 @@ irm https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/
 | Platform | Package                                    |
 | -------- | ------------------------------------------ |
 | Linux    | `.deb`, `.AppImage` (AMD64 and ARM64)      |
-| macOS    | `.dmg` (universal — Intel + Apple Silicon) |
+| macOS    | `.dmg` (universal - Intel + Apple Silicon) |
 | Windows  | `.msi`, `.exe`                             |
 
 > Releases are tagged as `v<major>.<minor>.<patch>` and built from the `main` branch. Artifacts are signed and their checksums are published alongside each release.

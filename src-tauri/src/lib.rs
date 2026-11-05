@@ -512,14 +512,14 @@ fn make_script_executable_unix(resource_path: &std::path::Path) -> Result<String
     if let Ok(meta) = std::fs::metadata(resource_path) {
         let mode = meta.permissions().mode();
         if mode & 0o111 != 0 {
-            // Already executable — use in place
+            // Already executable: use in place
             return resource_path
                 .to_str()
                 .map(str::to_string)
                 .ok_or_else(|| "Script path contains invalid UTF-8".to_string());
         }
     }
-    // Not executable — write to a random, unpredictable temp file using O_EXCL
+    // Not executable: write to a random, unpredictable temp file using O_EXCL
     // (create_new) so a local attacker cannot pre-plant a symlink or race the path.
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -599,7 +599,7 @@ fn is_root() -> bool {
     {
         // On Windows this always returns true. Actual elevation is handled by the OS UAC
         // prompt at process launch time. Callers should not treat this as a reliable
-        // indicator of real administrator status — it's a platform-level no-op.
+        // indicator of real administrator status: it's a platform-level no-op.
         true
     }
 }
@@ -684,8 +684,8 @@ fn spawn_log_reader<T>(
 {
     tokio::spawn(async move {
         read_log_lines(stream, move |raw_line, log_line| {
-            process_line(raw_line);
             let _ = app.emit(event_name, log_line);
+            process_line(raw_line);
         })
         .await;
     });
@@ -790,9 +790,12 @@ async fn run_install(config: InstallConfig, app: AppHandle) -> Result<InstallRes
 
 fn is_safe_url(url: &str) -> bool {
     let trimmed = url.trim();
-    // Only ever open http(s) URLs, and reject any whitespace/control characters
+    // Only ever open http(s) or slack:// URLs, and reject any whitespace/control characters
     // that could inject schemes or argument-splitting when passed to a browser opener.
-    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+    if !(trimmed.starts_with("https://")
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("slack://"))
+    {
         return false;
     }
     !trimmed.chars().any(|c| c.is_whitespace() || c.is_control())
@@ -812,7 +815,9 @@ fn open_browser(url: &str) {
                 .arg(format!("#{}", uid))
                 .arg("xdg-open")
                 .arg(url)
-                .status();
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
             return;
         } else if let Ok(sudo_user) = std::env::var("SUDO_USER") {
             let _ = std::process::Command::new("sudo")
@@ -820,7 +825,9 @@ fn open_browser(url: &str) {
                 .arg(&sudo_user)
                 .arg("xdg-open")
                 .arg(url)
-                .status();
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
             return;
         }
     }
@@ -838,6 +845,12 @@ fn open_browser(url: &str) {
     // Fallback to Tauri opener for Windows or standard Linux
     let _ = tauri_plugin_opener::open_url(url, None::<&str>);
 }
+
+#[tauri::command]
+fn open_external_url(url: String) {
+    open_browser(&url);
+}
+
 #[tauri::command]
 fn build_enroll_command(issuer: &str, endpoint: &str, overwrite: bool) -> Command {
     let mut oauth_args = vec![
@@ -2029,8 +2042,14 @@ fn determine_instance_action(lock_acquired: bool, is_root: bool, pid: u32) -> In
 fn try_lock_at_path(lock_path: &str) -> Option<i32> {
     let c_path = std::ffi::CString::new(lock_path).ok()?;
 
-    // Open the file. Use 0o666 so any user can open it.
-    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CREAT, 0o666) };
+    // Open the file with O_CLOEXEC so child processes don't inherit the lock fd. Use 0o666 so any user can open it.
+    let fd = unsafe {
+        libc::open(
+            c_path.as_ptr(),
+            libc::O_RDWR | libc::O_CREAT | libc::O_CLOEXEC,
+            0o666,
+        )
+    };
 
     if fd < 0 {
         return None;
@@ -2141,7 +2160,8 @@ pub fn run() {
             check_for_updates,
             run_app_update,
             restart_app,
-            get_local_version_command
+            get_local_version_command,
+            open_external_url
         ])
         .setup(setup_app)
         .run(tauri::generate_context!())
