@@ -2,6 +2,25 @@
 
 This guide helps administrators and users resolve common issues encountered during installation, enrollment, or execution of the Wazuh Agent Installer.
 
+## Troubleshooting Triage
+
+```mermaid
+flowchart TD
+    START["Issue encountered with installer?"] --> CHECK{"What failure occurred?"}
+    
+    CHECK -->|"HTTP 409 Conflict"| CERT["Active Certificate Conflict"]
+    CERT --> CERT_ACTION["Self-service overwrite disabled (ADR-0003)<br/>Go to Help tab -> Open #Wazuh-Support in Slack"]
+    
+    CHECK -->|"Sudo password rejected"| SUDO["Sudo Authentication Failed"]
+    SUDO --> SUDO_ACTION["Enter local machine password (not SSO)<br/>Verify user has sudo/wheel privileges"]
+    
+    CHECK -->|"Another instance running"| LOCK["Application Lock Error"]
+    LOCK --> LOCK_ACTION["Kill stale process or remove /tmp/wazuh-agent-installer.lock"]
+    
+    CHECK -->|"Network error / timeout"| NET["Network / Gateway Unreachable"]
+    NET --> NET_ACTION["Check VPN or corporate proxy<br/>Verify outbound ports 1514, 1515, 55000, 443"]
+```
+
 ## Common Issues & Resolutions
 
 ### 1. Active Certificate Conflict (HTTP 409)

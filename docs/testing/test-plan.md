@@ -6,16 +6,33 @@ This document outlines the testing strategy, test suites, static analysis, and v
 
 The testing methodology ensures that security utilities, privilege escalation logic, process lifecycle management, and user interface workflows operate reliably across Linux, macOS, and Windows.
 
-```text
-+-------------------------------------------------------------------+
-|                        Continuous Testing                         |
-+-------------------------------------------------------------------+
-| 1. Unit Tests (Rust/Cargo) - 101 tests verifying core logic       |
-| 2. Static Analysis - Clippy (-D warnings), ESLint, Prettier       |
-| 3. Type Checking - TypeScript strict mode compiler verification    |
-| 4. Security Scanning - CodeQL SAST workflow on every PR           |
-| 5. Multi-Platform Manual Matrix - Ubuntu, macOS, Windows 10/11     |
-+-------------------------------------------------------------------+
+```mermaid
+flowchart TD
+    subgraph LocalGates["Developer Local Quality Gates (./run-ci.sh)"]
+        FMT_FE["Prettier Code Style"]
+        LINT_FE["ESLint TypeScript Linter"]
+        TSC["TypeScript Type Checker (tsc --noEmit)"]
+        BUNDLE["Vite Build Compilation"]
+        FMT_BE["Cargo fmt Formatting"]
+        CLIPPY["Cargo Clippy (-D warnings)"]
+        TEST_BE["Cargo Unit Tests (101 tests)"]
+        FMT_FE --> LINT_FE --> TSC --> BUNDLE --> FMT_BE --> CLIPPY --> TEST_BE
+    end
+
+    subgraph CIGates["GitHub Actions Automated Gates"]
+        CI_WORKFLOW["CI Workflow (.github/workflows/ci.yml)"]
+        SAST_WORKFLOW["CodeQL SAST Security (.github/workflows/sast.yml)"]
+    end
+
+    subgraph ManualMatrix["Cross-Platform Verification"]
+        LINUX["Linux (Ubuntu 20.04/22.04/24.04, Debian 11/12)"]
+        MACOS["macOS (Intel & Apple Silicon)"]
+        WIN["Windows 10 / 11 (x86_64)"]
+    end
+
+    LocalGates --> CI_WORKFLOW
+    CI_WORKFLOW --> SAST_WORKFLOW
+    SAST_WORKFLOW --> ManualMatrix
 ```
 
 ## 1. Rust Unit Test Suite

@@ -2,35 +2,44 @@
 
 This document describes the high-level architecture, design decisions, and security model of the Wazuh Agent Installer.
 
-## System Overview
+## System Topology
 
-The Wazuh Agent Installer is a cross-platform desktop application built using [Tauri v2](https://v2.tauri.app/) and TypeScript. It provides a guided graphical interface for deploying and configuring a complete Wazuh security stack on end-user machines across Linux, macOS, and Windows.
+The Wazuh Agent Installer is a cross-platform desktop application built with [Tauri v2](https://v2.tauri.app/) and TypeScript. It coordinates the installation, configuration, and enrollment of a complete endpoint security stack across Linux, macOS, and Windows.
 
-```text
-+-----------------------------------------------------------------------+
-|                             Frontend (UI)                             |
-|  TypeScript + Vite + HTML5 + Vanilla DOM (No bulky framework)        |
-|  Tabs: Setup | Enrollment | Components | Help & Support               |
-+-----------------------------------------------------------------------+
-                                  |
-                                  | Tauri IPC (invoke / events)
-                                  v
-+-----------------------------------------------------------------------+
-|                          Backend Core (Rust)                          |
-|  - Process execution & sudo stdin streaming                           |
-|  - Single-instance file lock (flock + O_CLOEXEC)                      |
-|  - Safe external URL dispatch (http/https/slack protocols)            |
-|  - Asynchronous background process spawning                           |
-|  - Updater integration with auto-restart                              |
-+-----------------------------------------------------------------------+
-         |                        |                        |
-         v                        v                        v
-+------------------+     +------------------+     +--------------------+
-|  OS Services     |     | Security Gateway |     | External Apps      |
-|  - systemd / svc |     | - OAuth2 PKCE    |     | - Default Browser  |
-|  - Wazuh Agent   |     | - Cert Exchange  |     | - Slack Desktop    |
-|  - Suricata/YARA |     | - Conflict check |     +--------------------+
-+------------------+     +------------------+
+```mermaid
+flowchart TD
+    subgraph Frontend["Frontend UI (TypeScript + HTML5 + CSS)"]
+        UI_TABS["Sidebar Navigation: Setup | Enrollment | NetBird | Overview | Help"]
+        UI_LOGS["Real-Time Terminal Output (log_stdout / log_stderr)"]
+        UI_THEME["Dynamic Brand Palette (BRAND_CONFIG from src/config.ts)"]
+    end
+
+    subgraph TauriCore["Backend Core (Rust + Tauri v2)"]
+        IPC["Tauri IPC Dispatcher"]
+        LOCK["Single-Instance File Lock (flock + O_CLOEXEC)"]
+        PROC["Process Spawner (sudo via stdin, non-blocking xdg-open)"]
+        UPDATER["Auto-Updater with In-Place Restart (ADR-0002)"]
+    end
+
+    subgraph SystemServices["Local Operating System Services"]
+        WAZUH_AGENT["Wazuh Agent (systemd / launchd / Windows Service)"]
+        STATUS_DAEMON["wazuh-agent-status Daemon"]
+        NIDS["Suricata (IDS/IPS Engine)"]
+        YARA_ENG["YARA Malware Engine"]
+        NETBIRD_CLIENT["NetBird Mesh Client (Optional)"]
+    end
+
+    subgraph CloudInfra["Security Infrastructure"]
+        GATEWAY["Wazuh Gateway (OAuth2 & Certificate Issuance)"]
+        IDP["Corporate Identity Provider (OAuth2 PKCE)"]
+        MANAGER["Wazuh Manager Cluster"]
+        SLACK["Slack Workspace (#Wazuh-Support)"]
+    end
+
+    Frontend -->|Tauri invoke & event listeners| TauriCore
+    TauriCore -->|Privileged command execution| SystemServices
+    TauriCore -->|OAuth2 PKCE & Cert Exchange| CloudInfra
+    Frontend -->|Direct Help & Support links| SLACK
 ```
 
 ## Layered Architecture
@@ -38,65 +47,118 @@ The Wazuh Agent Installer is a cross-platform desktop application built using [T
 ### 1. Frontend Layer (`src/`)
 
 - **Rendering Engine**: Native Webview managed by Tauri (WebKitGTK on Linux, WKWebView on macOS, WebView2 on Windows).
-- **Application Logic**: Written in TypeScript using standard DOM APIs without large frontend frameworks (React/Vue/Angular), keeping bundle size minimal and memory usage low.
-- **Branding & Config**: Centralized in `src/config.ts`. Modifying `config.ts` dynamically configures the visual identity, colors, default endpoints, and supported features.
-- **Event Listeners**: Listens to backend log streaming events (`log_stdout`, `log_stderr`, `process_finished`) to display real-time terminal output during installation and enrollment.
+- **Application Logic**: Written in vanilla TypeScript using native DOM APIs without bulky frameworks (React, Vue, Angular), maintaining instantaneous launch times and minimal resource overhead.
+- **Branding and Theme Configuration**: Centralized in `src/config.ts` (`BRAND_CONFIG`). The frontend injects color tokens into CSS custom properties (`--brand-primary`, `--brand-bg-root`, `--brand-text-primary`) during startup.
+- **Real-Time Log Streaming**: Listens to backend log streaming events (`log_stdout`, `log_stderr`, `process_finished`) to display terminal output during installation, enrollment, and NetBird connection attempts.
 
 ### 2. Backend Bridge Layer (`src-tauri/src/`)
 
-- **IPC Dispatcher**: Exposes safe, strongly-typed Rust functions to the webview using Tauri's `#[tauri::command]` attribute.
-- **Command Routing**:
-  - `start_installation`: Runs the platform-specific installer script, securely streaming sudo credentials through stdin.
-  - `start_enrollment`: Performs agent enrollment against the Wazuh Gateway or Manager.
-  - `open_external_url`: Validates and dispatches external URLs to system handlers.
-  - `check_component_status`: Probes filesystem paths for installed binaries and services.
-  - `restart_application`: Triggers an in-place relaunch after software updates.
+The Rust backend exposes strongly typed commands to the webview via Tauri's IPC mechanism:
+
+| Command | Purpose | Code Reference |
+| :--- | :--- | :--- |
+| `run_install` | Executes `setup-agent.sh` or `setup-agent.ps1` with secure stdin password piping. | `src-tauri/src/lib.rs` |
+| `run_enroll` | Performs certificate-based enrollment against the Wazuh Gateway. | `src-tauri/src/lib.rs` |
+| `run_netbird_up` | Executes `netbird up` with management URL and setup key. | `src-tauri/src/lib.rs` |
+| `check_components` | Probes system filesystem paths to verify installed binaries and versions. | `src-tauri/src/lib.rs` |
+| `check_enrollment` | Verifies existence and validity of agent client keys (`client.keys`). | `src-tauri/src/lib.rs` |
+| `check_netbird` | Reads NetBird daemon status via CLI JSON output. | `src-tauri/src/lib.rs` |
+| `get_app_config` | Returns preconfigured manager, OAuth2, and NetBird URLs. | `src-tauri/src/lib.rs` |
+| `open_external_url` | Safely validates and launches external links (`http`, `https`, `slack`). | `src-tauri/src/lib.rs` |
+| `restart_application` | Performs in-place binary relaunch after application updates (ADR-0002). | `src-tauri/src/lib.rs` |
 
 ## Security and Privilege Model
 
-Installing security monitoring software requires root/administrator privileges. The installer implements a strict security posture:
+Installing security monitoring tools and kernel-level network filters requires root or administrator privileges. The installer adheres to the following security guarantees:
 
 ### 1. Sudo Authentication via Standard Input
 - The application prompts for administrator credentials upfront through a secure password input field.
-- Passwords are **never cached to disk** or written to temporary configuration files.
-- Credentials are piped directly through standard input (`stdin`) to privileged processes (such as `sudo -S`).
-- Process stdin pipes are immediately closed after authentication to minimize exposure window.
+- Passwords are **never written to disk**, environment variables, or temporary configuration files.
+- Credentials are piped directly through standard input (`stdin`) to privileged processes (e.g., `sudo -S`).
+- Process stdin streams are flushed and closed immediately after authentication.
 
 ### 2. Single-Instance Execution Lock
-- To prevent conflicting concurrent installations or database locks, the installer enforces single-instance execution.
-- On Unix-like systems, the lock file (`/tmp/wazuh-agent-installer.lock`) is acquired using `flock`.
-- The lock file descriptor is opened with `O_CLOEXEC` to guarantee that file handles are not leaked to spawned child processes or external commands.
+- To prevent race conditions or corrupted package installations, the installer enforces single-instance execution.
+- On Unix platforms, the lock file (`/tmp/wazuh-agent-installer.lock`) is acquired via `flock`.
+- The lock file descriptor is opened with `O_CLOEXEC` to guarantee that file handles are not inherited by child processes.
 
 ### 3. Safe External URL Dispatch
-- External links opened from within the application (documentation links, support channels) are strictly validated by `is_safe_url`.
+- External links opened from within the application (documentation links, Slack channels) are strictly validated by `is_safe_url`.
 - Allowed protocols are restricted to `http://`, `https://`, and `slack://`.
-- Arbitrary command injection or protocol handler abuse (such as `file://` or shell execution protocols) is rejected.
+- Dangerous URL schemes (`file://`, `javascript:`, shell command executions) are rejected.
 
-### 4. Non-Blocking Process Spawning
+### 4. Asynchronous Process Spawning
 - External helper commands on Linux (such as `xdg-open`) are spawned asynchronously with disconnected standard input, output, and error streams (`Stdio::null()`).
-- This prevents child processes from blocking the Tauri event loop or holding stdout/stderr pipes open, which previously caused UI and log stream freezes.
+- This prevents child processes from blocking the Tauri event loop or holding stdout/stderr pipes open, eliminating UI and log freezes.
 
 ## Component Stack Overview
 
-The installer automates the installation and configuration of six security components:
+The installer provisions and verifies the following endpoint security components:
 
-| Component | Function | Upstream Reference |
-| :--- | :--- | :--- |
-| **Wazuh Agent** | Endpoint security monitoring, file integrity monitoring (FIM), vulnerability detection, and active response. | [Wazuh Documentation](https://documentation.wazuh.com/) |
-| **wazuh-cert-oauth2-client** | Manages certificate-based authentication using OAuth2 PKCE flow for mutual TLS with the Wazuh cluster. | [ADORSYS-GIS/wazuh-cert-oauth2](https://github.com/ADORSYS-GIS/wazuh-cert-oauth2) |
-| **wazuh-agent-status** | Background daemon reporting agent health, enrollment status, and telemetry. | [ADORSYS-GIS/wazuh-agent-status](https://github.com/ADORSYS-GIS/wazuh-agent-status) |
-| **YARA** | Pattern matching engine evaluating files against custom security rules for malware detection. | [VirusTotal YARA](https://virustotal.github.io/yara/) |
-| **USB DLP Active Response** | Custom active-response scripts that detect, block, and report unauthorized USB storage and HID devices. | Internal Wazuh Ruleset |
-| **Suricata** (Optional) | Network intrusion detection and prevention system (IDS/IPS) analyzing packet flows. | [Suricata IDS](https://suricata.io/) |
+```mermaid
+flowchart LR
+    subgraph CoreStack["Core Components (Always Installed)"]
+        WAZUH["Wazuh Agent"]
+        OAUTH["wazuh-cert-oauth2-client"]
+        STATUS["wazuh-agent-status"]
+        SURI["Suricata (IDS/IPS)"]
+        YARA["YARA Engine"]
+        DLP["USB DLP Active Response"]
+    end
 
-## Enrollment and Conflict Handling
+    subgraph OptionalStack["Optional Components (User Toggle)"]
+        NETBIRD["NetBird VPN Client"]
+    end
 
-1. **Authentication Flow**:
-   - The user enters their corporate email address and clicks "Enroll Agent".
-   - The installer initiates an OAuth2 PKCE exchange with the identity provider (IdP).
-   - Upon successful identity verification, the client requests a client certificate from the Wazuh Gateway.
+    CoreStack -->|Configured by default| ENDPOINT["Protected Endpoint"]
+    OptionalStack -.->|Toggled via Setup tab (-b)| ENDPOINT
+```
 
-2. **Active Certificate Conflict Handling**:
-   - If the Gateway reports that the user already has an active, valid certificate in the cluster, an HTTP 409 Conflict is returned.
-   - Per **ADR-0003**, self-service certificate overwrite is disabled in the UI to prevent accidental invalidation of active endpoint certificates.
-   - The UI surfaces clear, actionable instructions directing the user to contact the Security Team on Slack (`#Wazuh-Support` at `https://adorsys.slack.com/archives/C08M6LK5FCM`).
+### Core Components (Installed by Default)
+1. **Wazuh Agent**: Core security monitoring agent responsible for system log analysis, file integrity monitoring (FIM), vulnerability detection, and active response execution.
+2. **OAuth2 Client (`wazuh-cert-oauth2-client`)**: Authenticates the agent with the central cluster using OAuth2 PKCE and issues mutual TLS client certificates.
+3. **Agent Status Monitor (`wazuh-agent-status`)**: Background daemon continuously verifying agent health and handling automated recovery.
+4. **Suricata**: Network intrusion detection and prevention system (NIDS/NIPS) analyzing network packets in real time. Configured via `IDS_ENGINE=suricata` and `SURICATA_MODE=ids` (or `ips`).
+5. **YARA**: High-performance pattern matching engine evaluating files against custom detection rules.
+6. **USB DLP Active Response Scripts**: Custom Wazuh active-response integration detecting, blocking, and reporting unauthorized USB storage and HID devices.
+
+### Optional Component (User-Controlled Toggle)
+- **NetBird**: WireGuard-based overlay mesh VPN client providing secure point-to-point networking between distributed agents.
+  - Toggled via the **Install NetBird** checkbox in the Setup tab (`install_netbird`).
+  - When enabled, the installer passes `-b` on Linux/macOS and `-InstallNetBird` on Windows to `setup-agent`.
+  - Once installed, users can configure and monitor their mesh connection via the dedicated **NetBird** tab in the sidebar navigation.
+
+## Enrollment and Conflict Handling Flow
+
+The enrollment process utilizes OAuth2 PKCE verification followed by certificate negotiation with the Wazuh Gateway.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as Installer UI
+    participant Backend as Rust Backend
+    participant IdP as Identity Provider
+    participant Gateway as Wazuh Gateway
+    participant Manager as Wazuh Manager
+
+    User->>UI: Enter corporate email & click Enroll
+    UI->>Backend: run_enroll(email, gateway_url)
+    Backend->>IdP: Initiate OAuth2 PKCE flow
+    IdP-->>Backend: Return authorization token
+    Backend->>Gateway: POST /api/register-agent (Bearer token)
+    
+    alt Certificate Conflict (HTTP 409)
+        Gateway-->>Backend: 409 Conflict (Active certificate exists)
+        Backend-->>UI: Return error indicating active certificate
+        UI->>User: Display guidance to contact Security Team in #Wazuh-Support (ADR-0003)
+        User->>UI: Click Open #Wazuh-Support in Slack
+    else Registration Succeeded (HTTP 200)
+        Gateway-->>Backend: 200 OK (Issue client certificate & keys)
+        Backend->>Manager: Inject client.keys & restart agent
+        Backend-->>UI: Enrollment succeeded
+        UI->>User: Display green verification status
+    end
+```
+
+Per **ADR-0003**, self-service certificate overwriting is disabled in the UI to prevent accidental invalidation of active fleet certificates without security team review. Users encountering active certificate conflicts are routed directly to `#Wazuh-Support` (`https://adorsys.slack.com/archives/C08M6LK5FCM`).

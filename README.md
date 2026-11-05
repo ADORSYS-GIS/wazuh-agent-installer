@@ -43,11 +43,12 @@ See [Documentation](./docs/README.md) for the repository's documentation index a
 - [wazuh-cert-oauth2-client](https://github.com/ADORSYS-GIS/wazuh-cert-oauth2) - certificate-based OAuth2 authentication
 - [wazuh-agent-status](https://github.com/ADORSYS-GIS/wazuh-agent-status) - agent health monitoring daemon
 - [YARA](https://virustotal.github.io/yara/) - malware detection via YARA rules
+- [Suricata](https://suricata.io/) - network intrusion detection and prevention engine (IDS/IPS mode)
 - USB DLP active response scripts - blocks/alerts on unauthorized USB storage and HID devices
 
-**Configurable (user choice)**
+**Optional (user toggle)**
 
-- **Suricata** (IDS or IPS mode) - network intrusion detection/prevention
+- [NetBird](https://netbird.io/) - WireGuard-based overlay mesh VPN client (configurable in Setup tab)
 
 ---
 
