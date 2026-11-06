@@ -3,6 +3,7 @@
 [![CI](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/ci.yml)
 [![Release](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/release.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/release.yml)
 [![Static Application Security Testing](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/sast.yml/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/sast.yml)
+[![Dependabot Updates](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/ADORSYS-GIS/wazuh-agent-installer/actions/workflows/dependabot/dependabot-updates)
 
 A desktop GUI application that provides a guided interface for installing and configuring a full Wazuh security agent stack on Linux, macOS, and Windows.
 
