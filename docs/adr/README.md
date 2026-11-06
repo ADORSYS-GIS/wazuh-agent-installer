@@ -13,3 +13,4 @@ decision. The canonical writing guidance is the central ADR guide:
 | [ADR-0001](0001-generate-sbom-in-ci.md) | Generate CycloneDX SBOM in CI | `Accepted` | 2026-10-27 | N/A       | N/A      |
 | [ADR-0002](0002-auto-restart-after-update.md) | Automatic Application Restart After Update | `Accepted` | 2026-11-03 | N/A       | N/A      |
 | [ADR-0003](0003-enrollment-conflict-handling.md) | Enrollment Certificate Conflict Handling and Security Guidance | `Accepted` | 2026-11-04 | N/A       | N/A      |
+| [ADR-0004](0004-automate-dependency-updates-with-dependabot.md) | Automate Dependency Updates with Dependabot | `Accepted` | 2026-11-06 | N/A       | N/A      |
