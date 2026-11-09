@@ -33,7 +33,7 @@ jobs:
           shared-key: "bust-cache-1"
 
       - name: Install CI tools
-        uses: taiki-e/install-action@d9be7d8cda89035c9c843f78bd44d4f72d8403d4
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941
         with:
           tool: cargo-machete, cargo-nextest, cargo-llvm-cov
 
