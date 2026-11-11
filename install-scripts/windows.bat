@@ -61,16 +61,9 @@ if ($fileItem.Length -lt 1000000) {
 
 Write-Host "[INFO] Package size verified: $($fileItem.Length) bytes."
 
-# Save a copy into the user's Downloads folder
-if (Test-Path $UserDownloads) {
-    Copy-Item -Path $TempPath -Destination $SavedCopy -Force
-    Write-Host "[INFO] Saved a copy to: $SavedCopy"
-}
-
-# Unblock files to eliminate SmartScreen warnings
+# Unblock file to eliminate SmartScreen warnings
 Write-Host "[INFO] Removing browser download quarantine (Mark of the Web)..."
 if (Test-Path $TempPath) { Unblock-File -LiteralPath $TempPath -ErrorAction SilentlyContinue }
-if (Test-Path $SavedCopy) { Unblock-File -LiteralPath $SavedCopy -ErrorAction SilentlyContinue }
 
 # Close running instances so files are not locked during upgrade
 Get-Process -Name "Wazuh Agent Installer" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -99,6 +92,14 @@ try {
     exit 1602
 }
 
+# Clean up temporary installer MSI
+Remove-Item -Path $TempPath -Force -ErrorAction SilentlyContinue
+
+# Clean up any leftover installer files in Downloads
+if (Test-Path $UserDownloads) {
+    Get-ChildItem -Path $UserDownloads -Filter "*Wazuh*Installer*.msi" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
 # Auto-launch the installed application
 $InstalledExe = Join-Path $env:ProgramFiles "Wazuh Agent Installer\Wazuh Agent Installer.exe"
 if (-not (Test-Path $InstalledExe) -and ${env:ProgramFiles(x86)}) {
@@ -112,8 +113,14 @@ if (Test-Path $InstalledExe) {
     Write-Host "[INFO] You can now launch Wazuh Agent Installer from your Start Menu."
 }
 
+# Self-delete this batch installer from Downloads so no residual files remain
+Write-Host "[INFO] Cleaning up installer..."
+if ($env:BAT_PATH -and (Test-Path -LiteralPath $env:BAT_PATH)) {
+    Start-Process cmd.exe -ArgumentList "/c timeout /t 3 >nul & del /f /q `"$env:BAT_PATH`"" -WindowStyle Hidden
+}
+
 Write-Host ""
 Write-Host "============================================================================" -ForegroundColor Cyan
-Write-Host "  Setup complete! Window will close automatically in 5 seconds..." -ForegroundColor Cyan
+Write-Host "  Setup complete! Window will close automatically in 3 seconds..." -ForegroundColor Cyan
 Write-Host "============================================================================" -ForegroundColor Cyan
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 3
