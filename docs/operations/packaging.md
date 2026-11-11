@@ -57,6 +57,12 @@ curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/deve
 curl -s https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/ubuntu.sh | bash -s latest
 ```
 
+### Windows (1-Click Batch Installer: Recommended for Non-Technical Users)
+Download and double-click [`windows.bat`](https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/windows.bat), or execute:
+```cmd
+curl -sL https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/windows.bat -o "%TEMP%\install.bat" && "%TEMP%\install.bat"
+```
+
 ### Windows (PowerShell) Installation
 ```powershell
 irm https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-agent-installer/develop/install-scripts/windows.ps1 | iex
