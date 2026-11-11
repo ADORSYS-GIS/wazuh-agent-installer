@@ -35,10 +35,10 @@ The deciding forces are:
 
 We introduce `install-scripts/windows.bat`, a self-contained Windows batch file that provides a native double-click installation experience:
 
-1. **Automatic UAC Self-Elevation**:
-   - The script checks for administrative privileges using `net session`.
-   - If unprivileged, it automatically re-executes itself with elevated privileges via `Start-Process -Verb RunAs`, presenting the standard Windows User Account Control (UAC) prompt ("Do you want to allow this app to make changes to your device?").
-   - Users simply click "Yes" without touching PowerShell or administrative submenus.
+1. **Streamlined Execution and Native UAC Elevation**:
+   - The script runs directly without blocking or exiting on initial administrative permission checks. Downloading and unblocking packages in `%USERPROFILE%\Downloads` does not require elevated permissions.
+   - When launching the MSI package, the script invokes `Start-Process -FilePath 'msiexec.exe' -Verb RunAs`. Because `msiexec.exe` is a native Windows binary, this cleanly triggers the standard Windows User Account Control (UAC) elevation prompt ("Do you want to allow this app to make changes to your device?").
+   - Users simply click "Yes" on the prompt without touching PowerShell or administrative submenus.
 
 2. **Native Asset Resolution and Download**:
    - The script queries the official GitHub Releases endpoint (`ADORSYS-GIS/wazuh-agent-installer/releases/latest`) to determine the target release tag and MSI asset filename.
