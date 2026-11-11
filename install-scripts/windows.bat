@@ -44,9 +44,10 @@ echo [INFO] Target release: !TAG! (Version: !VER!)
 
 :: ============================================================================
 :: 3. Build Asset URLs & Destination Paths
+:: Prefer the standalone .exe installer; fallback to .msi if needed
 :: ============================================================================
-set "MSI_NAME=Wazuh.Agent.Installer_!VER!_x64_en-US.msi"
-set "DOWNLOAD_URL=https://github.com/%REPO%/releases/download/!TAG!/!MSI_NAME!"
+set "INSTALLER_NAME=Wazuh.Agent.Installer_!VER!_x64-setup.exe"
+set "DOWNLOAD_URL=https://github.com/%REPO%/releases/download/!TAG!/!INSTALLER_NAME!"
 
 :: Save to user's Downloads directory for visibility
 if defined USERPROFILE (
@@ -55,14 +56,14 @@ if defined USERPROFILE (
     set "TARGET_DIR=%TEMP%"
 )
 if not exist "!TARGET_DIR!" mkdir "!TARGET_DIR!" >nul 2>&1
-set "DEST=!TARGET_DIR!\!MSI_NAME!"
+set "DEST=!TARGET_DIR!\!INSTALLER_NAME!"
 
-echo [INFO] Target package: !MSI_NAME!
+echo [INFO] Target package: !INSTALLER_NAME!
 echo [INFO] Saving to:      !DEST!
 echo.
 
 :: ============================================================================
-:: 4. Download the MSI Package
+:: 4. Download the Installer Package
 :: ============================================================================
 echo [INFO] Downloading package from GitHub Releases...
 echo [INFO] URL: !DOWNLOAD_URL!
@@ -74,6 +75,20 @@ if %errorlevel% equ 0 (
     powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '!DOWNLOAD_URL!' -OutFile '!DEST!' -UseBasicParsing"
 )
 
+:: Fallback to .msi if .exe is not found on the release
+if not exist "!DEST!" (
+    echo [WARN] .exe package not found. Attempting .msi fallback...
+    set "INSTALLER_NAME=Wazuh.Agent.Installer_!VER!_x64_en-US.msi"
+    set "DOWNLOAD_URL=https://github.com/%REPO%/releases/download/!TAG!/!INSTALLER_NAME!"
+    set "DEST=!TARGET_DIR!\!INSTALLER_NAME!"
+
+    if %errorlevel% equ 0 (
+        curl.exe -fL -# -o "!DEST!" "!DOWNLOAD_URL!"
+    ) else (
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '!DOWNLOAD_URL!' -OutFile '!DEST!' -UseBasicParsing"
+    )
+)
+
 if not exist "!DEST!" (
     echo.
     echo [ERROR] Download failed. The installer package was not found.
@@ -83,7 +98,7 @@ if not exist "!DEST!" (
     exit /b 1
 )
 
-:: Verify file size (MSI must be valid binary, >= 1 MB)
+:: Verify file size (installer must be valid binary, >= 1 MB)
 for %%A in ("!DEST!") do set "FILESIZE=%%~zA"
 if not defined FILESIZE set "FILESIZE=0"
 if !FILESIZE! LSS 1000000 (
@@ -113,7 +128,12 @@ echo [INFO] Location: "!DEST!"
 echo [INFO] Launching Wazuh Agent Installer...
 echo.
 
-start "" msiexec.exe /i "!DEST!"
+:: Launch .exe directly or via msiexec if .msi was downloaded
+if /i "!DEST:~-4!"==".msi" (
+    start "" msiexec.exe /i "!DEST!"
+) else (
+    start "" "!DEST!"
+)
 
 echo ============================================================================
 echo Setup initiated. Follow the on-screen installer wizard to finish.
