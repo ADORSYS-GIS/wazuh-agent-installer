@@ -2,7 +2,7 @@
 setlocal
 title Wazuh Agent Installer Setup
 set "BAT_PATH=%~f0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$content = [System.IO.File]::ReadAllText($env:BAT_PATH); Invoke-Expression (($content -split ':::POWERSHELL_START:::')[1])"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$content = [System.IO.File]::ReadAllText($env:BAT_PATH); Invoke-Expression ($content -split (':::PS' + '_PAYLOAD:::'))[-1]"
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] Installation failed or was cancelled.
@@ -10,7 +10,7 @@ if %errorlevel% neq 0 (
 )
 exit /b %errorlevel%
 
-:::POWERSHELL_START:::
+:::PS_PAYLOAD:::
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -56,7 +56,6 @@ Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempPath -UseBasicParsing
 $fileItem = Get-Item -LiteralPath $TempPath
 if ($fileItem.Length -lt 1000000) {
     Write-Host "[ERROR] Downloaded file appears incomplete ($($fileItem.Length) bytes)." -ForegroundColor Red
-    pause
     exit 1
 }
 
@@ -97,7 +96,6 @@ try {
     }
 } catch {
     Write-Host "[ERROR] Administrator elevation was cancelled or failed." -ForegroundColor Red
-    pause
     exit 1602
 }
 
