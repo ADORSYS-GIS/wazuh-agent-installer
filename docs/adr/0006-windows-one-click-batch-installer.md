@@ -111,4 +111,4 @@ To roll back, remove `install-scripts/windows.bat` and revert documentation chan
 | Kind   | Tracking                                                                                                        | Status | What it covers                                              |
 | :----- | :-------------------------------------------------------------------------------------------------------------- | :----- | :---------------------------------------------------------- |
 | Issue  | [ADORSYS-GIS/wazuh-agent-installer#76](https://github.com/ADORSYS-GIS/wazuh-agent-installer/issues/76)          | Open   | Provide 1-click batch installer for non-technical users     |
-| PR     | [ADORSYS-GIS/wazuh-agent-installer](https://github.com/ADORSYS-GIS/wazuh-agent-installer/pulls)                | Open   | Adds install-scripts/windows.bat, docs, and ADR-0006        |
+| PR     | [ADORSYS-GIS/wazuh-agent-installer#77](https://github.com/ADORSYS-GIS/wazuh-agent-installer/pull/77)          | Open   | Adds install-scripts/windows.bat, docs, and ADR-0006        |
