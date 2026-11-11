@@ -44,52 +44,37 @@ echo [INFO] Target release: !TAG! (Version: !VER!)
 
 :: ============================================================================
 :: 3. Build Asset URLs & Destination Paths
-:: Prefer the standalone .exe installer; fallback to .msi if needed
+:: Use the official .msi package matching windows.ps1
 :: ============================================================================
-set "INSTALLER_NAME=Wazuh.Agent.Installer_!VER!_x64-setup.exe"
-set "DOWNLOAD_URL=https://github.com/%REPO%/releases/download/!TAG!/!INSTALLER_NAME!"
+set "MSI_NAME=Wazuh.Agent.Installer_!VER!_x64_en-US.msi"
+set "DOWNLOAD_URL=https://github.com/%REPO%/releases/download/!TAG!/!MSI_NAME!"
+set "TEMP_MSI=%TEMP%\WazuhInstaller_!VER!.msi"
 
-:: Save to user's Downloads directory for visibility
 if defined USERPROFILE (
-    set "TARGET_DIR=%USERPROFILE%\Downloads"
+    set "USER_DOWNLOADS=%USERPROFILE%\Downloads"
 ) else (
-    set "TARGET_DIR=%TEMP%"
+    set "USER_DOWNLOADS=%TEMP%"
 )
-if not exist "!TARGET_DIR!" mkdir "!TARGET_DIR!" >nul 2>&1
-set "DEST=!TARGET_DIR!\!INSTALLER_NAME!"
+set "SAVED_COPY=!USER_DOWNLOADS!\!MSI_NAME!"
 
-echo [INFO] Target package: !INSTALLER_NAME!
-echo [INFO] Saving to:      !DEST!
+echo [INFO] Target package: !MSI_NAME!
+echo [INFO] Download URL:   !DOWNLOAD_URL!
+echo [INFO] Staging path:   !TEMP_MSI!
 echo.
 
 :: ============================================================================
-:: 4. Download the Installer Package
+:: 4. Download the MSI Package
 :: ============================================================================
 echo [INFO] Downloading package from GitHub Releases...
-echo [INFO] URL: !DOWNLOAD_URL!
 
 where curl.exe >nul 2>&1
 if %errorlevel% equ 0 (
-    curl.exe -fL -# -o "!DEST!" "!DOWNLOAD_URL!"
+    curl.exe -fL -# -o "!TEMP_MSI!" "!DOWNLOAD_URL!"
 ) else (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '!DOWNLOAD_URL!' -OutFile '!DEST!' -UseBasicParsing"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '!DOWNLOAD_URL!' -OutFile '!TEMP_MSI!' -UseBasicParsing"
 )
 
-:: Fallback to .msi if .exe is not found on the release
-if not exist "!DEST!" (
-    echo [WARN] .exe package not found. Attempting .msi fallback...
-    set "INSTALLER_NAME=Wazuh.Agent.Installer_!VER!_x64_en-US.msi"
-    set "DOWNLOAD_URL=https://github.com/%REPO%/releases/download/!TAG!/!INSTALLER_NAME!"
-    set "DEST=!TARGET_DIR!\!INSTALLER_NAME!"
-
-    if %errorlevel% equ 0 (
-        curl.exe -fL -# -o "!DEST!" "!DOWNLOAD_URL!"
-    ) else (
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '!DOWNLOAD_URL!' -OutFile '!DEST!' -UseBasicParsing"
-    )
-)
-
-if not exist "!DEST!" (
+if not exist "!TEMP_MSI!" (
     echo.
     echo [ERROR] Download failed. The installer package was not found.
     echo Please verify release assets at: https://github.com/%REPO%/releases/tag/!TAG!
@@ -98,8 +83,8 @@ if not exist "!DEST!" (
     exit /b 1
 )
 
-:: Verify file size (installer must be valid binary, >= 1 MB)
-for %%A in ("!DEST!") do set "FILESIZE=%%~zA"
+:: Verify file size (MSI must be valid binary, >= 1 MB)
+for %%A in ("!TEMP_MSI!") do set "FILESIZE=%%~zA"
 if not defined FILESIZE set "FILESIZE=0"
 if !FILESIZE! LSS 1000000 (
     echo.
@@ -113,39 +98,48 @@ if !FILESIZE! LSS 1000000 (
 
 echo [INFO] Package size verified: !FILESIZE! bytes.
 
+:: Save a copy into the user's Downloads folder for convenience
+if not exist "!USER_DOWNLOADS!" mkdir "!USER_DOWNLOADS!" >nul 2>&1
+copy /y "!TEMP_MSI!" "!SAVED_COPY!" >nul 2>&1
+echo [INFO] A copy of the installer was saved to:
+echo        "!SAVED_COPY!"
+
 :: ============================================================================
 :: 5. Strip Mark of the Web (Zone.Identifier)
 :: ============================================================================
 echo.
 echo [INFO] Removing browser download quarantine flag (Mark of the Web)...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path -LiteralPath '!DEST!') { Unblock-File -LiteralPath '!DEST!' }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path -LiteralPath '!TEMP_MSI!') { Unblock-File -LiteralPath '!TEMP_MSI!' }; if (Test-Path -LiteralPath '!SAVED_COPY!') { Unblock-File -LiteralPath '!SAVED_COPY!' }" >nul 2>&1
 
 :: ============================================================================
-:: 6. Execute the Installation (with UAC elevation prompt)
+:: 6. Execute the Installation (Matching windows.ps1 behavior)
 :: ============================================================================
-echo [SUCCESS] Package downloaded and unblocked successfully!
-echo [INFO] Location: "!DEST!"
 echo.
-echo [INFO] Installing Wazuh Agent Installer on your system...
-echo [INFO] Please click 'Yes' if Windows prompts for Administrator permission...
+echo ============================================================================
+echo   Installing Wazuh Agent Installer...
+echo   Please click 'Yes' if Windows prompts for Administrator permission (UAC)
+echo ============================================================================
 echo.
 
-if /i "!DEST:~-4!"==".msi" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', '!DEST!', '/passive', '/norestart' -Verb RunAs -Wait; exit 0 } catch { Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', '!DEST!' -Verb RunAs; exit 0 }"
-) else (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath '!DEST!' -ArgumentList '/S' -Verb RunAs -Wait; exit 0 } catch { Start-Process -FilePath '!DEST!' -Verb RunAs; exit 0 }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', '!TEMP_MSI!', '/passive', '/norestart') -Verb RunAs -Wait -PassThru; exit $p.ExitCode } catch { exit 1602 }"
+set "INSTALL_STATUS=%errorlevel%"
+
+if %INSTALL_STATUS% neq 0 if %INSTALL_STATUS% neq 3010 (
+    echo [WARN] Elevated passive install returned exit code %INSTALL_STATUS%.
+    echo [INFO] Launching interactive installer as fallback...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', '!TEMP_MSI!') -Verb RunAs"
 )
 
 echo.
 echo ============================================================================
-echo   Installation completed successfully!
+echo   Installation complete!
 echo ============================================================================
 echo.
 
-:: Launch the installed application if available
+:: Launch the updated installed application
 set "INSTALLED_EXE=%ProgramFiles%\Wazuh Agent Installer\Wazuh Agent Installer.exe"
 if exist "!INSTALLED_EXE!" (
-    echo [INFO] Opening Wazuh Agent Installer...
+    echo [INFO] Launching updated Wazuh Agent Installer...
     start "" "!INSTALLED_EXE!"
 ) else (
     echo [INFO] You can now launch Wazuh Agent Installer from your Start Menu.
