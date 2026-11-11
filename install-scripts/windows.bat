@@ -121,23 +121,35 @@ echo [INFO] Removing browser download quarantine flag (Mark of the Web)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path -LiteralPath '!DEST!') { Unblock-File -LiteralPath '!DEST!' }" >nul 2>&1
 
 :: ============================================================================
-:: 6. Launch the Windows Installer
+:: 6. Execute the Installation (with UAC elevation prompt)
 :: ============================================================================
 echo [SUCCESS] Package downloaded and unblocked successfully!
 echo [INFO] Location: "!DEST!"
-echo [INFO] Launching Wazuh Agent Installer...
+echo.
+echo [INFO] Installing Wazuh Agent Installer on your system...
+echo [INFO] Please click 'Yes' if Windows prompts for Administrator permission...
 echo.
 
-:: Launch .exe directly or via msiexec if .msi was downloaded
 if /i "!DEST:~-4!"==".msi" (
-    start "" msiexec.exe /i "!DEST!"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', '!DEST!', '/passive', '/norestart' -Verb RunAs -Wait; exit 0 } catch { Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', '!DEST!' -Verb RunAs; exit 0 }"
 ) else (
-    start "" "!DEST!"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath '!DEST!' -ArgumentList '/S' -Verb RunAs -Wait; exit 0 } catch { Start-Process -FilePath '!DEST!' -Verb RunAs; exit 0 }"
 )
 
+echo.
 echo ============================================================================
-echo Setup initiated. Follow the on-screen installer wizard to finish.
-echo You can also re-run the installer anytime from your Downloads folder.
+echo   Installation completed successfully!
 echo ============================================================================
+echo.
+
+:: Launch the installed application if available
+set "INSTALLED_EXE=%ProgramFiles%\Wazuh Agent Installer\Wazuh Agent Installer.exe"
+if exist "!INSTALLED_EXE!" (
+    echo [INFO] Opening Wazuh Agent Installer...
+    start "" "!INSTALLED_EXE!"
+) else (
+    echo [INFO] You can now launch Wazuh Agent Installer from your Start Menu.
+)
+
 timeout /t 5 >nul 2>&1
 exit /b 0
