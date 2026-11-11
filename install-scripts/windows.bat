@@ -83,6 +83,21 @@ if not exist "!DEST!" (
     exit /b 1
 )
 
+:: Verify file size (MSI must be valid binary, >= 1 MB)
+for %%A in ("!DEST!") do set "FILESIZE=%%~zA"
+if not defined FILESIZE set "FILESIZE=0"
+if !FILESIZE! LSS 1000000 (
+    echo.
+    echo [ERROR] Downloaded file is too small or incomplete (!FILESIZE! bytes).
+    echo Please check your network connection and try again.
+    echo Direct download link: !DOWNLOAD_URL!
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [INFO] Package size verified: !FILESIZE! bytes.
+
 :: ============================================================================
 :: 5. Strip Mark of the Web (Zone.Identifier)
 :: ============================================================================
@@ -91,15 +106,14 @@ echo [INFO] Removing browser download quarantine flag (Mark of the Web)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path -LiteralPath '!DEST!') { Unblock-File -LiteralPath '!DEST!' }" >nul 2>&1
 
 :: ============================================================================
-:: 6. Launch the Windows Installer (with UAC elevation prompt)
+:: 6. Launch the Windows Installer
 :: ============================================================================
 echo [SUCCESS] Package downloaded and unblocked successfully!
 echo [INFO] Location: "!DEST!"
 echo [INFO] Launching Wazuh Agent Installer...
 echo.
 
-:: Launch msiexec with RunAs verb so Windows prompts for administrator permission natively
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i `"`"!DEST!`"`"' -Verb RunAs } catch { Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i `"`"!DEST!`"`"' }"
+start "" msiexec.exe /i "!DEST!"
 
 echo ============================================================================
 echo Setup initiated. Follow the on-screen installer wizard to finish.
