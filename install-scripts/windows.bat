@@ -121,6 +121,9 @@ echo   Please click 'Yes' if Windows prompts for Administrator permission (UAC)
 echo ============================================================================
 echo.
 
+:: Close any running instance so files are not locked during upgrade
+taskkill /F /IM "Wazuh Agent Installer.exe" >nul 2>&1
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', '!TEMP_MSI!', '/passive', '/norestart') -Verb RunAs -Wait -PassThru; exit $p.ExitCode } catch { exit 1602 }"
 set "INSTALL_STATUS=%errorlevel%"
 
@@ -136,8 +139,12 @@ echo   Installation complete!
 echo ============================================================================
 echo.
 
-:: Launch the updated installed application
+:: Locate and launch the installed application
 set "INSTALLED_EXE=%ProgramFiles%\Wazuh Agent Installer\Wazuh Agent Installer.exe"
+if not exist "!INSTALLED_EXE!" if defined ProgramFiles(x86) (
+    set "INSTALLED_EXE=%ProgramFiles(x86)%\Wazuh Agent Installer\Wazuh Agent Installer.exe"
+)
+
 if exist "!INSTALLED_EXE!" (
     echo [INFO] Launching updated Wazuh Agent Installer...
     start "" "!INSTALLED_EXE!"
