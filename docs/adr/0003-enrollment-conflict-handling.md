@@ -124,8 +124,13 @@ To roll back this decision, revert the log inspection and verification guards in
 
 ## Solution implementation
 
-| Kind   | Tracking                                                                                                        | Status            | What it covers                                                          |
-| :----- | :-------------------------------------------------------------------------------------------------------------- | :---------------- | :---------------------------------------------------------------------- |
-| Issue  | [ADORSYS-GIS/wazuh-agent-installer#50](https://github.com/ADORSYS-GIS/wazuh-agent-installer/issues/50)          | Closed            | Handle active certificate conflict and guide user to security team     |
-| PR     | [ADORSYS-GIS/wazuh-agent-installer#51](https://github.com/ADORSYS-GIS/wazuh-agent-installer/pull/51)            | Merged 2026-11-05 | Implements conflict handling, Help tab, bumps v1.3.2, adds ADR-0003     |
-| Commit | [6b29505](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/6b29505)                                 | 2026-11-05        | Merge PR #51 into `develop`                                             |
+| Kind    | Tracking                                                                                                       | Status               | What it covers                                                          |
+| :------ | :------------------------------------------------------------------------------------------------------------- | :------------------- | :---------------------------------------------------------------------- |
+| Issue   | [ADORSYS-GIS/wazuh-agent-installer#50](https://github.com/ADORSYS-GIS/wazuh-agent-installer/issues/50)         | Closed               | Handle active certificate conflict and guide user to security team     |
+| PR      | [ADORSYS-GIS/wazuh-agent-installer#51](https://github.com/ADORSYS-GIS/wazuh-agent-installer/pull/51)           | Merged 2026-11-05    | Implements conflict handling, Help tab, bumps v1.3.2, adds ADR-0003     |
+| PR      | [ADORSYS-GIS/wazuh-agent-installer#53](https://github.com/ADORSYS-GIS/wazuh-agent-installer/pull/53)           | Merged 2026-11-05    | Marks ADR-0003 as Accepted with merged PR #51 and closed issue #50       |
+| PR      | [ADORSYS-GIS/wazuh-agent-installer#54](https://github.com/ADORSYS-GIS/wazuh-agent-installer/pull/54)           | Merged 2026-11-05    | Merges develop to main for release v1.3.2                               |
+| Commit  | [6b29505](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/6b29505)                                | 2026-11-05           | Merge PR #51 into `develop`                                             |
+| Commit  | [a90e1c9](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/a90e1c9)                                | 2026-11-05           | Merge PR #53 into `develop`                                             |
+| Commit  | [753744e](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/753744e)                                | 2026-11-05           | Merge PR #54 into `main`                                                |
+| Release | [v1.3.2](https://github.com/ADORSYS-GIS/wazuh-agent-installer/releases/tag/v1.3.2)                             | Published 2026-11-05 | Release v1.3.2 binaries across Linux, macOS, and Windows                |
