@@ -107,4 +107,5 @@ To roll back this decision, revert the frontend call in `src/main.ts` from `rest
 | Commit | [3b48d7d](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/3b48d7d)                                 | 2026-11-03        | Implements restart command, UI flow, and draft ADR |
 | Commit | [3b8b6d9](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/3b8b6d9)                                 | 2026-11-03        | Version bump to 1.3.1                              |
 | Commit | [343d4c6](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/343d4c6)                                 | 2026-11-03        | Merge PR #46 into `develop`                        |
-| Commit | [9116301](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/9116301)                                 | 2026-11-03        | Merge PR #47 into `main`                           |
+| Commit  | [9116301](https://github.com/ADORSYS-GIS/wazuh-agent-installer/commit/9116301)                                 | 2026-11-03        | Merge PR #47 into `main`                           |
+| Release | [v1.3.1](https://github.com/ADORSYS-GIS/wazuh-agent-installer/releases/tag/v1.3.1)                             | Published 2026-11-03 | Release v1.3.1 binaries across Linux, macOS, and Windows |
