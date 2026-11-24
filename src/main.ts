@@ -506,7 +506,12 @@ function showStatusBanner(banner: HTMLElement | null, type: "running" | "success
     banner.appendChild(spinner);
     banner.appendChild(document.createTextNode(" "));
   } else {
-    const icon = type === "success" ? "✓ " : type === "warn" ? "⚠️ " : "✕ ";
+    let icon = "✕ ";
+    if (type === "success") {
+      icon = "✓ ";
+    } else if (type === "warn") {
+      icon = "⚠️ ";
+    }
     banner.appendChild(document.createTextNode(icon));
   }
   banner.appendChild(document.createTextNode(message));
@@ -574,13 +579,7 @@ function showInstallResult(success: boolean, desc: string) {
 
 let hasCertConflict = false;
 
-async function startEnrollment() {
-  if (isEnrolling) return;
-
-  const issuer = getIssuerValue();
-  const endpoint = getEndpointValue();
-  if (!issuer || !endpoint) return;
-
+function prepareEnrollmentUI(): void {
   isEnrolling = true;
   hasCertConflict = false;
   if (enrollConflictCard) enrollConflictCard.style.display = "none";
@@ -594,16 +593,69 @@ async function startEnrollment() {
   }
 
   showStatusBanner(enrollStatusBanner, "running", "Enrollment in progress: check your browser...");
+}
+
+function isCertConflictLine(line: string): boolean {
+  return line.includes("Conflict: User already has an active certificate") || line.includes("Upstream error: Conflict");
+}
+
+function showCertConflict(): void {
+  showStatusBanner(
+    enrollStatusBanner,
+    "warn",
+    "Active certificate conflict detected. Please reach out to the Security Team."
+  );
+  if (enrollConflictCard) enrollConflictCard.style.display = "block";
+  if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
+}
+
+function pollEnrollmentState(): void {
+  let attempts = 0;
+  const poll = () => {
+    attempts++;
+    checkEnrollmentState().then(() => {
+      if (!isReEnrolling && attempts < 6) {
+        setTimeout(poll, 1500);
+      }
+    });
+  };
+  setTimeout(poll, 1000);
+}
+
+function showEnrollmentSuccess(): void {
+  showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
+  if (enrollConflictCard) enrollConflictCard.style.display = "none";
+  // Poll for client.keys to be populated by the Wazuh manager
+  pollEnrollmentState();
+}
+
+function showEnrollmentError(message: string): void {
+  showStatusBanner(enrollStatusBanner, "error", message);
+  if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
+}
+
+function finishEnrollment(unlistenLog: () => void): void {
+  unlistenLog();
+  isEnrolling = false;
+  updateEnrollButtonState();
+  refreshComponents();
+  enableSaveLogs("btn-save-enroll-logs", "enroll-terminal", "enroll");
+}
+
+async function startEnrollment() {
+  if (isEnrolling) return;
+
+  const issuer = getIssuerValue();
+  const endpoint = getEndpointValue();
+  if (!issuer || !endpoint) return;
+
+  prepareEnrollmentUI();
 
   const shouldOverwrite = isReEnrolling;
 
   const unlistenLog = await listen<LogLine>("enroll-log", (e) => {
     appendLog(terminalEnroll, e.payload.line, e.payload.level);
-    const line = e.payload.line;
-    if (
-      line.includes("Conflict: User already has an active certificate") ||
-      line.includes("Upstream error: Conflict")
-    ) {
+    if (isCertConflictLine(e.payload.line)) {
       hasCertConflict = true;
     }
   });
@@ -616,50 +668,20 @@ async function startEnrollment() {
     });
 
     if (hasCertConflict) {
-      showStatusBanner(
-        enrollStatusBanner,
-        "warn",
-        "Active certificate conflict detected. Please reach out to the Security Team."
-      );
-      if (enrollConflictCard) enrollConflictCard.style.display = "block";
-      if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
+      showCertConflict();
     } else if (result.success) {
-      showStatusBanner(enrollStatusBanner, "success", "Agent enrolled successfully!");
-      if (enrollConflictCard) enrollConflictCard.style.display = "none";
-      // Poll for client.keys to be populated by the Wazuh manager
-      let attempts = 0;
-      const poll = () => {
-        attempts++;
-        checkEnrollmentState().then(() => {
-          if (!isReEnrolling && attempts < 6) {
-            setTimeout(poll, 1500);
-          }
-        });
-      };
-      setTimeout(poll, 1000);
+      showEnrollmentSuccess();
     } else {
-      const errorMsg = result.message || `exit code ${result.exit_code}`;
-      showStatusBanner(enrollStatusBanner, "error", `Enrollment failed: ${errorMsg}`);
-      if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
+      showEnrollmentError(result.message || `exit code ${result.exit_code}`);
     }
   } catch (err: unknown) {
     if (hasCertConflict) {
-      showStatusBanner(
-        enrollStatusBanner,
-        "warn",
-        "Active certificate conflict detected. Please reach out to the Security Team."
-      );
-      if (enrollConflictCard) enrollConflictCard.style.display = "block";
+      showCertConflict();
     } else {
-      showStatusBanner(enrollStatusBanner, "error", `Enrollment error: ${err}`);
+      showEnrollmentError(`Enrollment error: ${err}`);
     }
-    if (btnRetryEnroll) btnRetryEnroll.style.display = "flex";
   } finally {
-    unlistenLog();
-    isEnrolling = false;
-    updateEnrollButtonState();
-    refreshComponents();
-    enableSaveLogs("btn-save-enroll-logs", "enroll-terminal", "enroll");
+    finishEnrollment(unlistenLog);
   }
 }
 
