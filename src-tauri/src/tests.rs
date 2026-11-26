@@ -327,6 +327,41 @@ fn test_build_install_command() {
 }
 
 #[test]
+fn test_get_install_bash_for_os() {
+    assert_eq!(get_install_bash_for_os("macos"), "/bin/bash");
+    assert_eq!(get_install_bash_for_os("linux"), "bash");
+}
+
+#[test]
+fn test_build_macos_install_path_prefix_and_deduplication() {
+    let path = build_macos_install_path("/usr/local/bin:/usr/bin:/usr/local/bin");
+    assert_eq!(
+        path,
+        "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+    );
+    assert_eq!(path.matches("/usr/local/bin").count(), 1);
+}
+
+#[test]
+fn test_build_macos_install_path_preserves_custom_entries() {
+    let path = build_macos_install_path(":/custom/bin::/opt/custom/bin:/custom/bin:");
+    assert_eq!(
+        path,
+        "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/custom/bin:/opt/custom/bin"
+    );
+}
+
+#[test]
+fn test_build_macos_install_path_empty_current_path() {
+    let path = build_macos_install_path("");
+    assert_eq!(
+        path,
+        "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+    );
+    assert!(!path.ends_with(':'));
+}
+
+#[test]
 fn test_get_platform() {
     let platform = get_platform();
     assert!(!platform.is_empty());

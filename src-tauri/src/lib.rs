@@ -603,6 +603,39 @@ fn is_root() -> bool {
         true
     }
 }
+
+#[cfg(any(not(target_os = "windows"), test))]
+fn get_install_bash_for_os(os: &str) -> &'static str {
+    if os == "macos" {
+        // Avoid an Intel-only Homebrew Bash on Apple Silicon.
+        "/bin/bash"
+    } else {
+        "bash"
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn build_macos_install_path(current_path: &str) -> String {
+    // Keep ARM Homebrew tools available, but let nested `bash` invocations
+    // resolve to system Bash before the Intel Homebrew location.
+    let mut paths = vec![
+        "/opt/homebrew/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+        "/usr/local/bin",
+    ];
+
+    for path in current_path.split(':') {
+        if !path.is_empty() && !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+
+    paths.join(":")
+}
+
 fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command {
     #[cfg(target_os = "windows")]
     let mut command = {
@@ -626,7 +659,7 @@ fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command
 
     #[cfg(not(target_os = "windows"))]
     let mut command = {
-        let mut c = create_command("bash");
+        let mut c = create_command(get_install_bash_for_os(env::consts::OS));
         c.arg(resolved_path);
         if config.install_netbird {
             c.arg("-b");
@@ -639,10 +672,7 @@ fn build_install_command(config: &InstallConfig, resolved_path: &str) -> Command
         {
             let current_path = std::env::var("PATH")
                 .unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-            c.env(
-                "PATH",
-                format!("/opt/homebrew/bin:/usr/local/bin:{current_path}"),
-            );
+            c.env("PATH", build_macos_install_path(&current_path));
         }
         c
     };
