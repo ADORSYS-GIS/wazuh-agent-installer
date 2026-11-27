@@ -7,7 +7,7 @@
 | Field | Value |
 | :--- | :--- |
 | **Document ID** | ADR-0006 |
-| **Status** | `Proposed` |
+| **Status** | `Accepted` |
 | **Date** | 2026-11-27 |
 | **Deciders** | Wazuh maintainers |
 | **Governs** | `src-tauri/src/lib.rs` |
